@@ -45,8 +45,10 @@ Build-Depends: debhelper-compat (= 13),
  libfuse3-dev,
 # --enable-gnutls
  gnutls-dev,
-# --enable-gtk --enable-vte
- libgtk-3-dev, libvte-2.91-dev,
+# --enable-gtk
+ libgtk-3-dev,
+# --enable-vte	linux-i386|linux-amd64|linux-ia64|linux-mips|linux-mipsel|linux-powerpc|linux-powerpcspe|linux-x32|linux-ppc64|linux-ppc64el|linux-arm64|linux-sparc|linux-s390x
+ libvte-2.91-dev [!riscv64],
 # --enable-libiscsi
  libiscsi-dev (>> 1.9.0~),
 # --enable-curses
@@ -123,20 +125,20 @@ Build-Depends: debhelper-compat (= 13),
 Build-Depends-Indep:
 # pc-bios/*.dts => *.dtb (PPC firmware)
  device-tree-compiler,
- gcc-s390x-linux-gnu,
+ gcc-s390x-linux-gnu [!riscv64],
 # qemu-palcode/palcode-clipper
 # gcc-12 is broken due to #1019011. Temporarily switch to previous gcc-11
- gcc-11-alpha-linux-gnu,
+ gcc-11-alpha-linux-gnu [!riscv64],
 # skiboot firmware, openbios
- gcc-powerpc64-linux-gnu,
+ gcc-powerpc64-linux-gnu [!riscv64],
 # openbios
- gcc-sparc64-linux-gnu, fcode-utils, xsltproc,
+ gcc-sparc64-linux-gnu [!riscv64], fcode-utils, xsltproc,
 # hppa-firmware
- gcc-hppa-linux-gnu,
+ gcc-hppa-linux-gnu [!riscv64],
 # opensbi
  gcc-riscv64-linux-gnu,
 # vbootrom/npcm7xx_bootrom
- gcc-arm-none-eabi,
+ gcc-arm-none-eabi [!riscv64 !amd64 !arm64],
 Build-Conflicts: oss4-dev
 Standards-Version: 4.5.1
 Homepage: http://www.qemu.org/
