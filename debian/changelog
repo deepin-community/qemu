@@ -1,4 +1,4 @@
-qemu (1:7.1+dfsg-2deepin) UNRELEASED; urgency=medium
+qemu (1:7.1+dfsg-2deepin) unstable; urgency=medium
 
   [ hudeng-go ]
   * add riscv64 build support.
