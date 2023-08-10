@@ -1,3 +1,15 @@
+qemu (1:7.1+dfsg-2deepin) UNRELEASED; urgency=medium
+
+  [ hudeng-go ]
+  * add riscv64 build support.
+
+  [ Tianyu Chen ]
+  * clean up.
+  * sync workflows.
+  * move qemu to main.
+
+ -- Tianyu Chen <sweetyfish@deepin.org>  Thu, 10 Aug 2023 13:29:56 +0800
+
 qemu (1:7.1+dfsg-2) unstable; urgency=medium
 
   * tulip-restrict-DMA-engine-to-memories-CVE-2022-2962.patch
