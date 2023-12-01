@@ -1,3 +1,9 @@
+qemu (1:7.1+dfsg-2deepin2) unstable; urgency=medium
+
+  * remove dependency gcc-11-alpha-linux-gnu
+
+ -- chenchongbiao <chenchongbiao@deepin.org>  Fri, 01 Dec 2023 16:40:09 +0800
+
 qemu (1:7.1+dfsg-2deepin) unstable; urgency=medium
 
   [ hudeng-go ]

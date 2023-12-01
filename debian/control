@@ -126,8 +126,6 @@ Build-Depends-Indep:
  device-tree-compiler,
  gcc-s390x-linux-gnu [!riscv64 !arm64],
 # qemu-palcode/palcode-clipper
-# gcc-12 is broken due to #1019011. Temporarily switch to previous gcc-11
- gcc-11-alpha-linux-gnu [!riscv64 !arm64],
 # skiboot firmware, openbios
  gcc-powerpc64-linux-gnu [!riscv64 !arm64],
 # openbios
