@@ -14,6 +14,7 @@
 #include <linux/vfio.h>
 #include <sys/ioctl.h>
 
+#include "qemu/error-report.h"
 #include "hw/display/edid.h"
 #include "ui/console.h"
 #include "qapi/error.h"
@@ -242,6 +243,8 @@ static VFIODMABuf *vfio_display_get_dmabuf(VFIOPCIDevice *vdev,
     dmabuf->dmabuf_id  = plane.dmabuf_id;
     dmabuf->buf.width  = plane.width;
     dmabuf->buf.height = plane.height;
+    dmabuf->buf.backing_width = plane.width;
+    dmabuf->buf.backing_height = plane.height;
     dmabuf->buf.stride = plane.stride;
     dmabuf->buf.fourcc = plane.drm_format;
     dmabuf->buf.modifier = plane.drm_format_mod;

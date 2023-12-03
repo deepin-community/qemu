@@ -4,18 +4,63 @@
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
 
+import copy
+import errno
 import fnmatch
 import logging
 import os
+import sys
 import platform
 import tempfile
 import textwrap
+import yaml
 
 from pathlib import Path
 
 _tempdir = None
 
 log = logging.getLogger(__name__)
+
+
+class SSHKey:
+    """
+    :ivar path: Absolute path to the SSH key as Path object
+    """
+
+    def __init__(self, keypath):
+        self._contents = None
+
+        # resolve user home directory + canonicalize path
+        self.path = Path(keypath).expanduser().resolve()
+        if not self.path.exists():
+            raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT),
+                                    str(self.path))
+
+    def __str__(self):
+        if self._contents is None:
+            with open(self.path, "r") as f:
+                self._contents = f.read().strip()
+
+        return self._contents
+
+
+class SSHPublicKey(SSHKey):
+    pass
+
+
+class SSHPrivateKey(SSHKey):
+    def __str__(self):
+        # Only the SSH backend should ever need to know the contents of the
+        # private key
+
+        return ""
+
+
+class SSHKeyPair:
+    def __init__(self, keypath):
+        pathobj = Path(keypath)
+        self.public_key = SSHPublicKey(pathobj.with_suffix(".pub"))
+        self.private_key = SSHPrivateKey(pathobj.with_suffix(""))
 
 
 def expand_pattern(pattern, iterable, name):
@@ -188,7 +233,7 @@ def get_cache_dir():
     try:
         cache_dir = Path(os.environ["XDG_CACHE_HOME"])
     except KeyError:
-        cache_dir = Path(os.environ["HOME"], ".cache")
+        cache_dir = Path.home().joinpath(".cache")
 
     return Path(cache_dir, "lcitool")
 
@@ -197,34 +242,106 @@ def get_config_dir():
     try:
         config_dir = Path(os.environ["XDG_CONFIG_HOME"])
     except KeyError:
-        config_dir = Path(os.environ["HOME"], ".config")
+        config_dir = Path.home().joinpath(".config")
 
     return Path(config_dir, "lcitool")
 
 
-extra_data_dir = None
+def package_resource(package, relpath):
+    """
+    Backcompatibility helper to retrieve a package resource using importlib
+
+    :param package: object conforming to importlib.resources.Package requirement
+    :param relpath: relative path to the actual resource (or directory) as
+                    str or Path object
+    :returns: a Path object to the resource
+    """
+
+    from importlib import import_module, resources
+
+    if hasattr(resources, "files"):
+        return Path(resources.files(package), relpath)
+    else:
+        # This is a horrible hack, it won't work for resources that don't exist
+        # on the file system (which should not be a problem for our use case),
+        # but it's needed because importlib.resources.path only accepts
+        # filenames for a 'Resource' [1]. What it means is that one cannot pass
+        # a path construct in 'relpath', because 'Resource' cannot contain
+        # path delimiters and also cannot be a directory, so we cannot use the
+        # method to construct base resource paths.
+        # [1] https://docs.python.org/3/library/importlib.resources.html?highlight=importlib%20resources#importlib.resources.path
+        # Instead, we'll extract the package path from ModuleSpec (loading the
+        # package first if needed) and then concatenate it with the 'relpath'
+        #
+        # TODO: Drop this helper once we move onto 3.9+
+        if package not in sys.modules:
+            import_module(package)
+
+        package_path = Path(sys.modules[package].__file__).parent
+        return Path(package_path, relpath)
 
 
-def get_extra_data_dir():
-    global extra_data_dir
-    return extra_data_dir
+def merge_dict(source, dest):
+    for key in source.keys():
+        if key not in dest:
+            dest[key] = copy.deepcopy(source[key])
+            continue
+
+        if isinstance(source[key], list) or isinstance(dest[key], list):
+            raise ValueError("cannot merge lists")
+        if isinstance(source[key], dict) != isinstance(dest[key], dict):
+            raise ValueError("cannot merge dictionaries with non-dictionaries")
+        if isinstance(source[key], dict):
+            merge_dict(source[key], dest[key])
 
 
-def set_extra_data_dir(path):
-    global extra_data_dir
-    extra_data_dir = path
+class DataDir:
+    """A class that looks for files both under the lcitool sources and in
+       an externally specified data directory.  Used to implement the
+       -d option."""
+
+    def __init__(self, extra_data_dir=None):
+        self._extra_data_dir = extra_data_dir
+
+    def __repr__(self):
+        return f'DataDir({str(self._extra_data_dir)})'
+
+    def _search(self, resource_path, *names, internal=False):
+        if not internal and self._extra_data_dir:
+            # The first part of the path is used to keep data files out of
+            # the source directory, for example "facts" or "etc".  Remove it
+            # when using an external data directory.
+            if "/" in resource_path:
+                user_path = resource_path[resource_path.index("/") + 1:]
+            else:
+                user_path = ""
+            p = Path(self._extra_data_dir, user_path, *names)
+            if p.exists():
+                yield p
+
+        p = Path(package_resource(__package__, resource_path), *names)
+        if p.exists():
+            yield p
+
+    def list_files(self, resource_path, suffix=None, internal=False):
+        for p in self._search(resource_path, internal=internal):
+            for file in p.iterdir():
+                if file.is_file() and (suffix is None or file.suffix == suffix):
+                    yield file
+
+    def merge_facts(self, resource_path, name):
+        result = {}
+        for file in self._search(resource_path, name + ".yml"):
+            log.debug(f"Loading facts from '{file}'")
+            with open(file, "r") as infile:
+                merge_dict(yaml.safe_load(infile), result)
+        return result
 
 
 def validate_cross_platform(cross_arch, osname):
-    native_arch = get_native_arch()
     if osname not in ["Debian", "Fedora"]:
         raise ValueError(f"Cannot cross compile on {osname}")
     if (osname == "Debian" and cross_arch.startswith("mingw")):
         raise ValueError(f"Cannot cross compile for {cross_arch} on {osname}")
     if (osname == "Fedora" and not cross_arch.startswith("mingw")):
         raise ValueError(f"Cannot cross compile for {cross_arch} on {osname}")
-    if cross_arch == native_arch:
-        raise ValueError(
-            f"Cross arch {cross_arch} should differ from native "
-            f"{native_arch}"
-        )

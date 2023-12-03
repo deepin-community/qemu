@@ -1,14 +1,648 @@
-qemu (1:7.1+dfsg-2deepin) unstable; urgency=medium
+qemu (1:8.1.2+ds-1) unstable; urgency=medium
 
-  [ hudeng-go ]
-  * add riscv64 build support.
+  * upstream 8.1.2 stable/bugfix release
+  * remove all stable-staging/ patches and two more
+    (all included into 8.1.2)
+  * d/rules: microvm build: do not explicitly enable avx2
 
-  [ Tianyu Chen ]
-  * clean up.
-  * sync workflows.
-  * move qemu to main.
+ -- Michael Tokarev <mjt@tls.msk.ru>  Tue, 17 Oct 2023 09:44:39 +0300
 
- -- Tianyu Chen <sweetyfish@deepin.org>  Thu, 10 Aug 2023 13:29:56 +0800
+qemu (1:8.1.1+ds-2) unstable; urgency=medium
+
+  * d/rules: fix binary target to produce both arch and indep
+    binaries instead of omitting indep one(s)
+  * d/patches: sync with current staging-8.1 branch, many new fixes
+  * additional fixes:  
+    +hw-ide-ahci-fix-legacy-software-reset.patch
+    +target-mips-Fix-MSA-BZ-BNZ-opcodes-displacement.patch
+    +hw-ide-reset-cancel-async-DMA-operation-before-reset.patch
+
+ -- Michael Tokarev <mjt@tls.msk.ru>  Sun, 08 Oct 2023 12:28:55 +0300
+
+qemu (1:8.1.1+ds-1) unstable; urgency=medium
+
+  * new upstream stable/bugfix release
+  * remove all stable-staging/ patches, keep
+    softmmu-Use-async_run_on_cpu-in-tcg_commit.patch
+  * vfio-display-fix-missing-update-to-set-backing-field.patch
+  * scsi-disk-disallow-small-block-sizes-CVE-2023-42467.patch
+    (Closes: #1051899, CVE-2023-42467)
+  * migration-qmp-Fix-crash-on-setting-tls-authz-with-nu.patch
+  * d/patches/move-vl-opts/ - stop linking everything with async-teardown.c,
+    un-FTBFS on ia64
+  * d/control: minor: remove old todo comments
+  * d/control: disable rbd (ceph) on 32bit platforms (Closes: #1053172)
+  * d/control: enable rbd on riscv64 once it's built there
+  * d/copyright: also remove subprojects/dtc
+
+ -- Michael Tokarev <mjt@tls.msk.ru>  Sun, 01 Oct 2023 22:11:24 +0300
+
+qemu (1:8.1.0+ds-6) unstable; urgency=medium
+
+  * re-enable softmmu-Use-async_run_on_cpu-in-tcg_commit.patch
+  * add https://www.mail-archive.com/qemu-devel@nongnu.org/msg989073.html
+    fixing https://gitlab.com/qemu-project/qemu/-/issues/1866
+  * d/rules: reorder some definitions to evaluate in proper order
+
+ -- Michael Tokarev <mjt@tls.msk.ru>  Wed, 20 Sep 2023 23:31:59 +0300
+
+qemu (1:8.1.0+ds-5) unstable; urgency=medium
+
+  * disable softmmu-Use-async_run_on_cpu-in-tcg_commit.patch
+    The change in softmmu-Use-async_run_on_cpu-in-tcg_commit.patch
+    which is a fix for https://gitlab.com/qemu-project/qemu/-/issues/1864
+    (x86 VM with TCG and SMP fails to start on 8.1.0)
+    introduces https://gitlab.com/qemu-project/qemu/-/issues/1866
+  * more patches from stable-staging
+  * re-introduce qemu-debootstrap for now until all users of it will
+    be converted to regular debootstrap
+
+ -- Michael Tokarev <mjt@tls.msk.ru>  Sun, 17 Sep 2023 19:10:34 +0300
+
+qemu (1:8.1.0+ds-4) unstable; urgency=medium
+
+  * d/changelog: fix spelling
+  * +linux-user-Fixes-for-zero_bss.patch: fix linux-user zero_bss bug
+  * many small changes for d/rules
+  * d/rules: split out qemu-user build out out of main qemu build
+    When both system and linux-user builds are enabled, linux-user
+    build is getting features only relevant for system (softmmu)
+    configuration, like linking with liburing, libnuma and other
+    softmmu-only stuff.  So build it separately.
+    This not only makes qemu-user smaller and neater, but it also
+    makes Built-Using field for qemu-user-static (which is generated
+    from Depends field of qemu-user) accurate.
+  * d/qemu-user[-static].docs: use unprocessed .rst doc instead of html
+  * d/rules: check for nocheck in DEB_BUILD_PROFILES too,
+    not only DEB_BUILD_OPTIONS
+  * d/rules, d/control: disable build-time test due to apparent dak bug
+
+ -- Michael Tokarev <mjt@tls.msk.ru>  Mon, 11 Sep 2023 14:19:32 +0300
+
+qemu (1:8.1.0+ds-3) unstable; urgency=medium
+
+  * d/control: split out most of Build-Depends to Build-Depends-Arch, in order
+    to break B-D loop on qemu-system-data (it is only needed for -Arch) and
+    to reduce arch-all build time.
+    Only very few things left in common Build-Depends.
+  * Removing most things from B-D discovered that skiboot includes openssl
+    header(s) (!), so add libssl-dev to Build-Depends-Indep.
+  * d/control,d/rules: introduce build profiles to omit building some packages
+    (mostly debugging aid, to reduce test build run time).
+  * d/rules: use ninja directly for various qemu builds
+    (non-verbose build now shows errors/warnings nicely)
+  * d/control: Rules-Requires-Root: "binary-targets", not "no", -
+    this enables building as non-root, finally
+  * d/rules: add forgotten -p for mkdir b/user-static
+  * d/not-installed: list 2 files from user/ manual
+    (which is built even on unsupported architectures)
+
+ -- Michael Tokarev <mjt@tls.msk.ru>  Sun, 10 Sep 2023 01:30:15 +0300
+
+qemu (1:8.1.0+ds-2) unstable; urgency=medium
+
+  * d/control: fix descriptions of qemu-system-gui and
+    qemu-system-modules-spice packages
+  * update lintian-overrides
+  * d/rules: enable verbose (-v) build for qboot
+  * d/rules: move lto control to where it actually works
+  * d/rules: remove usage of "standard dh sequencer".
+    It has multiple issues.  To name a few:
+    - it exports CFLAGS &Co which breaks badly when trying to compile
+      bios/firmware code (fixes FTBFS with new -fcf-protection)
+    - it performs multiple recursive calls to d/rules which is
+      slow when make variables are set using $(shell), - annoying
+      when debugging
+    - it hides actual actions being done at install/binary stages
+    - it is confusing in override_dh_foo{,-indep,-arch}
+    - it does just too much unknown magic, - just give the control
+      back.
+
+ -- Michael Tokarev <mjt@tls.msk.ru>  Sat, 09 Sep 2023 22:37:02 +0300
+
+qemu (1:8.1.0+ds-1) unstable; urgency=medium
+
+  * d/changelog: mention closing of #984451, CVE-2021-20255 by 8.1
+  * d/changelog: mention closing of #1041471 by 8.1
+  * d/patches: add patches currenly staged for 8.1.1
+  * d/gbp.conf: switch from experimental to master
+  * upload to unstable
+
+ -- Michael Tokarev <mjt@tls.msk.ru>  Sat, 09 Sep 2023 17:03:54 +0300
+
+qemu (1:8.1.0+ds-1~exp2) experimental; urgency=medium
+
+  * qemu-system-modules-spice & qemu-system-modules-opengl packages,
+    containing optional spice and opengl modules from qemu-system-common.
+    Both are recommended by all qemu-system-* but can be removed if not
+    used, to reduce list of dependencies.
+
+ -- Michael Tokarev <mjt@tls.msk.ru>  Wed, 23 Aug 2023 12:37:55 +0300
+
+qemu (1:8.1.0+ds-1~exp1) experimental; urgency=medium
+
+  * new upstream release
+    Closes: #1041102, CVE-2023-3019 (NIC DMA reentrancy issue, problem class)
+    Closes: CVE-2021-3750 (DMA MMIO reentrancy issue, problem class)
+    Closes: #984451, CVE-2021-20255 (DMA reentrancy issue)
+    Closes: #1041471 (qemu-user armel commpage mapping bug)
+  * d/watch: change repack suffix to +ds
+  * d/patches: remove patches applied upstream
+  * disable-xen-on-x32.patch: refresh
+  * d/copyright: stop stripping dtc/ and meson/, removed upstream
+  * d/rules: replace --with-git-submodules=ignore with --disable-download
+  * d/control: build-depend on python3-venv
+  * d/control: bump minimum meson version to 0.63.0
+  * d/control: build-depend on seabios & qemu-system-data for the testsuite.
+    qemu testsuite runs qemu-system binaries which require firmware even for
+    simple tests
+  * d/rules: run `make check-block' after the main build, as a minimal test
+    for now
+  * qemu-img-omit-errno-value-in-error-message.patch fixes check-block tests
+    on mips* where errno values are different from other architectures.
+  * late fix for 8.1 linux-user-Adjust-brk-for-load_bias.patch
+
+ -- Michael Tokarev <mjt@tls.msk.ru>  Wed, 23 Aug 2023 08:01:13 +0300
+
+qemu (1:8.0.4+dfsg-3) unstable; urgency=medium
+
+  * d/rules: export PYTHONDONTWRITEBYTECODE=1 to stop generating .pyc files
+    (Closes: #1046056)
+  * d/control: list more CPU types emulated by qemu in package descriptions
+  * d/control: refine qemu-system-gui package description
+  * d/rules: remove --interp-prefix= configure option
+  * late fix for 8.1: target-arm-Fix-SME-ST1Q.patch
+  * late fix for 8.1: target-arm-Fix-64-bit-SSRA.patch
+  * d/control: remove old versions from build-deps
+
+ -- Michael Tokarev <mjt@tls.msk.ru>  Tue, 22 Aug 2023 20:15:07 +0300
+
+qemu (1:8.0.4+dfsg-2) unstable; urgency=medium
+
+  * remove linux-user-show-heap-address-in-proc-pid-maps.patch
+  * pick 2 nvme fixes from upstream:
+   - hw-nvme-fix-oob-memory-read-in-fdp-events-log-CVE-2023-4135.patch
+     Closes: #1050142, CVE-2023-4135
+   - hw-nvme-fix-null-pointer-access-in-directive-receive-CVE-2023-40360.patch
+     Closes: #1050140, CVE-2023-40360
+  * d/rules: --enable-virtfs (--enable-attr --enable-cap-ng) for xen build
+    to enable 9pfs (Closes: #1049925)
+  * d/rules: run-qemu.mount is linux-specific too
+    (if we ever do non-linux system build)
+  * d/control: disable sndio on debian too (disabled on ubuntu), for now anyway
+  * d/*.install, d/rules: explicitly list all qemu-system modules
+  * d/control: build-depend on libglib2.0-dev (forgotten!) and zlib1g-dev,
+    move the two to the top before all optional deps
+  * d/changelog: fix 7.1+dfsg-1 changelog entry (qemu-user and qemu-system)
+
+ -- Michael Tokarev <mjt@tls.msk.ru>  Mon, 21 Aug 2023 09:57:59 +0300
+
+qemu (1:8.0.4+dfsg-1) unstable; urgency=medium
+
+  * new upstream stable/bugfix release
+    Closes: CVE-2023-3180 (virtual crypto virtio_crypto_handle_sym_req)
+    Closes: CVE-2023-3354 (VNC server QIOChannel NULL ptr deref)
+    Closes: CVE-2023-3255 (VNC: infinite loop in inflate_buffer)
+  * d/patches: remove patches picked up from stable-staging branch
+    which are applied in 8.0.4
+  * d/control: build-depend on libglib2.0-dev (forgotten!) and zlib1g-dev,
+    move the two to the top before all optional deps
+  * remove xen-specific wrapper for qemu-system-i386
+    (needed for bookworm upgrade only)
+
+ -- Michael Tokarev <mjt@tls.msk.ru>  Fri, 11 Aug 2023 22:13:36 +0300
+
+qemu (1:8.0.3+dfsg-5) unstable; urgency=medium
+
+  * remove previous 2 mmap/brk patches for now
+     linux-user-optimize-memory-layout-for-static-and-dyn.patch
+     linux-user-load-pie-executables-at-upper-memory.patch
+    These are intended for 8.1, and causes other issues on 8.0.
+    Closes: #1042808
+    Reopens: #1040981
+
+ -- Michael Tokarev <mjt@tls.msk.ru>  Wed, 02 Aug 2023 10:55:50 +0300
+
+qemu (1:8.0.3+dfsg-4) unstable; urgency=medium
+
+  * more linux-user address fixes from Helge Deller
+    Remove
+     stable-staging/linux-user-fix-qemu-arm-to-run-static-armhf-binaries.patch
+     linux-user-limit-brk-adjustment-wrt-interp.brk-to-arm32.patch
+    Add
+     linux-user-show-heap-address-in-proc-pid-maps.patch
+     linux-user-optimize-memory-layout-for-static-and-dyn.patch
+     linux-user-load-pie-executables-at-upper-memory.patch
+    This *might* fix #1041859.
+  * stable-staging/tcg-ppc-fix-race-in-goto_tb-implementation.patch
+    fix qemu sigsegv on ppc -smp. Should fix autopkgtests (debvm, others)
+  * Stop passing --no-start to qga's dh_installsystemd.
+    qga is activated from an udev rule, but we need to restart it on upgrade.
+    Change by Sergio Durigan.  Closes: LP#2028124.
+
+ -- Michael Tokarev <mjt@tls.msk.ru>  Wed, 26 Jul 2023 07:51:20 +0300
+
+qemu (1:8.0.3+dfsg-3) unstable; urgency=medium
+
+  * d/control: glusterfs: drop pre-buster glusterfs-common alternative,
+    restrict glusterfs support to 64bit (see #1039604)
+  * linux-user-limit-brk-adjustment-wrt-interp.brk-to-arm32.patch
+    Fix (band-aid for now) an unexpected breakage caused by the previous
+    patch in this area which fixes static executables loading on armhf.
+  * d/binfmt-install: update mips* magic strings from upstream commit
+    77d119dd335f910c7:
+    mips: allow nonzero EI_ABIVERSION, distinguish o32 and n32
+    (Closes: #1041597)
+
+ -- Michael Tokarev <mjt@tls.msk.ru>  Sat, 22 Jul 2023 11:53:38 +0300
+
+qemu (1:8.0.3+dfsg-2) unstable; urgency=medium
+
+  * d/patches: set Forwarded: URLs for some patches
+  * add 5 qemu-user fixes staging for the next stable:
+   linux-user-make-sure-initial-brk-0-is-page-aligned.patch
+   linux-user-fix-qemu-brk-to-not-zero-bytes-on-current-page.patch
+   linux-user-prohibit-brk-to-to-shrink-below-initial-address.patch
+   linux-user-fix-signed-math-overflow-in-brk-syscall.patch
+   linux-user-fix-qemu-arm-to-run-static-armhf-binaries.patch
+   (Closes: #1040981)
+
+ -- Michael Tokarev <mjt@tls.msk.ru>  Thu, 20 Jul 2023 09:59:49 +0300
+
+qemu (1:8.0.3+dfsg-1) unstable; urgency=medium
+
+  * new upstream stable/bugfix release 8.0.3
+    Including the following security fix(es):
+    - 9pfs: prevent opening special files (CVE-2023-2861)
+  * remove patches now included upstream:
+   - hw-mips-malta-fix-the-malta-machine-on-big-endian-hosts.patch
+   - qga-fix-suspend-on-linux-guests-without-systemd.patch
+   - hw_intc_allwinner-a10-pic-handle-IRQ-levels-other-than-0-or-1.patch
+   - linux-user-Avoid-mmap-of-the-last-byte-of-the-reserv.patch
+  * d/rules: omit qemu-systemd-data from dh_dwz run
+  * d/rules: create qemu-system-armhf & qemu-system-armel aliases
+    for qemu-system-arm (Closes: #1040209)
+
+ -- Michael Tokarev <mjt@tls.msk.ru>  Tue, 11 Jul 2023 15:07:04 +0300
+
+qemu (1:8.0.2+dfsg-3) unstable; urgency=medium
+
+  * d/patches/*: update, add DEP-3 headers
+  * d/rules: strip ../../ prefix from compile paths
+    to undo sub-subdir build (-ffile-prefix-map)
+  * linux-user-Avoid-mmap-of-the-last-byte-of-the-reserv.patch:
+    (hackish) fix for recent memory failures
+
+ -- Michael Tokarev <mjt@tls.msk.ru>  Thu, 29 Jun 2023 18:36:33 +0300
+
+qemu (1:8.0.2+dfsg-2) unstable; urgency=medium
+
+  * d/rules: --enable-libusb for xen build (Closes: #1037341)
+  * reapply linux-user-binfmt-P.diff.
+    Re-rely on qemu-user's argv0 to detect it is running in binfmt context.
+    The problem is that while we ship kernel which can pass this info the
+    qemu way, there are many containers which are running on older kernels
+    still, including bullseye kernel (5.10) which does not have this feature.
+    Keep it for a bit more.
+  * hw_intc_allwinner-a10-pic-handle-IRQ-levels-other-than-0-or-1.patch
+    Pick a patch from upstream mailinglist to fix regression in 8.0.2
+
+ -- Michael Tokarev <mjt@tls.msk.ru>  Thu, 15 Jun 2023 22:25:50 +0300
+
+qemu (1:8.0.2+dfsg-1) unstable; urgency=medium
+
+  * new upstream stable/bugfix release
+    Closes: #1029155, CVE-2023-0330:
+    A DMA-MMIO reentrancy problem in lsi53c895a device
+  * keep full upstream version number, not just first 2 components
+    (Closes: #855966)
+  * d/copyright: remove stray newline
+  * d/control: drop libuuid-dev build-dep (not used)
+  * clarify files in d/not-installed just a little bit
+  * fixup qemu(1) refs in qemu-storage-daemon(1)
+  * move qemu-storage-daemon and qemu-block-drivers.7
+    from qemu-system-common to qemu-utils
+  * remove patches now included upstream:
+   - linux-user-fix-getgroups-setgroups-allocations.patch
+   - rtl8139-fix-large_send_mss-divide-by-zero.patch
+   - target_i386-Change-wrong-XFRM-value.patch
+  * qga-fix-suspend-on-linux-guests-without-systemd.patch
+    (hopefully Closes: #1004943)
+  * d/rules: disable pvrdma (Closes: #1034179, CVE-2023-1544)
+    CVE-2023-1544:
+     huge number of page tables for a ring of descriptors for CQ and
+     async events, potentially leading to an OOB read and crash
+
+ -- Michael Tokarev <mjt@tls.msk.ru>  Sun, 11 Jun 2023 11:49:17 +0300
+
+qemu (1:8.0+dfsg-4) experimental; urgency=medium
+
+  * d/control: do not use --enable-spice on sh4 and --enable-seccomp
+    on hppa where qemu-system is not being built
+  * spelling-information.patch: add headers
+  * merge d/qemu-system-x86.NEWS into d/qemu-system-common.NEWS
+  * d/rules: migrate docs for individual qemu-system-foo into symlinks
+    pointing to qemu-system-common docs
+  * d/rules: move qemu-user-binfmt doclink to the proper place,
+    and remove installdocs and installchangelogs overrides
+  * d/qemu-system-common.README.Debian, d/qemu-user*.README.Debian:
+    update statement about ppc64el in READMEs
+  * d/rules: switch to more declarative approach to generating various
+    qemu-system-foo packages, fix some bugs
+  * d/rules: switch to use "-" in variable names instead of "_"
+    to avoid exporting variables from environment
+  * add qemu-system-for-arch package (commented-out for now)
+  * refresh d/source/lintian-overrides
+
+ -- Michael Tokarev <mjt@tls.msk.ru>  Fri, 21 Apr 2023 19:11:53 +0300
+
+qemu (1:8.0+dfsg-3) experimental; urgency=medium
+
+  * Release highlights:
+    - build only tools on unsupported arches
+    - much easier arch control in a single place
+    - much easier dependency/options control
+    - stop building system targets on ia64 and kfreebsd
+  * d/control: generate Architecture: field dynamically from d/rules
+  * demote ia64 and kfreebsd from system arches to tools arches
+  * include m68k into list of utils arches
+  * optional dependencies and --enable-feature in d/control:
+    - update d/extract-config-opts to expect dpkg-like [arch] patterns
+    - d/control: unify and simplify arch strings for --enable-foo
+      and dependencies
+    - d/control: switch some build-deps to [:system-arch:]
+  * stop using --enable-tcg-interpreter for unsupported arches,
+    add --enable-tools for main qemu build
+  * provide --disable-xkbcommon to stop building qemu-keymap tool (!)
+  * d/rules: for !enable-system build, remove qemu.1 manpage
+  * install upstream qemu.desktop file instead of debian-specific
+  * d/*.install: list files relative to d/tmp/, use ${DEB_HOST_MULTIARCH}
+  * d/qemu-system-common.install: move 3 linux-specific files
+    from d/rules to here
+  * d/rules: move qemu-block-extrs maintscript/savedir generation
+    to instide enable-system
+
+ -- Michael Tokarev <mjt@tls.msk.ru>  Thu, 20 Apr 2023 20:50:35 +0300
+
+qemu (1:8.0+dfsg-2) experimental; urgency=medium
+
+  * re-add the dropped-on-the-way Provides: qemu-system-any
+  * specify versions for all Provides: so it's possible to add versioned deps
+    (including qemu-system-any and qemu-kvm)
+  * d/control: collapse Depends: qemu-system-* into tne new qemu-system-any
+  * drop Breaks:/Replaces: qemu-kvm (it was for old qemu-kvm binary pkg)
+
+ -- Michael Tokarev <mjt@tls.msk.ru>  Thu, 20 Apr 2023 13:09:57 +0300
+
+qemu (1:8.0+dfsg-1) experimental; urgency=medium
+
+  * New qemu release 8.0.0.
+  * remove binfmt-support registration, use systemd binfmd.d/ only
+    No more binfmt-support support. Unregister any entries on upgrades.
+  * binfmt: ship (but not enable) entries for all arches, do not omit native
+    Ship all really-foreign binfmt entries in /usr/lib/binfmt.d/ as usual,
+    to be enable automatically at package install. Also ship the
+    same-cpu-family entries in /usr/share/doc/qemu-user-static/qemu-foo.conf -
+    this way it will not be enabled automatically but it will be possible to
+    (carefully) symlink the needed additional entries to /etc/binfmt.d/.
+    (Closes: #924667, #1016810, #1027781)
+  * qemu-system-*: add extra names to use as qemu-system-${DEB_HOST_ARCH_CPU},
+    for both the Provides: line and executable file names. See
+    /usr/share/doc/qemu-system-common/README.Debian.
+  * qemu-system-*: also Provides: qemu-system-any
+  * qemu-system-ppc: provide qemu-kvm on ppc64el too, the same as ppc64
+  * qemu-user, qemu-user-static: provide qemu-${DEB_HOST_ARCH}[-static]
+    aliases too, when qemu arch is different from debian arch. See
+    /usr/share/doc/qemu-user[-static]/README.Debian.
+  * d/binfmt-install: fix disabled .conf entries install for qemu-user-binfmt
+    (those goes to qemu-user doc dir, not qemu-user-binfmt doc dir)
+  * d/control: remove old (pre-bullseye) Breaks/Replaces
+  * qemu-bridge-helper-path.patch: use the right path for qemu-bridge-helper
+    in docs (Closes: #1027447)
+  * d/qemu-system-common.NEWS: document dropping of virtiofsd
+  * d/rules: add comment saying why savemoddir block needs to be generated
+  * stop trying to provide os-specific qemu-ifup
+  * two more spelling fixes for mistyped "information"
+
+ -- Michael Tokarev <mjt@tls.msk.ru>  Thu, 20 Apr 2023 04:19:06 +0300
+
+qemu (1:8.0~rc4+dfsg-2) experimental; urgency=medium
+
+  [ Vagrant Cascadian ]
+  * debian/rules: Use 'printf' instead of 'echo' to avoid
+    differences in underlying /bin/sh implementations.
+    Closes: #1034431
+
+  [ Michael Tokarev ]
+  * Provide Debian architecture names for qemu-system-foo packages and
+    binaries, for arm64, armel, armhf, powerpc, amd64, loong64 and ppc64el.
+    It is now possible to run qemu-system-$debianarch binary or depend on
+    qemu-system-$debianarch package. This should simplify various tools
+    for cross compilation and the like. Also Closes: #825841.
+  * d/qemu-system-ppc.README.Debian: remove obsolete README about video.x
+
+ -- Michael Tokarev <mjt@tls.msk.ru>  Tue, 18 Apr 2023 05:04:04 +0300
+
+qemu (1:8.0~rc4+dfsg-1) experimental; urgency=medium
+
+  * update to 8.0.0-rc4
+  * d/rules, d/qemu.desktop: install a simple .desktop file in
+    qemu-system-data so that qemu-system-foo has an icon under gnome/wayland
+  * re-enable build on x32 - disable new CONFIG_XEN_EMU which is now enabled
+    unconditionally on x86
+  * d/patches: restore note-missing-module-pkg-name.diff
+    (lost in one of previous commits)
+  * pick 3 more fixes from qemu-devel@:
+   +rtl8139-fix-large_send_mss-divide-by-zero.patch
+   +target_i386-Change-wrong-XFRM-value.patch
+   +hw_mips_malta-Fix-malta-machine-on-big-endian-hosts.patch
+
+ -- Michael Tokarev <mjt@tls.msk.ru>  Fri, 14 Apr 2023 12:25:57 +0300
+
+qemu (1:8.0~rc3+dfsg-2) experimental; urgency=medium
+
+  * d/rules: fix qemu.svg install and remove .png fallback icons again
+    (qemu window still doesn't have an icon)
+  * d/binfmt-install: fix systemd binfmt registration broken
+    since previous upload
+  * +linux-user-fix-getgroups-setgroups-allocations.patch (Closes: #811087)
+
+ -- Michael Tokarev <mjt@tls.msk.ru>  Mon, 10 Apr 2023 12:33:01 +0300
+
+qemu (1:8.0~rc3+dfsg-1) experimental; urgency=medium
+
+  * new upstream release candidate (8.0.0-rc3)
+  * d/control: build-depend on gcc-powerpc-linux-gnu (for u-boot code)
+  * d/rules: build u-boot-sam460 ppc firmware (u-boot-sam460-20100605.bin)
+  * +u-boot-sam460ex-fdi.patch
+  * +u-boot-sam460ex-mstring.patch
+  * d/copyright: stop stripping roms/u-boot/, we need it for u-boot.e500
+  * d/rules: build u-boot.e500 binary (Closes: #756833)
+  * d/rules: install all png icons too (for gtk display)
+  * d/rules: remove old compat qboot symlink
+  * remove skip-meson-pc-bios.diff (and skip-unpack-edk2-blobs.patch),
+    fix pc-bios/meson.build instead
+  * remove d/get-orig-source.sh now when d/copyright is set up
+  * d/source/options: stop diff-ignoring submodules
+
+ -- Michael Tokarev <mjt@tls.msk.ru>  Thu, 06 Apr 2023 09:50:41 +0300
+
+qemu (1:8.0~rc2+dfsg-1) experimental; urgency=medium
+
+  [ Michael Tokarev ]
+  * new upstream 8.0 (rc2)
+  Packaging changes:
+  * d/rules, d/qemu-system-common.lintian-overrides:
+    do not try to install virtiofsd, it is removed in qemu 8.0
+  * d/rules: do not build sgabios, it is removed upstream in 8.0
+  * spelling.diff: remove hunks which has been applied,
+    adopt virtio.c=>virtio-hmp.c for remaining
+  * patches: remove all patches from d/patches/master/ (picked from upstream)
+  * hw-pvrdma-protect-against-guest-driver-CVE-2022-1050.patch:
+    remove, also applied upstream
+  * microvm-default-machine-type.patch: adjust for 8.0
+  * openbios-address-of-packet-member.patch: remove, not needed anymore
+  * d/control: build-depend on flex & bison
+  * d/rules: it is --disable-install-blobs, not --disable-blobs for xen too
+  * build microblaze firmware (petalogic-*.dtb) instead of using shipped one
+  * remove microblaze firmware (petalogic-*.dtb) for -dfsg
+  * remove previously deprecated qemu-debootstrap
+  * stop using custom $argv[0] for binfmt
+  * d/rules: always disable dwz if <<0.14
+  * stop enabling avx512f for xen build (it is disabled by default)
+  * d/rules: install .bmp icon, not .png
+
+
+  [ Christian Ehrhardt ]
+  * d/control-in: libsndio is in universe in ubuntu
+  * d/control-in: libnfs is in main since focal,
+    enable direct nfs storage support (LP: #1988704)
+
+ -- Michael Tokarev <mjt@tls.msk.ru>  Fri, 31 Mar 2023 15:44:21 +0300
+
+qemu (1:7.2+dfsg-5) unstable; urgency=medium
+
+  * d/qemu-guest-agent.udev: fix missing comma
+    (Christian Schneider <debian@c-schneider.net>, Closes: #1031838)
+  * remove qemu-make-debian-root.
+    Ths script debian/qemu-make-debian-root has been broken for ages.
+    In 2023, it creates /etc/fstab with a reference to /dev/hda1, and
+    edits /etc/inittab which does not exist. And no one noticed, - so
+    it's safe to assume it is not used anymore.  Just remove it.
+  * re-pick qemu-stable patches from master (the same patch contents):
+    master/tests-tcg-i386-Introduce-and-use-reg_t-consistently.patch
+    master/target-i386-Fix-BEXTR-instruction.patch
+    master/target-i386-Fix-C-flag-for-BLSI-BLSMSK-BLSR.patch
+    master/target-i386-fix-ADOX-followed-by-ADCX.patch
+  * 20 more changes picked from upstream/master:
+    master/target-i386-Fix-BZHI-instruction.patch
+    master/block-iscsi-fix-double-free-on-BUSY-or-similar-status.patch
+    master/hw-smbios-fix-field-corruption-in-type-4-table.patch
+    master/Revert-x86-do-not-re-randomize-RNG-seed-on-snapshot-.patch
+    master/Revert-x86-re-initialize-RNG-seed-when-selecting-ker.patch
+    master/Revert-x86-reinitialize-RNG-seed-on-system-reboot.patch
+    master/Revert-x86-use-typedef-for-SetupData-struct.patch
+    master/Revert-x86-return-modified-setup_data-only-if-read-a.patch
+    master/Revert-hw-i386-pass-RNG-seed-via-setup_data-entry.patch
+    master/vhost-user-gpio-Configure-vhost_dev-when-connecting.patch
+    master/vhost-user-i2c-Back-up-vqs-before-cleaning-up-vhost_.patch
+    master/vhost-user-rng-Back-up-vqs-before-cleaning-up-vhost_.patch
+    master/virtio-rng-pci-fix-migration-compat-for-vectors.patch
+    master/virtio-rng-pci-fix-transitional-migration-compat-for.patch
+    master/hw-timer-hpet-Fix-expiration-time-overflow.patch
+    master/vdpa-stop-all-svq-on-device-deletion.patch
+    master/vhost-avoid-a-potential-use-of-an-uninitialized-vari.patch
+    master/libvhost-user-check-for-NULL-when-allocating-a-virtq.patch
+    master/chardev-char-socket-set-s-listener-NULL-in-char_sock.patch
+    master/intel-iommu-fail-MAP-notifier-without-caching-mode.patch
+    master/intel-iommu-fail-DEVIOTLB_UNMAP-without-dt-mode.patch
+
+ -- Michael Tokarev <mjt@tls.msk.ru>  Sun, 05 Mar 2023 20:09:04 +0300
+
+qemu (1:7.2+dfsg-4) unstable; urgency=medium
+
+  * block-fix-detect-zeroes-with-BDRV_REQ_REGISTERED_BUF.patch:
+    re-pick now from master (the same patch, moved to master/).
+  * revert x86-don-t-let-decompressed-kernel-image-clobber-setu.patch
+    Closes: ##1031682 .
+    This turned out to be wrong move, breaking more stuff than fixing.
+    Upstream is going to revert it too.
+
+ -- Michael Tokarev <mjt@tls.msk.ru>  Mon, 20 Feb 2023 21:00:18 +0300
+
+qemu (1:7.2+dfsg-3) unstable; urgency=medium
+
+  [ Paride Legovini ]
+  * Disable LTO on non-amd64 builds (LP: #1921664)
+
+  [ Michael Tokarev ]
+  * target-arm-Fix-physical-address-resolution-for-Stage2.patch:
+    re-fetch now from master branch
+  * 4 more patches picked from master:
+    x86-don-t-let-decompressed-kernel-image-clobber-setu.patch
+    migration-ram-Fix-error-handling-in-ram_write_tracki.patch
+    migration-ram-Fix-populate_read_range.patch
+    qcow2-Fix-theoretical-corruption-in-store_bitmap-err.patch
+  * 5 fixes picked from current pullreqs:
+    block-fix-detect-zeroes-with-BDRV_REQ_REGISTERED_BUF.patch
+    tests_tcg_i386-introduce-and-use-reg_t-consistently.patch
+    target_i386-fix-BEXTR-instruction.patch
+    target_i386-fix-C-flag-for-BLSI-BLSMSK-BLSR.patch
+    target_i386-fix-ADOX-followed-by-ADCX.patch
+  * disable dwz on certain architectures for older dwz
+    (FTBFS on bullseye, #968670)
+
+ -- Michael Tokarev <mjt@tls.msk.ru>  Fri, 10 Feb 2023 14:29:12 +0300
+
+qemu (1:7.2+dfsg-2) unstable; urgency=medium
+
+  * d/rules: add -ffile-prefix-map when building skiboot
+  * d/control: provide qemu-kvm in qemu-system-misc on s390x
+    (Closes: #1029309)
+  * d/control: drop dependency of qemu-guest-agent on lsb-base
+  * Picked patches from qemu master branch tagged for qemu-stable
+    up to commit deabea6e88 (2023-02-02):
+    target-sh4-Mask-restore-of-env-flags-from-tb-flags.patch
+    vhost-fix-vq-dirty-bitmap-syncing-when-vIOMMU-is-ena.patch
+    virtio-mem-Fix-the-bitmap-index-of-the-section-offse.patch
+    virtio-mem-Fix-the-iterator-variable-in-a-vmem-rdl_l.patch
+    target-arm-fix-handling-of-HLT-semihosting-in-system.patch
+    meson-accept-relative-symlinks-in-meson-introspect-i.patch
+    target-riscv-Set-pc_succ_insn-for-rvc-illegal-insn.patch
+    acpi-cpuhp-fix-guest-visible-maximum-access-size-to-.patch
+    hw-nvme-fix-missing-endian-conversions-for-doorbell-.patch
+    hw-nvme-fix-missing-cq-eventidx-update.patch
+    configure-fix-GLIB_VERSION-for-cross-compilation.patch
+    target-arm-Fix-sve_probe_page.patch
+    target-arm-allow-writes-to-SCR_EL3.HXEn-bit-when-FEA.patch
+    target-arm-Fix-in_debug-path-in-S1_ptw_translate.patch
+  * Also: target-arm-Fix-physical-address-resolution-for-Stage.patch
+
+ -- Michael Tokarev <mjt@tls.msk.ru>  Thu, 02 Feb 2023 21:17:10 +0300
+
+qemu (1:7.2+dfsg-1) unstable; urgency=medium
+
+  * new upstream release
+    Closes: #1025123 CVE-2022-4172
+    (erst: undefined behavior in memcpy in write_erst_record)
+    Closes: #1021981 qemu-user: faccessat2 is not implemented
+    Closes: #1021019 CVE-2022-3165 (VNC: integer underflow in
+    vnc_client_cut_text_ext leads to CPU exhaustion)
+  * remove patches applied upstream
+  * refresh note-missing-module-pkg-name.diff
+  * slirp is always external package now, not a submodule anymore
+  * d/control: require meson >> 0.61.5~ for build
+  * spelling.diff: update with more spelling error
+  * add some lintian-overrides
+  * fix minor spelling errors in patches
+  * d/control: Bump Standards-Version to 4.6.1
+  * debian shell programs use "which" instead of the "command -v",
+    fix that (Closes: #1018254)
+  * Better fix for #1019011 (gcc ICE building palcode-clipper), use -O1
+    instead of -O2 for the failing compile when it actually fails
+    (no need to depend on gcc-11, Closes: #1011003)
+
+ -- Michael Tokarev <mjt@tls.msk.ru>  Thu, 15 Dec 2022 17:17:28 +0300
 
 qemu (1:7.1+dfsg-2) unstable; urgency=medium
 
@@ -32,7 +666,8 @@ qemu (1:7.1+dfsg-1) unstable; urgency=medium
     Closes: #1014958, CVE-2022-35414
     Closes: #1014590, CVE-2022-0216
     Closes: #979677, CVE-2020-14394
-    Closes: #988333
+    Closes: #987410, CVE-2021-3507
+    Closes: #988333, #1018913
   * d/copyright:
    - remove mentions of slirp (packaged separately)
    - blindly convert to dep-5 (it needs a complete rewrite)
@@ -57,7 +692,7 @@ qemu (1:7.1+dfsg-1) unstable; urgency=medium
   * temporary workaround for gcc-12 bug #1019011: use gcc-11-alpha-linux-gnu
     instead of gcc-alpha-linux-gnu (another option is to use -Os)
   * d/control: temporarily build-depend on libva-dev till #1019485 is fixed
-  * add loongarch64 qemu-user and qemu-user arch
+  * add loongarch64 qemu-user and qemu-system arch
 
  -- Michael Tokarev <mjt@tls.msk.ru>  Mon, 12 Sep 2022 11:50:53 +0300
 

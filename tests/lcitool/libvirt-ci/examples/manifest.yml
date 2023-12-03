@@ -4,7 +4,7 @@
 # needed projects that are build dependencies
 projects:
   - libvirt
-  - libvirt-go
+  - libvirt-go-module
 
 
 # Whether to generate dockerfiles by default for hosts
@@ -26,7 +26,7 @@ gitlab:
   namespace: libvirt
 
   # The GitLab repo within the namespace, must be set
-  project: libvirt-go
+  project: libvirt-go-module
 
 #  enabled: true
 #
@@ -46,6 +46,8 @@ gitlab:
 #    cargo-fmt: false
 #    go-fmt: false
 #    clang-format: false
+#    black: false
+#    flake8: false
 #
 #  templates:
 #    native-build: .native_build_job
@@ -89,9 +91,9 @@ gitlab:
 #
 
 targets:
-  alpine-315: x86_64
+  alpine-317: x86_64
 
-  alpine-316: x86_64
+  alpine-318: x86_64
 
   alpine-edge:
     jobs:
@@ -135,7 +137,7 @@ targets:
       - arch: ppc64le
       - arch: s390x
 
-  fedora-35: x86_64
+  fedora-37: x86_64
 
   fedora-rawhide:
     jobs:
@@ -151,11 +153,11 @@ targets:
 
   freebsd-current: x86_64
 
-  macos-11: x86_64
+  macos-12: aarch64
 
-  macos-12: x86_64
+  macos-13: aarch64
 
-  opensuse-leap-153:
+  opensuse-leap-15:
     jobs:
       - arch: x86_64
 

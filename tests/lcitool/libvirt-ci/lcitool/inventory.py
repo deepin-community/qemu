@@ -4,15 +4,10 @@
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
 
-import copy
 import logging
-import yaml
-
-from pathlib import Path
-from pkg_resources import resource_filename
 
 from lcitool import util, LcitoolError
-from lcitool.singleton import Singleton
+from lcitool.packages import package_names_by_type
 
 log = logging.getLogger(__name__)
 
@@ -24,23 +19,13 @@ class InventoryError(LcitoolError):
         super().__init__(message, "Inventory")
 
 
-class Inventory(metaclass=Singleton):
+class Inventory():
 
     @property
     def ansible_inventory(self):
         if self._ansible_inventory is None:
             self._ansible_inventory = self._get_ansible_inventory()
         return self._ansible_inventory
-
-    @property
-    def target_facts(self):
-        if self._target_facts is None:
-            self._target_facts = self._load_target_facts()
-        return self._target_facts
-
-    @property
-    def targets(self):
-        return list(self.target_facts.keys())
 
     @property
     def host_facts(self):
@@ -52,21 +37,18 @@ class Inventory(metaclass=Singleton):
     def hosts(self):
         return list(self.host_facts.keys())
 
-    def __init__(self):
-        self._target_facts = None
+    def __init__(self, targets, config):
+        self._targets = targets
+        self._config = config
         self._host_facts = None
         self._ansible_inventory = None
-
-    @staticmethod
-    def _read_facts_from_file(yaml_path):
-        with open(yaml_path, "r") as infile:
-            return yaml.safe_load(infile)
 
     def _get_ansible_inventory(self):
         from lcitool.ansible_wrapper import AnsibleWrapper, AnsibleWrapperError
 
         inventory_sources = []
-        inventory_path = Path(util.get_config_dir(), "inventory")
+        inventory_path = self._config.get_config_path("inventory")
+        log.debug(f"Using '{inventory_path}' for lcitool inventory")
         if inventory_path.exists():
             inventory_sources.append(inventory_path)
 
@@ -75,12 +57,13 @@ class Inventory(metaclass=Singleton):
 
         ansible_runner = AnsibleWrapper()
         ansible_runner.prepare_env(inventories=inventory_sources,
-                                   group_vars=self.target_facts)
+                                   group_vars=self._targets.target_facts)
 
         log.debug(f"Running ansible-inventory on '{inventory_sources}'")
         try:
             inventory = ansible_runner.get_inventory()
         except AnsibleWrapperError as ex:
+            log.debug("Failed to load Ansible inventory")
             raise InventoryError(f"Failed to load Ansible inventory: {ex}")
 
         return inventory
@@ -97,39 +80,6 @@ class Inventory(metaclass=Singleton):
             inventory_hosts.setdefault(host, {})
 
         return inventory
-
-    def _load_facts_from(self, facts_dir):
-        facts = {}
-        for entry in sorted(facts_dir.iterdir()):
-            if not entry.is_file() or entry.suffix != ".yml":
-                continue
-
-            log.debug(f"Loading facts from '{entry}'")
-            facts.update(self._read_facts_from_file(entry))
-
-        return facts
-
-    def _load_target_facts(self):
-        facts = {}
-        group_vars_path = Path(resource_filename(__name__, "ansible/group_vars/"))
-        group_vars_all_path = Path(group_vars_path, "all")
-
-        # first load the shared facts from group_vars/all
-        shared_facts = self._load_facts_from(group_vars_all_path)
-
-        # then load the rest of the facts
-        for entry in group_vars_path.iterdir():
-            if not entry.is_dir() or entry.name == "all":
-                continue
-
-            tmp = self._load_facts_from(entry)
-
-            # override shared facts with per-distro facts
-            target = entry.name
-            facts[target] = copy.deepcopy(shared_facts)
-            facts[target].update(tmp)
-
-        return facts
 
     def _load_host_facts(self):
         facts = {}
@@ -165,7 +115,7 @@ class Inventory(metaclass=Singleton):
 
         _rec(self.ansible_inventory["all"], "all")
 
-        targets = set(self.targets)
+        targets = set(self._targets.targets)
         for host_name, host_groups in groups.items():
             host_targets = host_groups.intersection(targets)
 
@@ -188,4 +138,31 @@ class Inventory(metaclass=Singleton):
         except InventoryError as ex:
             raise ex
         except Exception as ex:
+            log.debug(f"Failed to load expand '{pattern}'")
             raise InventoryError(f"Failed to expand '{pattern}': {ex}")
+
+    def get_host_target_name(self, host):
+        return self.host_facts[host]["target"]
+
+    def get_group_vars(self, target, projects, projects_expanded):
+        # resolve the package mappings to actual package names
+        internal_wanted_projects = ["base", "developer", "vm"]
+        if self._config.values["install"]["cloud_init"]:
+            internal_wanted_projects.append("cloud-init")
+
+        selected_projects = internal_wanted_projects + projects_expanded
+        pkgs_install = projects.get_packages(selected_projects, target)
+        pkgs_early_install = projects.get_packages(["early_install"], target)
+        pkgs_remove = projects.get_packages(["unwanted"], target)
+        package_names = package_names_by_type(pkgs_install)
+        package_names_remove = package_names_by_type(pkgs_remove)
+        package_names_early_install = package_names_by_type(pkgs_early_install)
+
+        # merge the package lists to the Ansible group vars
+        group_vars = dict(target.facts)
+        group_vars["packages"] = package_names["native"]
+        group_vars["pypi_packages"] = package_names["pypi"]
+        group_vars["cpan_packages"] = package_names["cpan"]
+        group_vars["unwanted_packages"] = package_names_remove["native"]
+        group_vars["early_install_packages"] = package_names_early_install["native"]
+        return group_vars
