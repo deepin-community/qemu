@@ -46,7 +46,6 @@ source watchdog/Kconfig
 
 # arch Kconfig
 source arm/Kconfig
-source alpha/Kconfig
 source avr/Kconfig
 source cris/Kconfig
 source hppa/Kconfig

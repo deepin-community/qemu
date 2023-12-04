@@ -133,7 +133,7 @@ Build-Depends-Indep:
  device-tree-compiler,
  gcc-s390x-linux-gnu,
 # qemu-palcode/palcode-clipper
- gcc-alpha-linux-gnu,
+# gcc-alpha-linux-gnu,
 # u-boot code
  gcc-powerpc-linux-gnu, bc,
 # skiboot firmware, openbios

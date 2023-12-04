@@ -56,7 +56,7 @@ typedef struct QDevAlias
 } QDevAlias;
 
 /* default virtio transport per architecture */
-#define QEMU_ARCH_VIRTIO_PCI (QEMU_ARCH_ALPHA | QEMU_ARCH_ARM | \
+#define QEMU_ARCH_VIRTIO_PCI (QEMU_ARCH_ARM | \
                               QEMU_ARCH_HPPA | QEMU_ARCH_I386 | \
                               QEMU_ARCH_MIPS | QEMU_ARCH_PPC |  \
                               QEMU_ARCH_RISCV | QEMU_ARCH_SH4 | \

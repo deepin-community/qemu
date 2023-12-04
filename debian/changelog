@@ -1,3 +1,9 @@
+qemu (1:8.1.2+ds-1deepin1) unstable; urgency=medium
+
+  * remove dependenct gcc-11-alpha-linux-gnu
+
+ -- bluesky <chenchongbiao@deepin.org>  Sun, 03 Dec 2023 15:40:34 +0800
+
 qemu (1:8.1.2+ds-1) unstable; urgency=medium
 
   * upstream 8.1.2 stable/bugfix release

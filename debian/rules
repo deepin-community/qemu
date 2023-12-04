@@ -73,7 +73,7 @@ sysdataidir = debian/qemu-system-data/usr/share/qemu
 libdir = /usr/lib/${DEB_HOST_MULTIARCH}
 FIRMWAREPATH = /usr/share/qemu:/usr/share/seabios:/usr/lib/ipxe/qemu
 
-ALPHAEV67_CROSSPFX = alpha-linux-gnu-
+# ALPHAEV67_CROSSPFX = alpha-linux-gnu-
 PPC_CROSSPFX = powerpc-linux-gnu-
 PPC64_CROSSPFX = powerpc64-linux-gnu-
 RISCV64_CROSSPFX = riscv64-linux-gnu-
@@ -156,7 +156,7 @@ system-kvmcpus-x86 = amd64 i386
 system-kvmlink-amd64 = x86_64
 system-kvmlink-i386 = x86_64
 
-system-archlist-misc = alpha avr cris hppa m68k loongarch64 \
+system-archlist-misc = avr cris hppa m68k loongarch64 \
 		microblaze microblazeel nios2 or1k riscv32 riscv64 rx sh4 sh4eb \
 		$(if ${system-s390x},,s390x) \
 		tricore xtensa xtensaeb
@@ -364,7 +364,7 @@ qemu-builds += $(if $(filter qemu-system-xen,${BUILD_PACKAGES}),xen)
 
 # list of linux-user targets, from configs/targets/*-linux-user.mak
 user-targets = \
- aarch64 aarch64_be alpha arm armeb cris hexagon hppa i386 loongarch64 \
+ aarch64 aarch64_be arm armeb cris hexagon hppa i386 loongarch64 \
  m68k microblaze microblazeel mips mips64 mips64el mipsel mipsn32 mipsn32el \
  nios2 or1k ppc ppc64 ppc64le riscv32 riscv64 \
  s390x sh4 sh4eb sparc sparc32plus sparc64 \
@@ -611,16 +611,16 @@ install-qboot: b/qboot/bios.bin
 sysdata-components += qboot
 
 ### alpha firmware in roms/palcode-clipper
-build-palcode-clipper: b/qemu-palcode/palcode-clipper
-b/qemu-palcode/palcode-clipper: | b
-	cp -al roms/qemu-palcode b/
+# build-palcode-clipper: b/qemu-palcode/palcode-clipper
+# b/qemu-palcode/palcode-clipper: | b
+# 	cp -al roms/qemu-palcode b/
 #XXX #1019011 (remove OPT= alternative when fixed)
-	${MAKE} -C b/qemu-palcode CROSS=${ALPHAEV67_CROSSPFX} -k || \
-	${MAKE} -C b/qemu-palcode CROSS=${ALPHAEV67_CROSSPFX} OPT=-O1
-	${ALPHAEV67_CROSSPFX}strip b/qemu-palcode/palcode-clipper
-install-palcode-clipper: b/qemu-palcode/palcode-clipper
-	install -m 0644 $< ${sysdataidir}/palcode-clipper
-sysdata-components += palcode-clipper
+# 	${MAKE} -C b/qemu-palcode CROSS=${ALPHAEV67_CROSSPFX} -k || \
+# 	${MAKE} -C b/qemu-palcode CROSS=${ALPHAEV67_CROSSPFX} OPT=-O1
+# 	${ALPHAEV67_CROSSPFX}strip b/qemu-palcode/palcode-clipper
+# install-palcode-clipper: b/qemu-palcode/palcode-clipper
+# 	install -m 0644 $< ${sysdataidir}/palcode-clipper
+# sysdata-components += palcode-clipper
 
 ### SLOF
 build-slof: b/SLOF/boot_rom.bin
