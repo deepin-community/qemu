@@ -131,23 +131,23 @@ Build-Depends-Arch:
 Build-Depends-Indep:
 # pc-bios/*.dts => *.dtb (PPC firmware)
  device-tree-compiler,
- gcc-s390x-linux-gnu,
+ gcc-s390x-linux-gnu [!riscv64],
 # qemu-palcode/palcode-clipper
 # gcc-alpha-linux-gnu,
 # u-boot code
- gcc-powerpc-linux-gnu, bc,
+ gcc-powerpc-linux-gnu [!riscv64 !arm64], bc,
 # skiboot firmware, openbios
- gcc-powerpc64-linux-gnu,
+ gcc-powerpc64-linux-gnu [!riscv64 !arm64],
 # skiboot includes <openssl/something.h>
  libssl-dev,
 # openbios
- gcc-sparc64-linux-gnu, fcode-utils, xsltproc,
+ gcc-sparc64-linux-gnu [!riscv64], fcode-utils, xsltproc,
 # hppa-firmware
- gcc-hppa-linux-gnu,
+ gcc-hppa-linux-gnu [!riscv64],
 # opensbi
  gcc-riscv64-linux-gnu,
 # vbootrom/npcm7xx_bootrom
- gcc-arm-none-eabi,
+ gcc-arm-none-eabi [!riscv64],
 Build-Conflicts: oss4-dev
 Standards-Version: 4.6.1
 Homepage: http://www.qemu.org/

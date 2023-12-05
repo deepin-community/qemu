@@ -363,12 +363,18 @@ qemu-builds += $(if $(filter qemu-system-xen,${BUILD_PACKAGES}),xen)
 ##############################
 
 # list of linux-user targets, from configs/targets/*-linux-user.mak
+ifneq ($(filter $(DEB_TARGET_ARCH), riscv64 arm64), )
 user-targets = \
  aarch64 aarch64_be arm armeb cris hexagon hppa i386 loongarch64 \
  m68k microblaze microblazeel mips mips64 mips64el mipsel mipsn32 mipsn32el \
  nios2 or1k ppc ppc64 ppc64le riscv32 riscv64 \
  s390x sh4 sh4eb sparc sparc32plus sparc64 \
  x86_64 xtensa xtensaeb
+else
+user_targets = \
+ x86_64 aarch64 aarch64_be arm armeb cris hexagon m68k microblaze microblazeel nios2 or1k \
+ riscv32 riscv64 sh4 sh4eb xtensa xtensaeb
+endif
 # aliases for missing ${DEB_HOST_ARCH} names in qemu-user:
 user-alias-aarch64 = arm64
 user-alias-arm = armel armhf
@@ -540,7 +546,9 @@ install-openbios: build-openbios
 		b/openbios/obj-sparc32/QEMU,tcx.bin \
 		b/openbios/obj-sparc32/QEMU,cgthree.bin \
 		b/openbios/obj-sparc64/QEMU,VGA.bin
-sysdata-components += openbios
+ifneq ($(filter $(DEB_TARGET_ARCH), riscv64), )
+	sysdata-components += openbios
+endif
 
 ### powernv firmware in roms/skiboot
 build-skiboot: b/skiboot/skiboot.lid
@@ -556,7 +564,9 @@ b/skiboot/skiboot.lid: | roms/skiboot/.version
 	  CROSS_COMPILE=${PPC64_CROSSPFX} V=${V}
 install-skiboot: b/skiboot/skiboot.lid
 	install -m 0644 -t ${sysdataidir} $<
-sysdata-components += skiboot
+ifneq ($(filter $(DEB_TARGET_ARCH), riscv64 amd64), )
+	sysdata-components += skiboot
+endif
 
 build-vof: b/vof/vof.bin
 b/vof/vof.bin: | b
@@ -565,7 +575,9 @@ b/vof/vof.bin: | b
 	${MAKE} -C b/vof CROSS=${PPC64_CROSSPFX} SRC_DIR=../../pc-bios/vof -f../../pc-bios/vof/Makefile
 install-vof: b/vof/vof.bin
 	install -m 0644 -t ${sysdataidir} $<
-sysdata-components += vof
+ifneq ($(filter $(DEB_TARGET_ARCH), riscv64 amd64), )
+	sysdata-components += vof
+endif
 
 ### u-boot-e500 (u-boot.e500)
 build-u-boot-e500: b/u-boot/build-e500/u-boot
@@ -576,7 +588,9 @@ b/u-boot/build-e500/u-boot: | b
 	${PPC_CROSSPFX}strip $@
 install-u-boot-e500: b/u-boot/build-e500/u-boot
 	install -m 0644 $< ${sysdataidir}/u-boot.e500
-sysdata-components += u-boot-e500
+ifneq ($(filter $(DEB_TARGET_ARCH), riscv64 amd64), )
+	sysdata-components += u-boot-e500
+endif
 
 ### u-boot-sam460 (u-boot-sam460-20100605.bin)
 build-u-boot-sam460: b/u-boot-sam460ex/u-boot.bin
@@ -588,7 +602,9 @@ b/u-boot-sam460ex/u-boot.bin: | b
 #	${PPC_CROSSPFX}strip $@
 install-u-boot-sam460: b/u-boot-sam460ex/u-boot.bin | ${sysdataidir}
 	install -m 0644 $< ${sysdataidir}/u-boot-sam460-20100605.bin
-sysdata-components += u-boot-sam460
+ifneq ($(filter $(DEB_TARGET_ARCH), riscv64 amd64), )
+	sysdata-components += u-boot-sam460
+endif
 
 ### x86 optionrom
 build-x86-optionrom: b/optionrom/built
@@ -598,7 +614,9 @@ b/optionrom/built:
 	touch $@
 install-x86-optionrom: build-x86-optionrom | ${sysdataidir}
 	${MAKE} -f ${CURDIR}/debian/optionrom.mak -C b/optionrom SRC_PATH="${CURDIR}" install DESTDIR="${CURDIR}/${sysdataidir}"
-sysdata-components += x86-optionrom
+ifneq ($(filter $(DEB_TARGET_ARCH), riscv64), )
+	sysdata-components += x86-optionrom
+endif
 
 ### qboot, aka bios-microvm
 build-qboot: b/qboot/bios.bin
@@ -608,7 +626,9 @@ b/qboot/bios.bin: | b
 	ninja -C b/qboot $(if $V,-v)
 install-qboot: b/qboot/bios.bin
 	install -m 0644 $< ${sysdataidir}/qboot.rom
-sysdata-components += qboot
+ifneq ($(filter $(DEB_TARGET_ARCH), riscv64), )
+	sysdata-components += qboot
+endif
 
 ### alpha firmware in roms/palcode-clipper
 # build-palcode-clipper: b/qemu-palcode/palcode-clipper
@@ -629,7 +649,9 @@ b/SLOF/boot_rom.bin: | b
 	env -u LDFLAGS -u CFLAGS $(MAKE) -C b/SLOF qemu CROSS=${PPC64_CROSSPFX} V=${V}
 install-slof: b/SLOF/boot_rom.bin
 	install -m 0644 $< ${sysdataidir}/slof.bin
-sysdata-components += slof
+ifneq ($(filter $(DEB_TARGET_ARCH), riscv64 amd64), )
+	sysdata-components += slof
+endif
 
 ### s390x firmware in pc-bios/s390-ccw
 build-s390x-fw: b/s390fw/built
@@ -639,7 +661,9 @@ b/s390fw/built:
 	touch $@
 install-s390x-fw: build-s390x-fw
 	install -m 0644 -t ${sysdataidir} b/s390fw/s390*.img
-sysdata-components += s390x-fw
+ifneq ($(filter $(DEB_TARGET_ARCH), riscv64), )
+	sysdata-components += s390x-fw
+endif
 
 ### hppa-firmware (roms/seabios-hppa)
 build-hppa-fw: b/hppafw/hppa-firmware.img
@@ -651,7 +675,9 @@ b/hppafw/hppa-firmware.img:
 	hppa-linux-gnu-strip -R.note -R.comment $@
 install-hppa-fw: b/hppafw/hppa-firmware.img
 	install -m 0644 $< ${sysdataidir}
-sysdata-components += hppa-fw
+ifneq ($(filter $(DEB_TARGET_ARCH), riscv64), )
+	sysdata-components += hppa-fw
+endif
 
 ### opensbi (riscv firmware)
 # we only build v64 variants, not v32
@@ -674,7 +700,9 @@ b/vbootrom/.built: | b
 	touch $@
 install-vbootrom: build-vbootrom
 	install -m 0644 b/vbootrom/npcm7xx_bootrom.bin ${sysdataidir}/
-sysdata-components += vbootrom
+ifneq ($(filter $(DEB_TARGET_ARCH), riscv64), )
+	sysdata-components += vbootrom
+endif
 
 ### misc firmware
 build-misc: b/misc/.built
