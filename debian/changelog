@@ -1,3 +1,9 @@
+qemu (1:8.1.2+ds-1deepin2) unstable; urgency=medium
+
+  * fix debian/rules eroor
+
+ -- bluesky <chenchongbiao@deepin.org>  Thu, 14 Dec 2023 14:28:52 +0800
+
 qemu (1:8.1.2+ds-1deepin1) unstable; urgency=medium
 
   * remove dependenct gcc-11-alpha-linux-gnu
