@@ -527,6 +527,7 @@ binary-arch: a=-a
 ### firmware, qemu-user-data package
 
 ### openbios rules
+ifeq ($(filter ${DEB_HOST_ARCH},riscv64 arm64),)
 b/openbios/config-host.mak:
 	mkdir -p b/openbios
 	cd b/openbios && ../../roms/openbios/config/scripts/switch-arch builtin-ppc builtin-sparc32 builtin-sparc64
@@ -542,9 +543,11 @@ install-openbios: build-openbios
 		b/openbios/obj-sparc32/QEMU,tcx.bin \
 		b/openbios/obj-sparc32/QEMU,cgthree.bin \
 		b/openbios/obj-sparc64/QEMU,VGA.bin
-sysdata-components += $(if $(filter-out riscv64, $(DEB_TARGET_ARCH)),openbios)
+sysdata-components += openbios
+endif
 
-### powernv firmware in roms/skiboot
+### powernv firmware in roms/skibpythooot
+ifeq ($(filter ${DEB_HOST_ARCH},riscv64 arm64),)
 build-skiboot: b/skiboot/skiboot.lid
 b/skiboot/skiboot.lid: | roms/skiboot/.version
 	mkdir -p b/skiboot
@@ -558,7 +561,8 @@ b/skiboot/skiboot.lid: | roms/skiboot/.version
 	  CROSS_COMPILE=${PPC64_CROSSPFX} V=${V}
 install-skiboot: b/skiboot/skiboot.lid
 	install -m 0644 -t ${sysdataidir} $<
-sysdata-components += $(if $(filter-out riscv64 arm64, $(DEB_TARGET_ARCH)),skiboot)
+sysdata-components += skiboot
+endif
 
 build-vof: b/vof/vof.bin
 b/vof/vof.bin: | b
@@ -603,6 +607,7 @@ install-x86-optionrom: build-x86-optionrom | ${sysdataidir}
 sysdata-components += $(if $(filter-out riscv64 arm64, $(DEB_TARGET_ARCH)),x86-optionrom)
 
 ### qboot, aka bios-microvm
+ifeq ($(filter ${DEB_HOST_ARCH},riscv64 arm64),)
 build-qboot: b/qboot/bios.bin
 b/qboot/bios.bin: | b
 	rm -rf b/qboot
@@ -610,7 +615,8 @@ b/qboot/bios.bin: | b
 	ninja -C b/qboot $(if $V,-v)
 install-qboot: b/qboot/bios.bin
 	install -m 0644 $< ${sysdataidir}/qboot.rom
-sysdata-components += $(if $(filter-out riscv64, $(DEB_TARGET_ARCH)),qboot)
+sysdata-components += qboot
+endif
 
 ### alpha firmware in roms/palcode-clipper
 # build-palcode-clipper: b/qemu-palcode/palcode-clipper
@@ -741,6 +747,9 @@ clean:	debian/control
 	dh_clean \
 		b/ \
 		configs/devices/x86_64-softmmu/microvm.mak \
+
+override_dh_missing:
+	dh_missing --list-missing
 
 .PHONY: build install binary binary-helper clean
 

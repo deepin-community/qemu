@@ -1,6 +1,7 @@
 qemu (1:8.1.2+ds-1deepin2) unstable; urgency=medium
 
   * fix debian/rules eroor
+  * add submodule file
 
  -- bluesky <chenchongbiao@deepin.org>  Thu, 14 Dec 2023 14:28:52 +0800
 
