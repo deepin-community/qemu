@@ -28,11 +28,12 @@ Build-Depends-Arch:
  libaio-dev            [linux-any],
 # libsndio is in universe in ubuntu
 # --disable-sndio
-# --audio-drv-list=pa,alsa,jack,oss,sdl	amd64 arm arm64 armel armhf i386 mips mips64 mips64el mipsel powerpc powerpcspe ppc64 ppc64el riscv64 s390x sparc sparc64 x32
+# --audio-drv-list=pipewire,pa,alsa,jack,oss,sdl	amd64 arm arm64 armel armhf i386 mips mips64 mips64el mipsel powerpc powerpcspe ppc64 ppc64el riscv64 s390x sparc sparc64 x32
 ##--audio-drv-list=pa,oss	kfreebsd-any
  libjack-dev  [amd64 arm arm64 armel armhf i386 mips mips64 mips64el mipsel powerpc powerpcspe ppc64 ppc64el riscv64 s390x sparc sparc64 x32],
  libpulse-dev,
  libasound2-dev [amd64 arm arm64 armel armhf i386 mips mips64 mips64el mipsel powerpc powerpcspe ppc64 ppc64el riscv64 s390x sparc sparc64 x32],
+ libpipewire-0.3-dev [amd64 arm arm64 armel armhf i386 mips mips64 mips64el mipsel powerpc powerpcspe ppc64 ppc64el riscv64 s390x sparc sparc64 x32],
 # for virtfs (now in libc6)
 # --enable-attr
 # --enable-bpf	linux-any
@@ -70,6 +71,7 @@ Build-Depends-Arch:
  libnuma-dev   [i386 amd64 ia64 mips mipsel mips64 mips64el powerpc powerpcspe x32 ppc64 ppc64el arm64 sparc s390x riscv64],
 # --enable-smartcard
  libcacard-dev,
+# --enable-pixman
  libpixman-1-dev,
 # --enable-rbd		amd64 arm64 mips64el ppc64el ppc64 riscv64 s390x sparc64
  librbd-dev            [amd64 arm64 mips64el ppc64el ppc64 riscv64 s390x sparc64],
@@ -130,23 +132,23 @@ Build-Depends-Arch:
 Build-Depends-Indep:
 # pc-bios/*.dts => *.dtb (PPC firmware)
  device-tree-compiler,
- gcc-s390x-linux-gnu [!riscv64],
+ gcc-s390x-linux-gnu,
 # qemu-palcode/palcode-clipper
-# gcc-alpha-linux-gnu,
+ gcc-alpha-linux-gnu,
 # u-boot code
- gcc-powerpc-linux-gnu [!riscv64 !arm64], bc,
+ gcc-powerpc-linux-gnu, bc,
 # skiboot firmware, openbios
- gcc-powerpc64-linux-gnu [!riscv64 !arm64],
+ gcc-powerpc64-linux-gnu,
 # skiboot includes <openssl/something.h>
  libssl-dev,
 # openbios
- gcc-sparc64-linux-gnu [!riscv64], fcode-utils, xsltproc,
+ gcc-sparc64-linux-gnu, fcode-utils, xsltproc,
 # hppa-firmware
- gcc-hppa-linux-gnu [!riscv64],
+ gcc-hppa-linux-gnu,
 # opensbi
  gcc-riscv64-linux-gnu,
 # vbootrom/npcm7xx_bootrom
- gcc-arm-none-eabi [!riscv64],
+ gcc-arm-none-eabi,
 Build-Conflicts: oss4-dev
 Standards-Version: 4.6.1
 Homepage: http://www.qemu.org/
@@ -281,7 +283,8 @@ Depends: ${shlibs:Depends}, ${misc:Depends}, qemu-system-common (= ${binary:Vers
 Recommends: qemu-utils,
 # alpha uses vgabios
 # alpha m68k sh4 uses bootroms
- seabios, ipxe-qemu,
+ seabios,
+ ipxe-qemu,
  qemu-system-gui (= ${binary:Version}),
  qemu-system-modules-spice (= ${binary:Version}) [amd64 arm64 armel armhf i386 mips64el mipsel ppc64el x32],
  qemu-system-modules-opengl (= ${binary:Version}),
@@ -340,7 +343,8 @@ Build-Profiles: <!pkg.qemu.omit-system>
 Depends: ${shlibs:Depends}, ${misc:Depends}, qemu-system-common (= ${binary:Version}), qemu-system-data (>> ${source:Upstream-Version}~),
 Recommends: qemu-utils,
 # all mips targets uses vgabios and bootroms
- seabios, ipxe-qemu,
+ seabios,
+ ipxe-qemu,
  qemu-system-gui (= ${binary:Version}),
  qemu-system-modules-spice (= ${binary:Version}) [amd64 arm64 armel armhf i386 mips64el mipsel ppc64el x32],
  qemu-system-modules-opengl (= ${binary:Version}),
@@ -367,7 +371,8 @@ Build-Profiles: <!pkg.qemu.omit-system>
 Depends: ${shlibs:Depends}, ${misc:Depends}, qemu-system-common (= ${binary:Version}), qemu-system-data (>> ${source:Upstream-Version}~),
 Recommends: qemu-utils,
 # ppc targets use vgabios-stdvga and bootroms
- seabios, ipxe-qemu,
+ seabios,
+ ipxe-qemu,
  qemu-system-gui (= ${binary:Version}),
  qemu-system-modules-spice (= ${binary:Version}) [amd64 arm64 armel armhf i386 mips64el mipsel ppc64el x32],
  qemu-system-modules-opengl (= ${binary:Version}),
@@ -394,7 +399,8 @@ Build-Profiles: <!pkg.qemu.omit-system>
 Depends: ${shlibs:Depends}, ${misc:Depends}, qemu-system-common (= ${binary:Version}), qemu-system-data (>> ${source:Upstream-Version}~),
 Recommends: qemu-utils,
 # sparc64 uses vgabios-stdvga and bootroms
- seabios, ipxe-qemu,
+ seabios,
+ ipxe-qemu,
  qemu-system-gui (= ${binary:Version}),
  qemu-system-modules-spice (= ${binary:Version}) [amd64 arm64 armel armhf i386 mips64el mipsel ppc64el x32],
  qemu-system-modules-opengl (= ${binary:Version}),
@@ -419,7 +425,8 @@ Architecture: amd64 arm arm64 armel armhf i386 mips mips64 mips64el mipsel power
 Multi-Arch: foreign
 Build-Profiles: <!pkg.qemu.omit-system>
 Depends: ${shlibs:Depends}, ${misc:Depends}, qemu-system-common (= ${binary:Version}), qemu-system-data (>> ${source:Upstream-Version}~),
- seabios, ipxe-qemu,
+ seabios (>> 1.16.3-1~),
+ ipxe-qemu,
 Recommends: qemu-utils,
  ovmf,
  qemu-system-gui (= ${binary:Version}),
