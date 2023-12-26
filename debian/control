@@ -136,19 +136,19 @@ Build-Depends-Indep:
 # qemu-palcode/palcode-clipper
 # gcc-alpha-linux-gnu,
 # u-boot code
- gcc-powerpc-linux-gnu, bc,
+ gcc-powerpc-linux-gnu [amd64], bc,
 # skiboot firmware, openbios
- gcc-powerpc64-linux-gnu,
+ gcc-powerpc64-linux-gnu [amd64],
 # skiboot includes <openssl/something.h>
  libssl-dev,
 # openbios
- gcc-sparc64-linux-gnu, fcode-utils, xsltproc,
+ gcc-sparc64-linux-gnu [amd64], fcode-utils, xsltproc,
 # hppa-firmware
- gcc-hppa-linux-gnu,
+ gcc-hppa-linux-gnu [amd64],
 # opensbi
- gcc-riscv64-linux-gnu,
+ gcc-riscv64-linux-gnu [amd64],
 # vbootrom/npcm7xx_bootrom
- gcc-arm-none-eabi,
+ gcc-arm-none-eabi [amd64],
 Build-Conflicts: oss4-dev
 Standards-Version: 4.6.1
 Homepage: http://www.qemu.org/
