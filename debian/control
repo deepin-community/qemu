@@ -136,7 +136,7 @@ Build-Depends-Indep:
  device-tree-compiler,
  gcc-s390x-linux-gnu,
 # qemu-palcode/palcode-clipper
- gcc-alpha-linux-gnu,
+# gcc-alpha-linux-gnu,
 # u-boot code
  gcc-powerpc-linux-gnu,
 # skiboot firmware, openbios
@@ -170,7 +170,7 @@ Depends: ${misc:Depends},
  qemu-system-x86,
  qemu-system-misc
 Description: QEMU full system emulation binaries
- QEMU is a fast processor emulator: currently the package supports Alpha, ARM,
+ QEMU is a fast processor emulator: currently the package supports ARM,
  CRIS, i386, LoongArch, M68k (ColdFire), MicroBlaze, MIPS, PowerPC, RISC-V,
  S390x, SH4, SPARC, x86-64, Xtensa and other emulations. By using dynamic
  translation it achieves reasonable speed while being easy to port on new host
@@ -189,7 +189,7 @@ Depends: ${misc:Depends}, ${shlibs:Depends},
 Enhances: qemu-utils, qemu-system-misc,
  qemu-system-arm, qemu-system-mips, qemu-system-sparc, qemu-system-x86,
 Description: extra block backend modules for qemu-system and qemu-utils
- QEMU is a fast processor emulator: currently the package supports Alpha, ARM,
+ QEMU is a fast processor emulator: currently the package supports ARM,
  CRIS, i386, LoongArch, M68k (ColdFire), MicroBlaze, MIPS, PowerPC, RISC-V,
  S390x, SH4, SPARC, x86-64, Xtensa and other emulations. By using dynamic
  translation it achieves reasonable speed while being easy to port on new host
@@ -223,7 +223,7 @@ Breaks: libvirt-daemon (<< 7.2.0-1)
 Depends: ${misc:Depends}, ${shlibs:Depends},
 # to fix wrong acl for newly created device node on ubuntu:
 Description: QEMU full system emulation binaries (common files)
- QEMU is a fast processor emulator: currently the package supports Alpha, ARM,
+ QEMU is a fast processor emulator: currently the package supports ARM,
  CRIS, i386, LoongArch, M68k (ColdFire), MicroBlaze, MIPS, PowerPC, RISC-V,
  S390x, SH4, SPARC, x86-64, Xtensa and other emulations. By using dynamic
  translation it achieves reasonable speed while being easy to port on new host
@@ -298,7 +298,7 @@ Recommends: qemu-utils,
 Suggests: samba, vde2,
 Provides: ${qemu:Provides}
 Description: QEMU full system emulation binaries (miscellaneous)
- QEMU is a fast processor emulator: currently the package supports Alpha, ARM,
+ QEMU is a fast processor emulator: currently the package supports ARM,
  CRIS, i386, LoongArch, M68k (ColdFire), MicroBlaze, MIPS, PowerPC, RISC-V,
  S390x, SH4, SPARC, x86-64, Xtensa and other emulations. By using dynamic
  translation it achieves reasonable speed while being easy to port on new host
@@ -478,7 +478,7 @@ Build-Profiles: <!pkg.qemu.omit-user>
 Depends: ${shlibs:Depends}, ${misc:Depends}
 Recommends: qemu-user-binfmt
 Description: QEMU user mode emulation binaries
- QEMU is a fast processor emulator: currently the package supports Alpha, ARM,
+ QEMU is a fast processor emulator: currently the package supports ARM,
  CRIS, i386, LoongArch, M68k (ColdFire), MicroBlaze, MIPS, PowerPC, RISC-V,
  S390x, SH4, SPARC, x86-64, Xtensa and other emulations. By using dynamic
  translation it achieves reasonable speed while being easy to port on new host
@@ -505,7 +505,7 @@ Recommends: systemd
 Provides: qemu-user-binfmt
 Conflicts: qemu-user-binfmt
 Description: QEMU user mode emulation binaries (static version)
- QEMU is a fast processor emulator: currently the package supports Alpha, ARM,
+ QEMU is a fast processor emulator: currently the package supports ARM,
  CRIS, i386, LoongArch, M68k (ColdFire), MicroBlaze, MIPS, PowerPC, RISC-V,
  S390x, SH4, SPARC, x86-64, Xtensa and other emulations. By using dynamic
  translation it achieves reasonable speed while being easy to port on new host
@@ -528,7 +528,7 @@ Depends: ${misc:Depends}, qemu-user (= ${binary:Version})
 Recommends: systemd
 Conflicts: qemu-user-static
 Description: QEMU user mode binfmt registration for qemu-user
- QEMU is a fast processor emulator: currently the package supports Alpha, ARM,
+ QEMU is a fast processor emulator: currently the package supports ARM,
  CRIS, i386, LoongArch, M68k (ColdFire), MicroBlaze, MIPS, PowerPC, RISC-V,
  S390x, SH4, SPARC, x86-64, Xtensa and other emulations. By using dynamic
  translation it achieves reasonable speed while being easy to port on new host
@@ -551,7 +551,7 @@ Replaces:
 Breaks:
  qemu-system-common (<< 1:8.0+dfsg-5~),
 Description: QEMU utilities
- QEMU is a fast processor emulator: currently the package supports Alpha, ARM,
+ QEMU is a fast processor emulator: currently the package supports ARM,
  CRIS, i386, LoongArch, M68k (ColdFire), MicroBlaze, MIPS, PowerPC, RISC-V,
  S390x, SH4, SPARC, x86-64, Xtensa and other emulations. By using dynamic
  translation it achieves reasonable speed while being easy to port on new host
@@ -568,7 +568,7 @@ Multi-Arch: foreign
 Depends: ${shlibs:Depends}, ${misc:Depends}
 Pre-Depends: ${misc:Pre-Depends}
 Description: Guest-side qemu-system agent
- QEMU is a fast processor emulator: currently the package supports Alpha, ARM,
+ QEMU is a fast processor emulator: currently the package supports ARM,
  CRIS, i386, LoongArch, M68k (ColdFire), MicroBlaze, MIPS, PowerPC, RISC-V,
  S390x, SH4, SPARC, x86-64, Xtensa and other emulations. By using dynamic
  translation it achieves reasonable speed while being easy to port on new host
