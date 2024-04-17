@@ -1,3 +1,9 @@
+qemu (1:8.2.2+ds-2deepin1) unstable; urgency=medium
+
+  * remove alpha support
+
+ -- xiangzelong <xiangzelong@deepin.org>  Wed, 17 Apr 2024 14:17:52 +0800
+
 qemu (1:8.2.2+ds-2) unstable; urgency=medium
 
   * d/control: fix qemu version in Breaks: to include the missing epoch

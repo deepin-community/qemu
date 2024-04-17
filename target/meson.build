@@ -1,4 +1,3 @@
-subdir('alpha')
 subdir('arm')
 subdir('avr')
 subdir('cris')

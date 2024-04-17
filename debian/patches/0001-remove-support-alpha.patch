@@ -1,0 +1,131 @@
+From 15395712a6fe71f7e359f3ee45586956259c76bb Mon Sep 17 00:00:00 2001
+From: xzl <xiangzelong@deepin.org>
+Date: Wed, 17 Apr 2024 14:12:54 +0800
+Subject: [PATCH 1/1] remove support alpha
+
+---
+ configure                  | 1 -
+ hw/Kconfig                 | 1 -
+ hw/meson.build             | 1 -
+ include/sysemu/arch_init.h | 1 -
+ linux-user/meson.build     | 1 -
+ meson.build                | 2 --
+ system/qdev-monitor.c      | 2 +-
+ target/Kconfig             | 1 -
+ target/meson.build         | 1 -
+ 9 files changed, 1 insertion(+), 10 deletions(-)
+
+diff --git a/configure b/configure
+index d3ab4360..70d71418 100755
+--- a/configure
++++ b/configure
+@@ -1155,7 +1155,6 @@ fi
+ # cross compilers defaults, can be overridden with --cross-cc-ARCH
+ : ${cross_prefix_aarch64="aarch64-linux-gnu-"}
+ : ${cross_prefix_aarch64_be="$cross_prefix_aarch64"}
+-: ${cross_prefix_alpha="alpha-linux-gnu-"}
+ : ${cross_prefix_arm="arm-linux-gnueabihf-"}
+ : ${cross_prefix_armeb="$cross_prefix_arm"}
+ : ${cross_prefix_hexagon="hexagon-unknown-linux-musl-"}
+diff --git a/hw/Kconfig b/hw/Kconfig
+index 9ca7b38c..500d0bf8 100644
+--- a/hw/Kconfig
++++ b/hw/Kconfig
+@@ -47,7 +47,6 @@ source watchdog/Kconfig
+ 
+ # arch Kconfig
+ source arm/Kconfig
+-source alpha/Kconfig
+ source avr/Kconfig
+ source cris/Kconfig
+ source hppa/Kconfig
+diff --git a/hw/meson.build b/hw/meson.build
+index f01fac46..7ce55162 100644
+--- a/hw/meson.build
++++ b/hw/meson.build
+@@ -45,7 +45,6 @@ subdir('watchdog')
+ subdir('xen')
+ subdir('xenpv')
+ 
+-subdir('alpha')
+ subdir('arm')
+ subdir('avr')
+ subdir('cris')
+diff --git a/include/sysemu/arch_init.h b/include/sysemu/arch_init.h
+index 8850cb1a..d7fd50d9 100644
+--- a/include/sysemu/arch_init.h
++++ b/include/sysemu/arch_init.h
+@@ -4,7 +4,6 @@
+ 
+ enum {
+     QEMU_ARCH_ALL = -1,
+-    QEMU_ARCH_ALPHA = (1 << 0),
+     QEMU_ARCH_ARM = (1 << 1),
+     QEMU_ARCH_CRIS = (1 << 2),
+     QEMU_ARCH_I386 = (1 << 3),
+diff --git a/linux-user/meson.build b/linux-user/meson.build
+index bc41e8c3..8696db22 100644
+--- a/linux-user/meson.build
++++ b/linux-user/meson.build
+@@ -36,7 +36,6 @@ gen_vdso = generator(gen_vdso_exe, output: '@BASENAME@.c.inc',
+                      arguments: ['-o', '@OUTPUT@', '@EXTRA_ARGS@', '@INPUT@'])
+ 
+ subdir('aarch64')
+-subdir('alpha')
+ subdir('arm')
+ subdir('hppa')
+ subdir('i386')
+diff --git a/meson.build b/meson.build
+index 6c77d968..6dbdb954 100644
+--- a/meson.build
++++ b/meson.build
+@@ -2861,7 +2861,6 @@ config_target_h = {}
+ config_target_mak = {}
+ 
+ disassemblers = {
+-  'alpha' : ['CONFIG_ALPHA_DIS'],
+   'avr' : ['CONFIG_AVR_DIS'],
+   'cris' : ['CONFIG_CRIS_DIS'],
+   'hexagon' : ['CONFIG_HEXAGON_DIS'],
+@@ -3294,7 +3293,6 @@ if have_system
+     'hw/9pfs',
+     'hw/acpi',
+     'hw/adc',
+-    'hw/alpha',
+     'hw/arm',
+     'hw/audio',
+     'hw/block',
+diff --git a/system/qdev-monitor.c b/system/qdev-monitor.c
+index a13db763..9f854a9a 100644
+--- a/system/qdev-monitor.c
++++ b/system/qdev-monitor.c
+@@ -56,7 +56,7 @@ typedef struct QDevAlias
+ } QDevAlias;
+ 
+ /* default virtio transport per architecture */
+-#define QEMU_ARCH_VIRTIO_PCI (QEMU_ARCH_ALPHA | QEMU_ARCH_ARM | \
++#define QEMU_ARCH_VIRTIO_PCI (QEMU_ARCH_ARM | \
+                               QEMU_ARCH_HPPA | QEMU_ARCH_I386 | \
+                               QEMU_ARCH_MIPS | QEMU_ARCH_PPC |  \
+                               QEMU_ARCH_RISCV | QEMU_ARCH_SH4 | \
+diff --git a/target/Kconfig b/target/Kconfig
+index 83da0bd2..882510b0 100644
+--- a/target/Kconfig
++++ b/target/Kconfig
+@@ -1,4 +1,3 @@
+-source alpha/Kconfig
+ source arm/Kconfig
+ source avr/Kconfig
+ source cris/Kconfig
+diff --git a/target/meson.build b/target/meson.build
+index a53a6048..bcd21dc0 100644
+--- a/target/meson.build
++++ b/target/meson.build
+@@ -1,4 +1,3 @@
+-subdir('alpha')
+ subdir('arm')
+ subdir('avr')
+ subdir('cris')
+-- 
+2.43.0
+

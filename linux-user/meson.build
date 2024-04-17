@@ -36,7 +36,6 @@ gen_vdso = generator(gen_vdso_exe, output: '@BASENAME@.c.inc',
                      arguments: ['-o', '@OUTPUT@', '@EXTRA_ARGS@', '@INPUT@'])
 
 subdir('aarch64')
-subdir('alpha')
 subdir('arm')
 subdir('hppa')
 subdir('i386')

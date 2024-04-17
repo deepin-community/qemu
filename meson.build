@@ -2861,7 +2861,6 @@ config_target_h = {}
 config_target_mak = {}
 
 disassemblers = {
-  'alpha' : ['CONFIG_ALPHA_DIS'],
   'avr' : ['CONFIG_AVR_DIS'],
   'cris' : ['CONFIG_CRIS_DIS'],
   'hexagon' : ['CONFIG_HEXAGON_DIS'],
@@ -3294,7 +3293,6 @@ if have_system
     'hw/9pfs',
     'hw/acpi',
     'hw/adc',
-    'hw/alpha',
     'hw/arm',
     'hw/audio',
     'hw/block',
