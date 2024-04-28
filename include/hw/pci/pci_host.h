@@ -31,8 +31,6 @@
 #include "hw/sysbus.h"
 #include "qom/object.h"
 
-#define PCI_HOST_BYPASS_IOMMU "bypass-iommu"
-
 #define TYPE_PCI_HOST_BRIDGE "pci-host-bridge"
 OBJECT_DECLARE_TYPE(PCIHostState, PCIHostBridgeClass, PCI_HOST_BRIDGE)
 
@@ -45,7 +43,6 @@ struct PCIHostState {
     uint32_t config_reg;
     bool mig_enabled;
     PCIBus *bus;
-    bool bypass_iommu;
 
     QLIST_ENTRY(PCIHostState) next;
 };

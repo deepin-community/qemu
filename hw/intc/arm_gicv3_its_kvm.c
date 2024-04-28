@@ -37,7 +37,7 @@ DECLARE_OBJ_CHECKERS(GICv3ITSState, KVMARMITSClass,
 
 struct KVMARMITSClass {
     GICv3ITSCommonClass parent_class;
-    ResettablePhases parent_phases;
+    void (*parent_reset)(DeviceState *dev);
 };
 
 
@@ -71,7 +71,7 @@ static int kvm_its_send_msi(GICv3ITSState *s, uint32_t value, uint16_t devid)
  *
  * The tables get flushed to guest RAM whenever the VM gets stopped.
  */
-static void vm_change_state_handler(void *opaque, bool running,
+static void vm_change_state_handler(void *opaque, int running,
                                     RunState state)
 {
     GICv3ITSState *s = (GICv3ITSState *)opaque;
@@ -106,15 +106,14 @@ static void kvm_arm_its_realize(DeviceState *dev, Error **errp)
     kvm_arm_register_device(&s->iomem_its_cntrl, -1, KVM_DEV_ARM_VGIC_GRP_ADDR,
                             KVM_VGIC_ITS_ADDR_TYPE, s->dev_fd, 0);
 
-    gicv3_add_its(s->gicv3, dev);
-
-    gicv3_its_init_mmio(s, NULL, NULL);
+    gicv3_its_init_mmio(s, NULL);
 
     if (!kvm_device_check_attr(s->dev_fd, KVM_DEV_ARM_VGIC_GRP_ITS_REGS,
         GITS_CTLR)) {
         error_setg(&s->migration_blocker, "This operating system kernel "
                    "does not support vITS migration");
-        if (migrate_add_blocker(&s->migration_blocker, errp) < 0) {
+        if (migrate_add_blocker(s->migration_blocker, errp) < 0) {
+            error_free(s->migration_blocker);
             return;
         }
     } else {
@@ -123,7 +122,7 @@ static void kvm_arm_its_realize(DeviceState *dev, Error **errp)
 
     kvm_msi_use_devid = true;
     kvm_gsi_direct_mapping = false;
-    kvm_msi_via_irqfd_allowed = true;
+    kvm_msi_via_irqfd_allowed = kvm_irqfds_enabled();
 }
 
 /**
@@ -196,15 +195,13 @@ static void kvm_arm_its_post_load(GICv3ITSState *s)
                       GITS_CTLR, &s->ctlr, true, &error_abort);
 }
 
-static void kvm_arm_its_reset_hold(Object *obj)
+static void kvm_arm_its_reset(DeviceState *dev)
 {
-    GICv3ITSState *s = ARM_GICV3_ITS_COMMON(obj);
+    GICv3ITSState *s = ARM_GICV3_ITS_COMMON(dev);
     KVMARMITSClass *c = KVM_ARM_ITS_GET_CLASS(s);
     int i;
 
-    if (c->parent_phases.hold) {
-        c->parent_phases.hold(obj);
-    }
+    c->parent_reset(dev);
 
     if (kvm_device_check_attr(s->dev_fd, KVM_DEV_ARM_VGIC_GRP_CTRL,
                                KVM_DEV_ARM_ITS_CTRL_RESET)) {
@@ -242,14 +239,12 @@ static Property kvm_arm_its_props[] = {
 static void kvm_arm_its_class_init(ObjectClass *klass, void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(klass);
-    ResettableClass *rc = RESETTABLE_CLASS(klass);
     GICv3ITSCommonClass *icc = ARM_GICV3_ITS_COMMON_CLASS(klass);
     KVMARMITSClass *ic = KVM_ARM_ITS_CLASS(klass);
 
     dc->realize = kvm_arm_its_realize;
     device_class_set_props(dc, kvm_arm_its_props);
-    resettable_class_set_parent_phases(rc, NULL, kvm_arm_its_reset_hold, NULL,
-                                       &ic->parent_phases);
+    device_class_set_parent_reset(dc, kvm_arm_its_reset, &ic->parent_reset);
     icc->send_msi = kvm_its_send_msi;
     icc->pre_save = kvm_arm_its_pre_save;
     icc->post_load = kvm_arm_its_post_load;

@@ -21,7 +21,6 @@
 #include "cpu.h"
 #include "exec/helper-proto.h"
 #include "internals.h"
-#include "cpu-features.h"
 #ifdef CONFIG_TCG
 #include "qemu/log.h"
 #include "fpu/softfloat.h"
@@ -196,10 +195,8 @@ uint32_t vfp_get_fpscr(CPUARMState *env)
 
 void HELPER(vfp_set_fpscr)(CPUARMState *env, uint32_t val)
 {
-    ARMCPU *cpu = env_archcpu(env);
-
     /* When ARMv8.2-FP16 is not supported, FZ16 is RES0.  */
-    if (!cpu_isar_feature(any_fp16, cpu)) {
+    if (!cpu_isar_feature(any_fp16, env_archcpu(env))) {
         val &= ~FPCR_FZ16;
     }
 
@@ -213,16 +210,14 @@ void HELPER(vfp_set_fpscr)(CPUARMState *env, uint32_t val)
          * because in v7A no-short-vector-support cores still had to
          * allow Stride/Len to be written with the only effect that
          * some insns are required to UNDEF if the guest sets them.
+         *
+         * TODO: if M-profile MVE implemented, set LTPSIZE.
          */
         env->vfp.vec_len = extract32(val, 16, 3);
         env->vfp.vec_stride = extract32(val, 20, 2);
-    } else if (cpu_isar_feature(aa32_mve, cpu)) {
-        env->v7m.ltpsize = extract32(val, FPCR_LTPSIZE_SHIFT,
-                                     FPCR_LTPSIZE_LENGTH);
     }
 
-    if (arm_feature(env, ARM_FEATURE_NEON) ||
-        cpu_isar_feature(aa32_mve, cpu)) {
+    if (arm_feature(env, ARM_FEATURE_NEON)) {
         /*
          * The bit we set within fpscr_q is arbitrary; the register as a
          * whole being zero/non-zero is what counts.
@@ -411,18 +406,6 @@ float64 VFP_HELPER(fcvtd, s)(float32 x, CPUARMState *env)
 float32 VFP_HELPER(fcvts, d)(float64 x, CPUARMState *env)
 {
     return float64_to_float32(x, &env->vfp.fp_status);
-}
-
-uint32_t HELPER(bfcvt)(float32 x, void *status)
-{
-    return float32_to_bfloat16(x, status);
-}
-
-uint32_t HELPER(bfcvt_pair)(uint64_t pair, void *status)
-{
-    bfloat16 lo = float32_to_bfloat16(extract64(pair, 0, 32), status);
-    bfloat16 hi = float32_to_bfloat16(extract64(pair, 32, 32), status);
-    return deposit32(lo, 16, 16, hi);
 }
 
 /*
@@ -672,9 +655,7 @@ uint32_t HELPER(recpe_f16)(uint32_t input, void *fpstp)
         float16 nan = f16;
         if (float16_is_signaling_nan(f16, fpst)) {
             float_raise(float_flag_invalid, fpst);
-            if (!fpst->default_nan_mode) {
-                nan = float16_silence_nan(f16, fpst);
-            }
+            nan = float16_silence_nan(f16, fpst);
         }
         if (fpst->default_nan_mode) {
             nan =  float16_default_nan(fpst);
@@ -722,9 +703,7 @@ float32 HELPER(recpe_f32)(float32 input, void *fpstp)
         float32 nan = f32;
         if (float32_is_signaling_nan(f32, fpst)) {
             float_raise(float_flag_invalid, fpst);
-            if (!fpst->default_nan_mode) {
-                nan = float32_silence_nan(f32, fpst);
-            }
+            nan = float32_silence_nan(f32, fpst);
         }
         if (fpst->default_nan_mode) {
             nan =  float32_default_nan(fpst);
@@ -772,9 +751,7 @@ float64 HELPER(recpe_f64)(float64 input, void *fpstp)
         float64 nan = f64;
         if (float64_is_signaling_nan(f64, fpst)) {
             float_raise(float_flag_invalid, fpst);
-            if (!fpst->default_nan_mode) {
-                nan = float64_silence_nan(f64, fpst);
-            }
+            nan = float64_silence_nan(f64, fpst);
         }
         if (fpst->default_nan_mode) {
             nan =  float64_default_nan(fpst);
@@ -873,9 +850,7 @@ uint32_t HELPER(rsqrte_f16)(uint32_t input, void *fpstp)
         float16 nan = f16;
         if (float16_is_signaling_nan(f16, s)) {
             float_raise(float_flag_invalid, s);
-            if (!s->default_nan_mode) {
-                nan = float16_silence_nan(f16, fpstp);
-            }
+            nan = float16_silence_nan(f16, s);
         }
         if (s->default_nan_mode) {
             nan =  float16_default_nan(s);
@@ -919,9 +894,7 @@ float32 HELPER(rsqrte_f32)(float32 input, void *fpstp)
         float32 nan = f32;
         if (float32_is_signaling_nan(f32, s)) {
             float_raise(float_flag_invalid, s);
-            if (!s->default_nan_mode) {
-                nan = float32_silence_nan(f32, fpstp);
-            }
+            nan = float32_silence_nan(f32, s);
         }
         if (s->default_nan_mode) {
             nan =  float32_default_nan(s);
@@ -964,9 +937,7 @@ float64 HELPER(rsqrte_f64)(float64 input, void *fpstp)
         float64 nan = f64;
         if (float64_is_signaling_nan(f64, s)) {
             float_raise(float_flag_invalid, s);
-            if (!s->default_nan_mode) {
-                nan = float64_silence_nan(f64, fpstp);
-            }
+            nan = float64_silence_nan(f64, s);
         }
         if (s->default_nan_mode) {
             nan =  float64_default_nan(s);
@@ -1105,14 +1076,33 @@ float64 HELPER(rintd)(float64 x, void *fp_status)
 }
 
 /* Convert ARM rounding mode to softfloat */
-const FloatRoundMode arm_rmode_to_sf_map[] = {
-    [FPROUNDING_TIEEVEN] = float_round_nearest_even,
-    [FPROUNDING_POSINF] = float_round_up,
-    [FPROUNDING_NEGINF] = float_round_down,
-    [FPROUNDING_ZERO] = float_round_to_zero,
-    [FPROUNDING_TIEAWAY] = float_round_ties_away,
-    [FPROUNDING_ODD] = float_round_to_odd,
-};
+int arm_rmode_to_sf(int rmode)
+{
+    switch (rmode) {
+    case FPROUNDING_TIEAWAY:
+        rmode = float_round_ties_away;
+        break;
+    case FPROUNDING_ODD:
+        /* FIXME: add support for TIEAWAY and ODD */
+        qemu_log_mask(LOG_UNIMP, "arm: unimplemented rounding mode: %d\n",
+                      rmode);
+        /* fall through for now */
+    case FPROUNDING_TIEEVEN:
+    default:
+        rmode = float_round_nearest_even;
+        break;
+    case FPROUNDING_POSINF:
+        rmode = float_round_up;
+        break;
+    case FPROUNDING_NEGINF:
+        rmode = float_round_down;
+        break;
+    case FPROUNDING_ZERO:
+        rmode = float_round_to_zero;
+        break;
+    }
+    return rmode;
+}
 
 /*
  * Implement float64 to int32_t conversion without saturation;
@@ -1121,21 +1111,68 @@ const FloatRoundMode arm_rmode_to_sf_map[] = {
 uint64_t HELPER(fjcvtzs)(float64 value, void *vstatus)
 {
     float_status *status = vstatus;
-    uint32_t inexact, frac;
-    uint32_t e_old, e_new;
+    uint32_t exp, sign;
+    uint64_t frac;
+    uint32_t inexact = 1; /* !Z */
 
-    e_old = get_float_exception_flags(status);
-    set_float_exception_flags(0, status);
-    frac = float64_to_int32_modulo(value, float_round_to_zero, status);
-    e_new = get_float_exception_flags(status);
-    set_float_exception_flags(e_old | e_new, status);
+    sign = extract64(value, 63, 1);
+    exp = extract64(value, 52, 11);
+    frac = extract64(value, 0, 52);
 
-    if (value == float64_chs(float64_zero)) {
-        /* While not inexact for IEEE FP, -0.0 is inexact for JavaScript. */
-        inexact = 1;
+    if (exp == 0) {
+        /* While not inexact for IEEE FP, -0.0 is inexact for JavaScript.  */
+        inexact = sign;
+        if (frac != 0) {
+            if (status->flush_inputs_to_zero) {
+                float_raise(float_flag_input_denormal, status);
+            } else {
+                float_raise(float_flag_inexact, status);
+                inexact = 1;
+            }
+        }
+        frac = 0;
+    } else if (exp == 0x7ff) {
+        /* This operation raises Invalid for both NaN and overflow (Inf).  */
+        float_raise(float_flag_invalid, status);
+        frac = 0;
     } else {
-        /* Normal inexact or overflow or NaN */
-        inexact = e_new & (float_flag_inexact | float_flag_invalid);
+        int true_exp = exp - 1023;
+        int shift = true_exp - 52;
+
+        /* Restore implicit bit.  */
+        frac |= 1ull << 52;
+
+        /* Shift the fraction into place.  */
+        if (shift >= 0) {
+            /* The number is so large we must shift the fraction left.  */
+            if (shift >= 64) {
+                /* The fraction is shifted out entirely.  */
+                frac = 0;
+            } else {
+                frac <<= shift;
+            }
+        } else if (shift > -64) {
+            /* Normal case -- shift right and notice if bits shift out.  */
+            inexact = (frac << (64 + shift)) != 0;
+            frac >>= -shift;
+        } else {
+            /* The fraction is shifted out entirely.  */
+            frac = 0;
+        }
+
+        /* Notice overflow or inexact exceptions.  */
+        if (true_exp > 31 || frac > (sign ? 0x80000000ull : 0x7fffffff)) {
+            /* Overflow, for which this operation raises invalid.  */
+            float_raise(float_flag_invalid, status);
+            inexact = 1;
+        } else if (inexact) {
+            float_raise(float_flag_inexact, status);
+        }
+
+        /* Honor the sign.  */
+        if (sign) {
+            frac = -frac;
+        }
     }
 
     /* Pack the result and the env->ZF representation of Z together.  */

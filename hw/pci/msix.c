@@ -26,14 +26,12 @@
 #include "qapi/error.h"
 #include "trace.h"
 
-#include "hw/i386/kvm/xen_evtchn.h"
-
 /* MSI enable bit and maskall bit are in byte 1 in FLAGS register */
 #define MSIX_CONTROL_OFFSET (PCI_MSIX_FLAGS + 1)
 #define MSIX_ENABLE_MASK (PCI_MSIX_FLAGS_ENABLE >> 8)
 #define MSIX_MASKALL_MASK (PCI_MSIX_FLAGS_MASKALL >> 8)
 
-static MSIMessage msix_prepare_message(PCIDevice *dev, unsigned vector)
+MSIMessage msix_get_message(PCIDevice *dev, unsigned vector)
 {
     uint8_t *table_entry = dev->msix_table + vector * PCI_MSIX_ENTRY_SIZE;
     MSIMessage msg;
@@ -41,11 +39,6 @@ static MSIMessage msix_prepare_message(PCIDevice *dev, unsigned vector)
     msg.address = pci_get_quad(table_entry + PCI_MSIX_ENTRY_LOWER_ADDR);
     msg.data = pci_get_long(table_entry + PCI_MSIX_ENTRY_DATA);
     return msg;
-}
-
-MSIMessage msix_get_message(PCIDevice *dev, unsigned vector)
-{
-    return dev->msix_prepare_message(dev, vector);
 }
 
 /*
@@ -126,13 +119,6 @@ static void msix_handle_mask_update(PCIDevice *dev, int vector, bool was_masked)
 {
     bool is_masked = msix_is_masked(dev, vector);
 
-    if (xen_mode == XEN_EMULATE) {
-        MSIMessage msg = msix_prepare_message(dev, vector);
-
-        xen_evtchn_snoop_msi(dev, true, vector, msg.address, msg.data,
-                             is_masked);
-    }
-
     if (is_masked == was_masked) {
         return;
     }
@@ -143,26 +129,6 @@ static void msix_handle_mask_update(PCIDevice *dev, int vector, bool was_masked)
         msix_clr_pending(dev, vector);
         msix_notify(dev, vector);
     }
-}
-
-void msix_set_mask(PCIDevice *dev, int vector, bool mask)
-{
-    unsigned offset;
-    bool was_masked;
-
-    assert(vector < dev->msix_entries_nr);
-
-    offset = vector * PCI_MSIX_ENTRY_SIZE + PCI_MSIX_ENTRY_VECTOR_CTRL;
-
-    was_masked = msix_is_masked(dev, vector);
-
-    if (mask) {
-        dev->msix_table[offset] |= PCI_MSIX_ENTRY_CTRL_MASKBIT;
-    } else {
-        dev->msix_table[offset] &= ~PCI_MSIX_ENTRY_CTRL_MASKBIT;
-    }
-
-    msix_handle_mask_update(dev, vector, was_masked);
 }
 
 static bool msix_masked(PCIDevice *dev)
@@ -213,7 +179,6 @@ static uint64_t msix_table_mmio_read(void *opaque, hwaddr addr,
 {
     PCIDevice *dev = opaque;
 
-    assert(addr + size <= dev->msix_entries_nr * PCI_MSIX_ENTRY_SIZE);
     return pci_get_long(dev->msix_table + addr);
 }
 
@@ -223,8 +188,6 @@ static void msix_table_mmio_write(void *opaque, hwaddr addr,
     PCIDevice *dev = opaque;
     int vector = addr / PCI_MSIX_ENTRY_SIZE;
     bool was_masked;
-
-    assert(addr + size <= dev->msix_entries_nr * PCI_MSIX_ENTRY_SIZE);
 
     was_masked = msix_is_masked(dev, vector);
     pci_set_long(dev->msix_table + addr, val);
@@ -378,8 +341,6 @@ int msix_init(struct PCIDevice *dev, unsigned short nentries,
                           "msix-pba", pba_size);
     memory_region_add_subregion(pba_bar, pba_offset, &dev->msix_pba_mmio);
 
-    dev->msix_prepare_message = msix_prepare_message;
-
     return 0;
 }
 
@@ -465,7 +426,6 @@ void msix_uninit(PCIDevice *dev, MemoryRegion *table_bar, MemoryRegion *pba_bar)
     g_free(dev->msix_entry_used);
     dev->msix_entry_used = NULL;
     dev->cap_present &= ~QEMU_PCI_CAP_MSIX;
-    dev->msix_prepare_message = NULL;
 }
 
 void msix_uninit_exclusive_bar(PCIDevice *dev)
@@ -526,9 +486,7 @@ void msix_notify(PCIDevice *dev, unsigned vector)
 {
     MSIMessage msg;
 
-    assert(vector < dev->msix_entries_nr);
-
-    if (!dev->msix_entry_used[vector]) {
+    if (vector >= dev->msix_entries_nr || !dev->msix_entry_used[vector]) {
         return;
     }
 
@@ -564,17 +522,20 @@ void msix_reset(PCIDevice *dev)
  * don't want to follow the spec suggestion can declare all vectors as used. */
 
 /* Mark vector as used. */
-void msix_vector_use(PCIDevice *dev, unsigned vector)
+int msix_vector_use(PCIDevice *dev, unsigned vector)
 {
-    assert(vector < dev->msix_entries_nr);
+    if (vector >= dev->msix_entries_nr) {
+        return -EINVAL;
+    }
+
     dev->msix_entry_used[vector]++;
+    return 0;
 }
 
 /* Mark vector as unused. */
 void msix_vector_unuse(PCIDevice *dev, unsigned vector)
 {
-    assert(vector < dev->msix_entries_nr);
-    if (!dev->msix_entry_used[vector]) {
+    if (vector >= dev->msix_entries_nr || !dev->msix_entry_used[vector]) {
         return;
     }
     if (--dev->msix_entry_used[vector]) {
@@ -648,7 +609,6 @@ undo:
     }
     dev->msix_vector_use_notifier = NULL;
     dev->msix_vector_release_notifier = NULL;
-    dev->msix_vector_poll_notifier = NULL;
     return ret;
 }
 
@@ -671,7 +631,7 @@ void msix_unset_vector_notifiers(PCIDevice *dev)
 }
 
 static int put_msix_state(QEMUFile *f, void *pv, size_t size,
-                          const VMStateField *field, JSONWriter *vmdesc)
+                          const VMStateField *field, QJSON *vmdesc)
 {
     msix_save(pv, f);
 

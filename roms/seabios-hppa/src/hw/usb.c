@@ -174,7 +174,7 @@ usb_desc2pipe(struct usb_pipe *pipe, struct usbdevice_s *usbdev
     pipe->ep = epdesc->bEndpointAddress & USB_ENDPOINT_NUMBER_MASK;
     pipe->devaddr = usbdev->devaddr;
     pipe->speed = usbdev->speed;
-    pipe->maxpacket = le16_to_cpu(epdesc->wMaxPacketSize);
+    pipe->maxpacket = epdesc->wMaxPacketSize;
     pipe->eptype = epdesc->bmAttributes & USB_ENDPOINT_XFERTYPE_MASK;
 }
 
@@ -227,9 +227,9 @@ get_device_info8(struct usb_pipe *pipe, struct usb_device_descriptor *dinfo)
     struct usb_ctrlrequest req;
     req.bRequestType = USB_DIR_IN | USB_TYPE_STANDARD | USB_RECIP_DEVICE;
     req.bRequest = USB_REQ_GET_DESCRIPTOR;
-    req.wValue = cpu_to_le16(USB_DT_DEVICE<<8);
+    req.wValue = USB_DT_DEVICE<<8;
     req.wIndex = 0;
-    req.wLength = cpu_to_le16(8);
+    req.wLength = 8;
     return usb_send_default_control(pipe, &req, dinfo);
 }
 
@@ -241,25 +241,25 @@ get_device_config(struct usb_pipe *pipe)
     struct usb_ctrlrequest req;
     req.bRequestType = USB_DIR_IN | USB_TYPE_STANDARD | USB_RECIP_DEVICE;
     req.bRequest = USB_REQ_GET_DESCRIPTOR;
-    req.wValue = cpu_to_le16(USB_DT_CONFIG<<8);
+    req.wValue = USB_DT_CONFIG<<8;
     req.wIndex = 0;
-    req.wLength = cpu_to_le16(sizeof(cfg));
+    req.wLength = sizeof(cfg);
     int ret = usb_send_default_control(pipe, &req, &cfg);
     if (ret)
         return NULL;
 
-    struct usb_config_descriptor *config = malloc_tmphigh(le16_to_cpu(cfg.wTotalLength));
+    void *config = malloc_tmphigh(cfg.wTotalLength);
     if (!config) {
         warn_noalloc();
         return NULL;
     }
     req.wLength = cfg.wTotalLength;
     ret = usb_send_default_control(pipe, &req, config);
-    if (ret || config->wTotalLength != cfg.wTotalLength) {
+    if (ret) {
         free(config);
         return NULL;
     }
-    //hexdump(config, le16_to_cpu(cfg.wTotalLength));
+    //hexdump(config, cfg.wTotalLength);
     return config;
 }
 
@@ -269,7 +269,7 @@ set_configuration(struct usb_pipe *pipe, u16 val)
     struct usb_ctrlrequest req;
     req.bRequestType = USB_DIR_OUT | USB_TYPE_STANDARD | USB_RECIP_DEVICE;
     req.bRequest = USB_REQ_SET_CONFIGURATION;
-    req.wValue = cpu_to_le16(val);
+    req.wValue = val;
     req.wIndex = 0;
     req.wLength = 0;
     return usb_send_default_control(pipe, &req, NULL);
@@ -302,7 +302,7 @@ usb_set_address(struct usbdevice_s *usbdev)
 
     // Create a pipe for the default address.
     struct usb_endpoint_descriptor epdesc = {
-        .wMaxPacketSize = cpu_to_le16(speed_to_ctlsize[usbdev->speed]),
+        .wMaxPacketSize = speed_to_ctlsize[usbdev->speed],
         .bmAttributes = USB_ENDPOINT_XFER_CONTROL,
     };
     usbdev->defpipe = usb_alloc_pipe(usbdev, &epdesc);
@@ -313,7 +313,7 @@ usb_set_address(struct usbdevice_s *usbdev)
     struct usb_ctrlrequest req;
     req.bRequestType = USB_DIR_OUT | USB_TYPE_STANDARD | USB_RECIP_DEVICE;
     req.bRequest = USB_REQ_SET_ADDRESS;
-    req.wValue = cpu_to_le16(cntl->maxaddr + 1);
+    req.wValue = cntl->maxaddr + 1;
     req.wIndex = 0;
     req.wLength = 0;
     int ret = usb_send_default_control(usbdev->defpipe, &req, NULL);
@@ -346,15 +346,15 @@ configure_usb_device(struct usbdevice_s *usbdev)
     if (ret)
         return 0;
     u16 maxpacket = dinfo.bMaxPacketSize0;
-    if (le16_to_cpu(dinfo.bcdUSB) >= 0x0300)
+    if (dinfo.bcdUSB >= 0x0300)
         maxpacket = 1 << dinfo.bMaxPacketSize0;
     dprintf(3, "device rev=%04x cls=%02x sub=%02x proto=%02x size=%d\n"
-            , le16_to_cpu(dinfo.bcdUSB), dinfo.bDeviceClass, dinfo.bDeviceSubClass
+            , dinfo.bcdUSB, dinfo.bDeviceClass, dinfo.bDeviceSubClass
             , dinfo.bDeviceProtocol, maxpacket);
     if (maxpacket < 8)
         return 0;
     struct usb_endpoint_descriptor epdesc = {
-        .wMaxPacketSize = cpu_to_le16(maxpacket),
+        .wMaxPacketSize = maxpacket,
         .bmAttributes = USB_ENDPOINT_XFER_CONTROL,
     };
     usbdev->defpipe = usb_realloc_pipe(usbdev, usbdev->defpipe, &epdesc);
@@ -367,24 +367,13 @@ configure_usb_device(struct usbdevice_s *usbdev)
         return 0;
 
     // Determine if a driver exists for this device - only look at the
-    // interfaces of the first configuration.
-    int num_iface = config->bNumInterfaces;
-    void *config_end = (void*)config + config->wTotalLength;
+    // first interface of the first configuration.
     struct usb_interface_descriptor *iface = (void*)(&config[1]);
-    for (;;) {
-        if (!num_iface-- || (void*)iface + iface->bLength > config_end)
-            // Not a supported device.
-            goto fail;
-        if (iface->bDescriptorType == USB_DT_INTERFACE
-            && (iface->bInterfaceClass == USB_CLASS_HUB
-                || (iface->bInterfaceClass == USB_CLASS_MASS_STORAGE
-                    && (iface->bInterfaceProtocol == US_PR_BULK
-                        || iface->bInterfaceProtocol == US_PR_UAS))
-                || (iface->bInterfaceClass == USB_CLASS_HID
-                    && iface->bInterfaceSubClass == USB_INTERFACE_SUBCLASS_BOOT)))
-            break;
-        iface = (void*)iface + iface->bLength;
-    }
+    if (iface->bInterfaceClass != USB_CLASS_HID
+        && iface->bInterfaceClass != USB_CLASS_MASS_STORAGE
+        && iface->bInterfaceClass != USB_CLASS_HUB)
+        // Not a supported device.
+        goto fail;
 
     // Set the configuration.
     ret = set_configuration(usbdev->defpipe, config->bConfigurationValue);

@@ -10,6 +10,7 @@
 #include "migration/vmstate.h"
 #include "hw/qdev-properties.h"
 #include "hw/misc/led.h"
+#include "hw/irq.h"
 #include "trace.h"
 
 #define LED_INTENSITY_PERCENT_MAX   100
@@ -19,7 +20,6 @@ static const char * const led_color_name[] = {
     [LED_COLOR_BLUE]    = "blue",
     [LED_COLOR_CYAN]    = "cyan",
     [LED_COLOR_GREEN]   = "green",
-    [LED_COLOR_YELLOW]  = "yellow",
     [LED_COLOR_AMBER]   = "amber",
     [LED_COLOR_ORANGE]  = "orange",
     [LED_COLOR_RED]     = "red",
@@ -63,7 +63,7 @@ static void led_set_state_gpio_handler(void *opaque, int line, int new_state)
     LEDState *s = LED(opaque);
 
     assert(line == 0);
-    led_set_state(s, !!new_state == s->gpio_active_high);
+    led_set_state(s, !!new_state != s->gpio_active_high);
 }
 
 static void led_reset(DeviceState *dev)

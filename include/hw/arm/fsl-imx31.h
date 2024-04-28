@@ -17,6 +17,7 @@
 #ifndef FSL_IMX31_H
 #define FSL_IMX31_H
 
+#include "hw/arm/boot.h"
 #include "hw/intc/imx_avic.h"
 #include "hw/misc/imx31_ccm.h"
 #include "hw/char/imx_serial.h"
@@ -29,7 +30,7 @@
 #include "target/arm/cpu.h"
 #include "qom/object.h"
 
-#define TYPE_FSL_IMX31 "fsl-imx31"
+#define TYPE_FSL_IMX31 "fsl,imx31"
 OBJECT_DECLARE_SIMPLE_TYPE(FslIMX31State, FSL_IMX31)
 
 #define FSL_IMX31_NUM_UARTS 2

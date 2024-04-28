@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# group: rw auto
 #
 # Check qemu-img option parsing
 #

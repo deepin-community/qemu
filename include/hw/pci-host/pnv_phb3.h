@@ -10,9 +10,10 @@
 #ifndef PCI_HOST_PNV_PHB3_H
 #define PCI_HOST_PNV_PHB3_H
 
+#include "hw/pci/pcie_host.h"
+#include "hw/pci/pcie_port.h"
 #include "hw/ppc/xics.h"
 #include "qom/object.h"
-#include "hw/pci-host/pnv_phb.h"
 
 typedef struct PnvPHB3 PnvPHB3;
 
@@ -101,16 +102,15 @@ struct PnvPBCQState {
 };
 
 /*
- * PHB3 PCIe Root Bus
+ * PHB3 PCIe Root port
  */
-#define TYPE_PNV_PHB3_ROOT_BUS "pnv-phb3-root"
-struct PnvPHB3RootBus {
-    PCIBus parent;
+#define TYPE_PNV_PHB3_ROOT_BUS "pnv-phb3-root-bus"
 
-    uint32_t chip_id;
-    uint32_t phb_id;
-};
-OBJECT_DECLARE_SIMPLE_TYPE(PnvPHB3RootBus, PNV_PHB3_ROOT_BUS)
+#define TYPE_PNV_PHB3_ROOT_PORT "pnv-phb3-root-port"
+
+typedef struct PnvPHB3RootPort {
+    PCIESlot parent_obj;
+} PnvPHB3RootPort;
 
 /*
  * PHB3 PCIe Host Bridge for PowerNV machines (POWER8)
@@ -126,9 +126,7 @@ OBJECT_DECLARE_SIMPLE_TYPE(PnvPHB3, PNV_PHB3)
 #define PCI_MMIO_TOTAL_SIZE   (0x1ull << 60)
 
 struct PnvPHB3 {
-    DeviceState parent;
-
-    PnvPHB *phb_base;
+    PCIExpressHost parent_obj;
 
     uint32_t chip_id;
     uint32_t phb_id;
@@ -156,15 +154,14 @@ struct PnvPHB3 {
 
     PnvPBCQState pbcq;
 
-    QLIST_HEAD(, PnvPhb3DMASpace) dma_spaces;
+    PnvPHB3RootPort root;
 
-    PnvChip *chip;
+    QLIST_HEAD(, PnvPhb3DMASpace) dma_spaces;
 };
 
 uint64_t pnv_phb3_reg_read(void *opaque, hwaddr off, unsigned size);
 void pnv_phb3_reg_write(void *opaque, hwaddr off, uint64_t val, unsigned size);
 void pnv_phb3_update_regions(PnvPHB3 *phb);
 void pnv_phb3_remap_irqs(PnvPHB3 *phb);
-void pnv_phb3_bus_init(DeviceState *dev, PnvPHB3 *phb);
 
 #endif /* PCI_HOST_PNV_PHB3_H */

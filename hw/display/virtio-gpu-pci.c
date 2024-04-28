@@ -33,20 +33,6 @@ static void virtio_gpu_pci_base_realize(VirtIOPCIProxy *vpci_dev, Error **errp)
     DeviceState *vdev = DEVICE(g);
     int i;
 
-    if (virtio_gpu_hostmem_enabled(g->conf)) {
-        vpci_dev->msix_bar_idx = 1;
-        vpci_dev->modern_mem_bar_idx = 2;
-        memory_region_init(&g->hostmem, OBJECT(g), "virtio-gpu-hostmem",
-                           g->conf.hostmem);
-        pci_register_bar(&vpci_dev->pci_dev, 4,
-                         PCI_BASE_ADDRESS_SPACE_MEMORY |
-                         PCI_BASE_ADDRESS_MEM_PREFETCH |
-                         PCI_BASE_ADDRESS_MEM_TYPE_64,
-                         &g->hostmem);
-        virtio_pci_add_shm_cap(vpci_dev, 4, 0, g->conf.hostmem,
-                               VIRTIO_GPU_SHM_ID_HOST_VISIBLE);
-    }
-
     virtio_pci_force_virtio_1(vpci_dev);
     if (!qdev_realize(vdev, BUS(&vpci_dev->bus), errp)) {
         return;
@@ -78,8 +64,6 @@ static const TypeInfo virtio_gpu_pci_base_info = {
     .class_init = virtio_gpu_pci_base_class_init,
     .abstract = true
 };
-module_obj(TYPE_VIRTIO_GPU_PCI_BASE);
-module_kconfig(VIRTIO_PCI);
 
 #define TYPE_VIRTIO_GPU_PCI "virtio-gpu-pci"
 typedef struct VirtIOGPUPCI VirtIOGPUPCI;
@@ -106,7 +90,6 @@ static const VirtioPCIDeviceTypeInfo virtio_gpu_pci_info = {
     .instance_size = sizeof(VirtIOGPUPCI),
     .instance_init = virtio_gpu_initfn,
 };
-module_obj(TYPE_VIRTIO_GPU_PCI);
 
 static void virtio_gpu_pci_register_types(void)
 {

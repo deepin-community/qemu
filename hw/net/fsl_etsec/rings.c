@@ -109,7 +109,7 @@ static void read_buffer_descriptor(eTSEC         *etsec,
 {
     assert(bd != NULL);
 
-    RING_DEBUG("READ Buffer Descriptor @ 0x" HWADDR_FMT_plx"\n", addr);
+    RING_DEBUG("READ Buffer Descriptor @ 0x" TARGET_FMT_plx"\n", addr);
     cpu_physical_memory_read(addr,
                              bd,
                              sizeof(eTSEC_rxtx_bd));
@@ -141,7 +141,7 @@ static void write_buffer_descriptor(eTSEC         *etsec,
         stl_be_p(&bd->bufptr, bd->bufptr);
     }
 
-    RING_DEBUG("Write Buffer Descriptor @ 0x" HWADDR_FMT_plx"\n", addr);
+    RING_DEBUG("Write Buffer Descriptor @ 0x" TARGET_FMT_plx"\n", addr);
     cpu_physical_memory_write(addr,
                               bd,
                               sizeof(eTSEC_rxtx_bd));
@@ -183,11 +183,13 @@ static void process_tx_fcb(eTSEC *etsec)
     uint8_t *l3_header = etsec->tx_buffer + 8 + l3_header_offset;
     /* L4 header */
     uint8_t *l4_header = l3_header + l4_header_offset;
-    int csum = 0;
 
     /* if packet is IP4 and IP checksum is requested */
     if (flags & FCB_TX_IP && flags & FCB_TX_CIP) {
-        csum |= CSUM_IP;
+        /* do IP4 checksum (TODO This function does TCP/UDP checksum
+         * but not sure if it also does IP4 checksum.) */
+        net_checksum_calculate(etsec->tx_buffer + 8,
+                etsec->tx_buffer_len - 8);
     }
     /* TODO Check the correct usage of the PHCS field of the FCB in case the NPH
      * flag is on */
@@ -199,7 +201,9 @@ static void process_tx_fcb(eTSEC *etsec)
             /* if checksum is requested */
             if (flags & FCB_TX_CTU) {
                 /* do UDP checksum */
-                csum |= CSUM_UDP;
+
+                net_checksum_calculate(etsec->tx_buffer + 8,
+                        etsec->tx_buffer_len - 8);
             } else {
                 /* set checksum field to 0 */
                 l4_header[6] = 0;
@@ -207,13 +211,9 @@ static void process_tx_fcb(eTSEC *etsec)
             }
         } else if (flags & FCB_TX_CTU) { /* if TCP and checksum is requested */
             /* do TCP checksum */
-            csum |= CSUM_TCP;
+            net_checksum_calculate(etsec->tx_buffer + 8,
+                                   etsec->tx_buffer_len - 8);
         }
-    }
-
-    if (csum) {
-        net_checksum_calculate(etsec->tx_buffer + 8,
-                               etsec->tx_buffer_len - 8, csum);
     }
 }
 
@@ -258,7 +258,7 @@ static void process_tx_bd(eTSEC         *etsec,
                 || etsec->regs[MACCFG2].value & MACCFG2_PADCRC) {
 
                 /* Padding and CRC (Padding implies CRC) */
-                tx_padding_and_crc(etsec, 60);
+                tx_padding_and_crc(etsec, 64);
 
             } else if (etsec->first_bd.flags & BD_TX_TC
                        || etsec->regs[MACCFG2].value & MACCFG2_CRC_EN) {
@@ -365,18 +365,12 @@ void etsec_walk_tx_ring(eTSEC *etsec, int ring_nbr)
     } while (TRUE);
 
     /* Save the Buffer Descriptor Pointers to last bd that was not
-     * successfully closed */
+     * succesfully closed */
     etsec->regs[TBPTR0 + ring_nbr].value = bd_addr;
 
     /* Set transmit halt THLTx */
     etsec->regs[TSTAT].value |= 1 << (31 - ring_nbr);
 }
-
-/*
- * rx_init_frame() ensures we never do more padding than this
- * (checksum plus minimum data packet size)
- */
-#define MAX_RX_PADDING 64
 
 static void fill_rx_bd(eTSEC          *etsec,
                        eTSEC_rxtx_bd  *bd,
@@ -386,10 +380,8 @@ static void fill_rx_bd(eTSEC          *etsec,
     uint16_t to_write;
     hwaddr   bufptr = bd->bufptr +
         ((hwaddr)(etsec->regs[TBDBPH].value & 0xF) << 32);
-    uint8_t  padd[MAX_RX_PADDING];
+    uint8_t  padd[etsec->rx_padding];
     uint8_t  rem;
-
-    assert(etsec->rx_padding <= MAX_RX_PADDING);
 
     RING_DEBUG("eTSEC fill Rx buffer @ 0x%016" HWADDR_PRIx
                " size:%zu(padding + crc:%u) + fcb:%u\n",
@@ -434,7 +426,7 @@ static void fill_rx_bd(eTSEC          *etsec,
         rem = MIN(etsec->regs[MRBLR].value - bd->length, etsec->rx_padding);
 
         if (rem > 0) {
-            memset(padd, 0x0, rem);
+            memset(padd, 0x0, sizeof(padd));
             etsec->rx_padding -= rem;
             *size             -= rem;
             bd->length        += rem;
@@ -510,7 +502,7 @@ ssize_t etsec_rx_ring_write(eTSEC *etsec, const uint8_t *buf, size_t size)
         return -1;
     }
 
-    if (!(etsec->regs[RCTRL].value & RCTRL_RSF) && (size < 60)) {
+    if ((etsec->regs[RCTRL].value & RCTRL_RSF) && (size < 60)) {
         /* CRC is not in the packet yet, so short frame is below 60 bytes */
         RING_DEBUG("%s: Drop short frame\n", __func__);
         return -1;

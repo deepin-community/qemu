@@ -142,7 +142,6 @@ lsi_scsi_init_lun(struct lsi_lun_s *llun, struct pci_device *pci, u32 iobase,
 {
     memset(llun, 0, sizeof(*llun));
     llun->drive.type = DTYPE_LSI_SCSI;
-    llun->drive.max_bytes_transfer = 4*1024*1024;   /* 4 MB */
     llun->drive.cntl_id = pci->bdf;
     llun->pci = pci;
     llun->target = target;
@@ -163,8 +162,6 @@ lsi_scsi_add_lun(u32 lun, struct drive_s *tmpl_drv)
     lsi_scsi_init_lun(llun, tmpl_llun->pci, tmpl_llun->iobase,
                       tmpl_llun->target, lun);
 
-    boot_lchs_find_scsi_device(llun->pci, llun->target, llun->lun,
-                               &(llun->drive.lchs));
     char *name = znprintf(MAXDESCSIZE, "lsi %pP %d:%d",
                           llun->pci, llun->target, llun->lun);
     int prio = bootprio_find_scsi_device(llun->pci, llun->target, llun->lun);

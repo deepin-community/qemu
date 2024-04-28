@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# group: rw quick
 # Check live snapshot, followed by active commit, and another snapshot.
 #
 # This test is to catch the error case of BZ #1300209:
@@ -22,7 +21,7 @@
 #
 
 # creator
-owner=codyprime@gmail.com
+owner=jcody@redhat.com
 
 seq=`basename $0`
 echo "QA output created by $seq"
@@ -83,22 +82,12 @@ echo
 echo === Performing block-commit on active layer ===
 echo
 
-capture_events="BLOCK_JOB_READY JOB_STATUS_CHANGE"
-
 # Block commit on active layer, push the new overlay into base
 _send_qemu_cmd $h "{ 'execute': 'block-commit',
                                 'arguments': {
                                                  'device': 'virtio0'
                                               }
-                    }" "return"
-
-_wait_event $h "JOB_STATUS_CHANGE"
-_wait_event $h "JOB_STATUS_CHANGE"
-_wait_event $h "JOB_STATUS_CHANGE"
-
-_wait_event $h "BLOCK_JOB_READY"
-
-capture_events=
+                    }" "READY"
 
 _send_qemu_cmd $h "{ 'execute': 'block-job-complete',
                                 'arguments': {

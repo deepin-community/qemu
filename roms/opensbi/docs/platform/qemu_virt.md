@@ -28,7 +28,7 @@ make PLATFORM=generic
 Run:
 ```
 qemu-system-riscv64 -M virt -m 256M -nographic \
-	-bios build/platform/generic/firmware/fw_payload.bin
+	-kernel build/platform/generic/firmware/fw_payload.bin
 ```
 
 **U-Boot Payload**
@@ -44,7 +44,7 @@ make PLATFORM=generic FW_PAYLOAD_PATH=<uboot_build_directory>/u-boot.bin
 Run:
 ```
 qemu-system-riscv64 -M virt -m 256M -nographic \
-	-bios build/platform/generic/firmware/fw_payload.elf
+	-kernel build/platform/generic/firmware/fw_payload.elf
 ```
 or
 ```
@@ -66,7 +66,7 @@ make PLATFORM=generic FW_PAYLOAD_PATH=<linux_build_directory>/arch/riscv/boot/Im
 Run:
 ```
 qemu-system-riscv64 -M virt -m 256M -nographic \
-	-bios build/platform/generic/firmware/fw_payload.elf \
+	-kernel build/platform/generic/firmware/fw_payload.elf \
 	-drive file=<path_to_linux_rootfs>,format=raw,id=hd0 \
 	-device virtio-blk-device,drive=hd0 \
 	-append "root=/dev/vda rw console=ttyS0"
@@ -95,7 +95,7 @@ make PLATFORM=generic PLATFORM_RISCV_XLEN=32
 Run:
 ```
 qemu-system-riscv32 -M virt -m 256M -nographic \
-	-bios build/platform/generic/firmware/fw_payload.bin
+	-kernel build/platform/generic/firmware/fw_payload.bin
 ```
 
 **U-Boot Payload**
@@ -111,7 +111,7 @@ make PLATFORM=generic PLATFORM_RISCV_XLEN=32 FW_PAYLOAD_PATH=<uboot_build_direct
 Run:
 ```
 qemu-system-riscv32 -M virt -m 256M -nographic \
-	-bios build/platform/generic/firmware/fw_payload.elf
+	-kernel build/platform/generic/firmware/fw_payload.elf
 ```
 or
 ```
@@ -133,7 +133,7 @@ make PLATFORM=generic PLATFORM_RISCV_XLEN=32 FW_PAYLOAD_PATH=<linux_build_direct
 Run:
 ```
 qemu-system-riscv32 -M virt -m 256M -nographic \
-	-bios build/platform/generic/firmware/fw_payload.elf \
+	-kernel build/platform/generic/firmware/fw_payload.elf \
 	-drive file=<path_to_linux_rootfs>,format=raw,id=hd0 \
 	-device virtio-blk-device,drive=hd0 \
 	-append "root=/dev/vda rw console=ttyS0"
@@ -146,28 +146,4 @@ qemu-system-riscv32 -M virt -m 256M -nographic \
 	-drive file=<path_to_linux_rootfs>,format=raw,id=hd0 \
 	-device virtio-blk-device,drive=hd0 \
 	-append "root=/dev/vda rw console=ttyS0"
-```
-
-Debugging with GDB
-------------------
-
-In a first console start OpenSBI with QEMU:
-
-```
-qemu-system-riscv64 -M virt -m 256M -nographic \
-	-bios build/platform/generic/firmware/fw_payload.bin \
-	-gdb tcp::1234 \
-	-S
-
-```
-
-Parameter *-gdb tcp::1234* specifies 1234 as the debug port.
-Parameter *-S* lets QEMU wait at the first instruction.
-
-In a second console start GDB:
-
-```
-gdb build/platform/generic/firmware/fw_payload.elf \
-	-ex 'target remote localhost:1234'
-
 ```

@@ -1,4 +1,4 @@
-#!/bin/bash -e
+#!/bin/sh -e
 #
 # OSS-Fuzz build script. See:
 # https://google.github.io/oss-fuzz/getting-started/new-project-guide/#buildsh
@@ -43,10 +43,10 @@ EXTRA_CFLAGS="$CFLAGS -U __OPTIMIZE__"
 if ! { [ -e "./COPYING" ] &&
    [ -e "./MAINTAINERS" ] &&
    [ -e "./Makefile" ] &&
-   [ -d "./docs" ] &&
+   [ -e "./docs" ] &&
    [ -e "./VERSION" ] &&
-   [ -d "./linux-user" ] &&
-   [ -d "./system" ];} ; then
+   [ -e "./linux-user" ] &&
+   [ -e "./softmmu" ];} ; then
     fatal "Please run the script from the top of the QEMU tree"
 fi
 
@@ -64,7 +64,7 @@ mkdir -p "$DEST_DIR/lib/"  # Copy the shared libraries here
 
 # Build once to get the list of dynamic lib paths, and copy them over
 ../configure --disable-werror --cc="$CC" --cxx="$CXX" --enable-fuzzing \
-    --prefix="/opt/qemu-oss-fuzz" \
+    --prefix="$DEST_DIR" --bindir="$DEST_DIR" --datadir="$DEST_DIR/data/" \
     --extra-cflags="$EXTRA_CFLAGS" --target-list="i386-softmmu"
 
 if ! make "-j$(nproc)" qemu-fuzz-i386; then
@@ -73,26 +73,22 @@ if ! make "-j$(nproc)" qemu-fuzz-i386; then
           "\nFor example: CC=clang CXX=clang++ $0"
 fi
 
-if [ "$GITLAB_CI" != "true" ]; then
-    for i in $(ldd ./qemu-fuzz-i386 | cut -f3 -d' '); do
-        cp "$i" "$DEST_DIR/lib/"
-    done
-    rm qemu-fuzz-i386
+for i in $(ldd ./qemu-fuzz-i386 | cut -f3 -d' '); do
+    cp "$i" "$DEST_DIR/lib/"
+done
+rm qemu-fuzz-i386
 
-    # Build a second time to build the final binary with correct rpath
-    ../configure --disable-werror --cc="$CC" --cxx="$CXX" --enable-fuzzing \
-        --prefix="/opt/qemu-oss-fuzz" \
-        --extra-cflags="$EXTRA_CFLAGS" --extra-ldflags="-Wl,-rpath,\$ORIGIN/lib" \
-        --target-list="i386-softmmu"
-    make "-j$(nproc)" qemu-fuzz-i386 V=1
-fi
+# Build a second time to build the final binary with correct rpath
+../configure --disable-werror --cc="$CC" --cxx="$CXX" --enable-fuzzing \
+    --prefix="$DEST_DIR" --bindir="$DEST_DIR" --datadir="$DEST_DIR/data/" \
+    --extra-cflags="$EXTRA_CFLAGS" --extra-ldflags="-Wl,-rpath,\$ORIGIN/lib" \
+    --target-list="i386-softmmu"
+make "-j$(nproc)" qemu-fuzz-i386 V=1
 
-# Place data files in the preinstall tree
-make install DESTDIR=$DEST_DIR/qemu-bundle
-rm -rf $DEST_DIR/qemu-bundle/opt/qemu-oss-fuzz/bin
-rm -rf $DEST_DIR/qemu-bundle/opt/qemu-oss-fuzz/libexec
+# Copy over the datadir
+cp  -r ../pc-bios/ "$DEST_DIR/pc-bios"
 
-targets=$(./qemu-fuzz-i386 | grep generic-fuzz | awk '$1 ~ /\*/  {print $2}')
+targets=$(./qemu-fuzz-i386 | awk '$1 ~ /\*/  {print $2}')
 base_copy="$DEST_DIR/qemu-fuzz-i386-target-$(echo "$targets" | head -n 1)"
 
 cp "./qemu-fuzz-i386" "$base_copy"
@@ -107,7 +103,7 @@ do
     # to be configured. We have some generic-fuzz-{pc-q35, floppy, ...} targets
     # that are thin wrappers around this target that set the required
     # environment variables according to predefined configs.
-    if [[ $target == "generic-fuzz-"* ]]; then
+    if [ "$target" != "generic-fuzz" ]; then
         ln  $base_copy \
             "$DEST_DIR/qemu-fuzz-i386-target-$target"
     fi

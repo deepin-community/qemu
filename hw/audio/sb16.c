@@ -115,9 +115,6 @@ struct SB16State {
     PortioList portio_list;
 };
 
-#define SAMPLE_RATE_MIN 5000
-#define SAMPLE_RATE_MAX 45000
-
 static void SB_audio_callback (void *opaque, int free);
 
 static int magic_of_irq (int irq)
@@ -229,23 +226,6 @@ static void continue_dma8 (SB16State *s)
     control (s, 1);
 }
 
-static inline int restrict_sampling_rate(int freq)
-{
-    if (freq < SAMPLE_RATE_MIN) {
-        qemu_log_mask(LOG_GUEST_ERROR,
-                      "sampling range too low: %d, increasing to %u\n",
-                      freq, SAMPLE_RATE_MIN);
-        return SAMPLE_RATE_MIN;
-    } else if (freq > SAMPLE_RATE_MAX) {
-        qemu_log_mask(LOG_GUEST_ERROR,
-                      "sampling range too high: %d, decreasing to %u\n",
-                      freq, SAMPLE_RATE_MAX);
-        return SAMPLE_RATE_MAX;
-    } else {
-        return freq;
-    }
-}
-
 static void dma_cmd8 (SB16State *s, int mask, int dma_len)
 {
     s->fmt = AUDIO_FORMAT_U8;
@@ -261,7 +241,6 @@ static void dma_cmd8 (SB16State *s, int mask, int dma_len)
         int tmp = (256 - s->time_const);
         s->freq = (1000000 + (tmp / 2)) / tmp;
     }
-    s->freq = restrict_sampling_rate(s->freq);
 
     if (dma_len != -1) {
         s->block_size = dma_len << s->fmt_stereo;
@@ -775,7 +754,7 @@ static void complete (SB16State *s)
              * and FT2 sets output freq with this (go figure).  Compare:
              * http://homepages.cae.wisc.edu/~brodskye/sb16doc/sb16doc.html#SamplingRate
              */
-            s->freq = restrict_sampling_rate(dsp_get_hilo(s));
+            s->freq = dsp_get_hilo (s);
             ldebug ("set freq %d\n", s->freq);
             break;
 
@@ -1398,22 +1377,17 @@ static void sb16_initfn (Object *obj)
 static void sb16_realizefn (DeviceState *dev, Error **errp)
 {
     ISADevice *isadev = ISA_DEVICE (dev);
-    ISABus *bus = isa_bus_from_device(isadev);
     SB16State *s = SB16 (dev);
     IsaDmaClass *k;
 
-    if (!AUD_register_card ("sb16", &s->card, errp)) {
-        return;
-    }
-
-    s->isa_hdma = isa_bus_get_dma(bus, s->hdma);
-    s->isa_dma = isa_bus_get_dma(bus, s->dma);
+    s->isa_hdma = isa_get_dma(isa_bus_from_device(isadev), s->hdma);
+    s->isa_dma = isa_get_dma(isa_bus_from_device(isadev), s->dma);
     if (!s->isa_dma || !s->isa_hdma) {
         error_setg(errp, "ISA controller does not support DMA");
         return;
     }
 
-    s->pic = isa_bus_get_irq(bus, s->irq);
+    isa_init_irq (isadev, &s->pic, s->irq);
 
     s->mixer_regs[0x80] = magic_of_irq (s->irq);
     s->mixer_regs[0x81] = (1 << s->dma) | (1 << s->hdma);
@@ -1438,6 +1412,8 @@ static void sb16_realizefn (DeviceState *dev, Error **errp)
     k->register_channel(s->isa_dma, s->dma, SB_read_DMA, s);
 
     s->can_write = 1;
+
+    AUD_register_card ("sb16", &s->card);
 }
 
 static Property sb16_properties[] = {

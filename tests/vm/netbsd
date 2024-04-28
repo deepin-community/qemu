@@ -22,16 +22,15 @@ class NetBSDVM(basevm.BaseVM):
     name = "netbsd"
     arch = "x86_64"
 
-    link = "https://cdn.netbsd.org/pub/NetBSD/NetBSD-9.3/images/NetBSD-9.3-amd64.iso"
-    csum = "2bfce544f762a579f61478e7106c436fc48731ff25cf6f79b392ba5752e6f5ec130364286f7471716290a5f033637cf56aacee7fedb91095face59adf36300c3"
+    link = "https://cdn.netbsd.org/pub/NetBSD/NetBSD-9.1/images/NetBSD-9.1-amd64.iso"
+    csum = "65bddc95945991c3b2021f9c8ded7f34c25f0a7611b7aa15a15fe23399e902307e926ae97fcd01dc1662ac67b5f6e4be643c6a2b581692ddcb616d30125066f9"
     size = "20G"
     pkgs = [
         # tools
         "git-base",
         "pkgconf",
         "xz",
-        "python311",
-        "py311-expat",
+        "python37",
         "ninja-build",
 
         # gnu tools
@@ -40,9 +39,6 @@ class NetBSDVM(basevm.BaseVM):
         "gsed",
         "gettext-tools",
 
-        # libs: basic
-        "dtc",
-
         # libs: crypto
         "gnutls",
 
@@ -50,17 +46,13 @@ class NetBSDVM(basevm.BaseVM):
         "jpeg",
         "png",
 
-        # libs: ui
-        "capstone",
+	# libs: ui
         "SDL2",
         "gtk3+",
         "libxkbcommon",
 
         # libs: migration
         "zstd",
-
-        # libs: networking
-        "libslirp",
     ]
 
     BUILD_SCRIPT = """
@@ -70,8 +62,7 @@ class NetBSDVM(basevm.BaseVM):
         mkdir src build; cd src;
         tar -xf /dev/rld1a;
         cd ../build
-        ../src/configure --disable-opengl --extra-ldflags=-L/usr/pkg/lib \
-                          --extra-cflags=-I/usr/pkg/include {configure_opts};
+        ../src/configure --python=python3.7 --disable-opengl {configure_opts};
         gmake --output-sync -j{jobs} {target} {verbose};
     """
     poweroff = "/sbin/poweroff"
@@ -94,6 +85,7 @@ class NetBSDVM(basevm.BaseVM):
 
         self.print_step("Booting installer")
         self.boot(img_tmp, extra_args = [
+            "-bios", "pc-bios/bios-256k.bin",
             "-machine", "graphics=off",
             "-cdrom", iso
         ])

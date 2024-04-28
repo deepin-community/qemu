@@ -33,22 +33,6 @@ static void alpha_cpu_set_pc(CPUState *cs, vaddr value)
     cpu->env.pc = value;
 }
 
-static vaddr alpha_cpu_get_pc(CPUState *cs)
-{
-    AlphaCPU *cpu = ALPHA_CPU(cs);
-
-    return cpu->env.pc;
-}
-
-static void alpha_restore_state_to_opc(CPUState *cs,
-                                       const TranslationBlock *tb,
-                                       const uint64_t *data)
-{
-    AlphaCPU *cpu = ALPHA_CPU(cs);
-
-    cpu->env.pc = data[0];
-}
-
 static bool alpha_cpu_has_work(CPUState *cs)
 {
     /* Here we are checking to see if the CPU should wake up from HALT.
@@ -126,7 +110,8 @@ static ObjectClass *alpha_cpu_class_by_name(const char *cpu_model)
     int i;
 
     oc = object_class_by_name(cpu_model);
-    if (oc != NULL && object_class_dynamic_cast(oc, TYPE_ALPHA_CPU) != NULL) {
+    if (oc != NULL && object_class_dynamic_cast(oc, TYPE_ALPHA_CPU) != NULL &&
+        !object_class_is_abstract(oc)) {
         return oc;
     }
 
@@ -141,10 +126,13 @@ static ObjectClass *alpha_cpu_class_by_name(const char *cpu_model)
     typename = g_strdup_printf(ALPHA_CPU_TYPE_NAME("%s"), cpu_model);
     oc = object_class_by_name(typename);
     g_free(typename);
+    if (oc != NULL && object_class_is_abstract(oc)) {
+        oc = NULL;
+    }
 
     /* TODO: remove match everything nonsense */
-    if (!oc || object_class_is_abstract(oc)) {
-        /* Default to ev67; no reason not to emulate insns by default. */
+    /* Default to ev67; no reason not to emulate insns by default. */
+    if (!oc) {
         oc = object_class_by_name(ALPHA_CPU_TYPE_NAME("ev67"));
     }
 
@@ -205,6 +193,8 @@ static void alpha_cpu_initfn(Object *obj)
     AlphaCPU *cpu = ALPHA_CPU(obj);
     CPUAlphaState *env = &cpu->env;
 
+    cpu_set_cpustate_pointers(cpu);
+
     env->lock_addr = -1;
 #if defined(CONFIG_USER_ONLY)
     env->flags = ENV_FLAG_PS_USER | ENV_FLAG_FEN;
@@ -215,32 +205,6 @@ static void alpha_cpu_initfn(Object *obj)
     env->flags = ENV_FLAG_PAL_MODE | ENV_FLAG_FEN;
 #endif
 }
-
-#ifndef CONFIG_USER_ONLY
-#include "hw/core/sysemu-cpu-ops.h"
-
-static const struct SysemuCPUOps alpha_sysemu_ops = {
-    .get_phys_page_debug = alpha_cpu_get_phys_page_debug,
-};
-#endif
-
-#include "hw/core/tcg-cpu-ops.h"
-
-static const struct TCGCPUOps alpha_tcg_ops = {
-    .initialize = alpha_translate_init,
-    .restore_state_to_opc = alpha_restore_state_to_opc,
-
-#ifdef CONFIG_USER_ONLY
-    .record_sigsegv = alpha_cpu_record_sigsegv,
-    .record_sigbus = alpha_cpu_record_sigbus,
-#else
-    .tlb_fill = alpha_cpu_tlb_fill,
-    .cpu_exec_interrupt = alpha_cpu_exec_interrupt,
-    .do_interrupt = alpha_cpu_do_interrupt,
-    .do_transaction_failed = alpha_cpu_do_transaction_failed,
-    .do_unaligned_access = alpha_cpu_do_unaligned_access,
-#endif /* !CONFIG_USER_ONLY */
-};
 
 static void alpha_cpu_class_init(ObjectClass *oc, void *data)
 {
@@ -253,18 +217,22 @@ static void alpha_cpu_class_init(ObjectClass *oc, void *data)
 
     cc->class_by_name = alpha_cpu_class_by_name;
     cc->has_work = alpha_cpu_has_work;
+    cc->do_interrupt = alpha_cpu_do_interrupt;
+    cc->cpu_exec_interrupt = alpha_cpu_exec_interrupt;
     cc->dump_state = alpha_cpu_dump_state;
     cc->set_pc = alpha_cpu_set_pc;
-    cc->get_pc = alpha_cpu_get_pc;
     cc->gdb_read_register = alpha_cpu_gdb_read_register;
     cc->gdb_write_register = alpha_cpu_gdb_write_register;
+    cc->tlb_fill = alpha_cpu_tlb_fill;
 #ifndef CONFIG_USER_ONLY
+    cc->do_transaction_failed = alpha_cpu_do_transaction_failed;
+    cc->do_unaligned_access = alpha_cpu_do_unaligned_access;
+    cc->get_phys_page_debug = alpha_cpu_get_phys_page_debug;
     dc->vmsd = &vmstate_alpha_cpu;
-    cc->sysemu_ops = &alpha_sysemu_ops;
 #endif
     cc->disas_set_info = alpha_cpu_disas_set_info;
+    cc->tcg_initialize = alpha_translate_init;
 
-    cc->tcg_ops = &alpha_tcg_ops;
     cc->gdb_num_core_regs = 67;
 }
 
@@ -280,7 +248,6 @@ static const TypeInfo alpha_cpu_type_infos[] = {
         .name = TYPE_ALPHA_CPU,
         .parent = TYPE_CPU,
         .instance_size = sizeof(AlphaCPU),
-        .instance_align = __alignof(AlphaCPU),
         .instance_init = alpha_cpu_initfn,
         .abstract = true,
         .class_size = sizeof(AlphaCPUClass),

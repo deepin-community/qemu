@@ -108,7 +108,7 @@ void can_sja_single_filter(struct qemu_can_filter *filter,
         }
 
         filter->can_mask = (uint32_t)amr[0] << 3;
-        filter->can_mask |= (uint32_t)amr[1] >> 5;
+        filter->can_mask |= (uint32_t)amr[1] << 5;
         filter->can_mask = ~filter->can_mask & QEMU_CAN_SFF_MASK;
         if (!(amr[1] & 0x10)) {
             filter->can_mask |= QEMU_CAN_RTR_FLAG;
@@ -247,22 +247,21 @@ int can_sja_accept_filter(CanSJA1000State *s,
 static void can_display_msg(const char *prefix, const qemu_can_frame *msg)
 {
     int i;
-    FILE *logfile = qemu_log_trylock();
+    FILE *logfile = qemu_log_lock();
 
-    if (logfile) {
-        fprintf(logfile, "%s%03X [%01d] %s %s",
-                prefix,
-                msg->can_id & QEMU_CAN_EFF_MASK,
-                msg->can_dlc,
-                msg->can_id & QEMU_CAN_EFF_FLAG ? "EFF" : "SFF",
-                msg->can_id & QEMU_CAN_RTR_FLAG ? "RTR" : "DAT");
+    qemu_log("%s%03X [%01d] %s %s",
+             prefix,
+             msg->can_id & QEMU_CAN_EFF_MASK,
+             msg->can_dlc,
+             msg->can_id & QEMU_CAN_EFF_FLAG ? "EFF" : "SFF",
+             msg->can_id & QEMU_CAN_RTR_FLAG ? "RTR" : "DAT");
 
-        for (i = 0; i < msg->can_dlc; i++) {
-            fprintf(logfile, " %02X", msg->data[i]);
-        }
-        fprintf(logfile, "\n");
-        qemu_log_unlock(logfile);
+    for (i = 0; i < msg->can_dlc; i++) {
+        qemu_log(" %02X", msg->data[i]);
     }
+    qemu_log("\n");
+    qemu_log_flush();
+    qemu_log_unlock(logfile);
 }
 
 static void buff2frame_pel(const uint8_t *buff, qemu_can_frame *frame)
@@ -275,10 +274,6 @@ static void buff2frame_pel(const uint8_t *buff, qemu_can_frame *frame)
         frame->can_id = QEMU_CAN_RTR_FLAG;
     }
     frame->can_dlc = buff[0] & 0x0f;
-
-    if (frame->can_dlc > 8) {
-        frame->can_dlc = 8;
-    }
 
     if (buff[0] & 0x80) { /* Extended */
         frame->can_id |= QEMU_CAN_EFF_FLAG;
@@ -315,10 +310,6 @@ static void buff2frame_bas(const uint8_t *buff, qemu_can_frame *frame)
         frame->can_id = QEMU_CAN_RTR_FLAG;
     }
     frame->can_dlc = buff[1] & 0x0f;
-
-    if (frame->can_dlc > 8) {
-        frame->can_dlc = 8;
-    }
 
     for (i = 0; i < frame->can_dlc; i++) {
         frame->data[i] = buff[2 + i];
@@ -431,7 +422,7 @@ void can_sja_mem_write(CanSJA1000State *s, hwaddr addr, uint64_t val,
             (unsigned long long)val, (unsigned int)addr);
 
     if (addr > CAN_SJA_MEM_SIZE) {
-        return;
+        return ;
     }
 
     if (s->clock & 0x80) { /* PeliCAN Mode */
@@ -929,6 +920,7 @@ const VMStateDescription vmstate_qemu_can_filter = {
     .name = "qemu_can_filter",
     .version_id = 1,
     .minimum_version_id = 1,
+    .minimum_version_id_old = 1,
     .fields = (VMStateField[]) {
         VMSTATE_UINT32(can_id, qemu_can_filter),
         VMSTATE_UINT32(can_mask, qemu_can_filter),
@@ -952,6 +944,7 @@ const VMStateDescription vmstate_can_sja = {
     .name = "can_sja",
     .version_id = 1,
     .minimum_version_id = 1,
+    .minimum_version_id_old = 1,
     .post_load = can_sja_post_load,
     .fields = (VMStateField[]) {
         VMSTATE_UINT8(mode, CanSJA1000State),

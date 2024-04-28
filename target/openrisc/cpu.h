@@ -20,24 +20,32 @@
 #ifndef OPENRISC_CPU_H
 #define OPENRISC_CPU_H
 
-#include "cpu-qom.h"
 #include "exec/cpu-defs.h"
-#include "fpu/softfloat-types.h"
+#include "hw/core/cpu.h"
+#include "qom/object.h"
 
-#define TCG_GUEST_DEFAULT_MO (0)
+/* cpu_openrisc_map_address_* in CPUOpenRISCTLBContext need this decl.  */
+struct OpenRISCCPU;
+
+#define TYPE_OPENRISC_CPU "or1k-cpu"
+
+OBJECT_DECLARE_TYPE(OpenRISCCPU, OpenRISCCPUClass,
+                    OPENRISC_CPU)
 
 /**
  * OpenRISCCPUClass:
  * @parent_realize: The parent class' realize handler.
- * @parent_phases: The parent class' reset phase handlers.
+ * @parent_reset: The parent class' reset handler.
  *
  * A OpenRISC CPU model.
  */
 struct OpenRISCCPUClass {
+    /*< private >*/
     CPUClass parent_class;
+    /*< public >*/
 
     DeviceRealize parent_realize;
-    ResettablePhases parent_phases;
+    DeviceReset parent_reset;
 };
 
 #define TARGET_INSN_START_EXTRA_WORDS 1
@@ -223,18 +231,18 @@ typedef struct CPUOpenRISCTLBContext {
     OpenRISCTLBEntry itlb[TLB_SIZE];
     OpenRISCTLBEntry dtlb[TLB_SIZE];
 
-    int (*cpu_openrisc_map_address_code)(OpenRISCCPU *cpu,
+    int (*cpu_openrisc_map_address_code)(struct OpenRISCCPU *cpu,
                                          hwaddr *physical,
                                          int *prot,
                                          target_ulong address, int rw);
-    int (*cpu_openrisc_map_address_data)(OpenRISCCPU *cpu,
+    int (*cpu_openrisc_map_address_data)(struct OpenRISCCPU *cpu,
                                          hwaddr *physical,
                                          int *prot,
                                          target_ulong address, int rw);
 } CPUOpenRISCTLBContext;
 #endif
 
-typedef struct CPUArchState {
+typedef struct CPUOpenRISCState {
     target_ulong shadow_gpr[16][32]; /* Shadow registers */
 
     target_ulong pc;          /* Program counter */
@@ -283,8 +291,9 @@ typedef struct CPUArchState {
     int is_counting;
 
     uint32_t picmr;         /* Interrupt mask register */
-    uint32_t picsr;         /* Interrupt control register */
+    uint32_t picsr;         /* Interrupt contrl register*/
 #endif
+    void *irq[32];          /* Interrupt irq input */
 } CPUOpenRISCState;
 
 /**
@@ -293,32 +302,35 @@ typedef struct CPUArchState {
  *
  * A OpenRISC CPU.
  */
-struct ArchCPU {
+struct OpenRISCCPU {
+    /*< private >*/
     CPUState parent_obj;
+    /*< public >*/
 
+    CPUNegativeOffsetState neg;
     CPUOpenRISCState env;
 };
 
+
 void cpu_openrisc_list(void);
+void openrisc_cpu_do_interrupt(CPUState *cpu);
+bool openrisc_cpu_exec_interrupt(CPUState *cpu, int int_req);
 void openrisc_cpu_dump_state(CPUState *cpu, FILE *f, int flags);
+hwaddr openrisc_cpu_get_phys_page_debug(CPUState *cpu, vaddr addr);
 int openrisc_cpu_gdb_read_register(CPUState *cpu, GByteArray *buf, int reg);
 int openrisc_cpu_gdb_write_register(CPUState *cpu, uint8_t *buf, int reg);
 void openrisc_translate_init(void);
-int print_insn_or1k(bfd_vma addr, disassemble_info *info);
-
-#define cpu_list cpu_openrisc_list
-
-#ifndef CONFIG_USER_ONLY
-hwaddr openrisc_cpu_get_phys_page_debug(CPUState *cpu, vaddr addr);
-
 bool openrisc_cpu_tlb_fill(CPUState *cs, vaddr address, int size,
                            MMUAccessType access_type, int mmu_idx,
                            bool probe, uintptr_t retaddr);
+int cpu_openrisc_signal_handler(int host_signum, void *pinfo, void *puc);
+int print_insn_or1k(bfd_vma addr, disassemble_info *info);
 
+#define cpu_list cpu_openrisc_list
+#define cpu_signal_handler cpu_openrisc_signal_handler
+
+#ifndef CONFIG_USER_ONLY
 extern const VMStateDescription vmstate_openrisc_cpu;
-
-void openrisc_cpu_do_interrupt(CPUState *cpu);
-bool openrisc_cpu_exec_interrupt(CPUState *cpu, int int_req);
 
 /* hw/openrisc_pic.c */
 void cpu_openrisc_pic_init(OpenRISCCPU *cpu);
@@ -333,7 +345,12 @@ void cpu_openrisc_count_start(OpenRISCCPU *cpu);
 void cpu_openrisc_count_stop(OpenRISCCPU *cpu);
 #endif
 
+#define OPENRISC_CPU_TYPE_SUFFIX "-" TYPE_OPENRISC_CPU
+#define OPENRISC_CPU_TYPE_NAME(model) model OPENRISC_CPU_TYPE_SUFFIX
 #define CPU_RESOLVING_TYPE TYPE_OPENRISC_CPU
+
+typedef CPUOpenRISCState CPUArchState;
+typedef OpenRISCCPU ArchCPU;
 
 #include "exec/cpu-all.h"
 
@@ -354,8 +371,9 @@ static inline void cpu_set_gpr(CPUOpenRISCState *env, int i, uint32_t val)
     env->shadow_gpr[0][i] = val;
 }
 
-static inline void cpu_get_tb_cpu_state(CPUOpenRISCState *env, vaddr *pc,
-                                        uint64_t *cs_base, uint32_t *flags)
+static inline void cpu_get_tb_cpu_state(CPUOpenRISCState *env,
+                                        target_ulong *pc,
+                                        target_ulong *cs_base, uint32_t *flags)
 {
     *pc = env->pc;
     *cs_base = 0;

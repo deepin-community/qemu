@@ -29,9 +29,7 @@
 #define XTENSA_CPU_H
 
 #include "cpu-qom.h"
-#include "qemu/cpu-float.h"
 #include "exec/cpu-defs.h"
-#include "hw/clock.h"
 #include "xtensa-isa.h"
 
 /* Xtensa processors have a weak memory model */
@@ -308,7 +306,7 @@ typedef enum {
     INTTYPE_MAX
 } interrupt_type;
 
-typedef struct CPUArchState CPUXtensaState;
+struct CPUXtensaState;
 
 typedef struct xtensa_tlb_entry {
     uint32_t vaddr;
@@ -346,7 +344,7 @@ typedef struct XtensaGdbRegmap {
 } XtensaGdbRegmap;
 
 typedef struct XtensaCcompareTimer {
-    CPUXtensaState *env;
+    struct CPUXtensaState *env;
     QEMUTimer *timer;
 } XtensaCcompareTimer;
 
@@ -426,7 +424,7 @@ extern const XtensaOpcodeTranslators xtensa_core_opcodes;
 extern const XtensaOpcodeTranslators xtensa_fpu2000_opcodes;
 extern const XtensaOpcodeTranslators xtensa_fpu_opcodes;
 
-typedef struct XtensaConfig {
+struct XtensaConfig {
     const char *name;
     uint64_t options;
     XtensaGdbRegmap gdb_regmap;
@@ -489,14 +487,14 @@ typedef struct XtensaConfig {
     const xtensa_mpu_entry *mpu_bg;
 
     bool use_first_nan;
-} XtensaConfig;
+};
 
 typedef struct XtensaConfigList {
     const XtensaConfig *config;
     struct XtensaConfigList *next;
 } XtensaConfigList;
 
-#if HOST_BIG_ENDIAN
+#ifdef HOST_WORDS_BIGENDIAN
 enum {
     FP_F32_HIGH,
     FP_F32_LOW,
@@ -508,7 +506,7 @@ enum {
 };
 #endif
 
-struct CPUArchState {
+typedef struct CPUXtensaState {
     const XtensaConfig *config;
     uint32_t regs[16];
     uint32_t pc;
@@ -542,12 +540,13 @@ struct CPUArchState {
     uint32_t ccount_base;
 #endif
 
+    int exception_taken;
     int yield_needed;
     unsigned static_vectors;
 
     /* Watchpoints for DBREAK registers */
     struct CPUWatchpoint *cpu_watchpoint[MAX_NDBREAK];
-};
+} CPUXtensaState;
 
 /**
  * XtensaCPU:
@@ -555,31 +554,16 @@ struct CPUArchState {
  *
  * An Xtensa CPU.
  */
-struct ArchCPU {
+struct XtensaCPU {
+    /*< private >*/
     CPUState parent_obj;
+    /*< public >*/
 
+    CPUNegativeOffsetState neg;
     CPUXtensaState env;
-    Clock *clock;
 };
 
-/**
- * XtensaCPUClass:
- * @parent_realize: The parent class' realize handler.
- * @parent_phases: The parent class' reset phase handlers.
- * @config: The CPU core configuration.
- *
- * An Xtensa CPU model.
- */
-struct XtensaCPUClass {
-    CPUClass parent_class;
 
-    DeviceRealize parent_realize;
-    ResettablePhases parent_phases;
-
-    const XtensaConfig *config;
-};
-
-#ifndef CONFIG_USER_ONLY
 bool xtensa_cpu_tlb_fill(CPUState *cs, vaddr address, int size,
                          MMUAccessType access_type, int mmu_idx,
                          bool probe, uintptr_t retaddr);
@@ -589,22 +573,24 @@ void xtensa_cpu_do_transaction_failed(CPUState *cs, hwaddr physaddr, vaddr addr,
                                       unsigned size, MMUAccessType access_type,
                                       int mmu_idx, MemTxAttrs attrs,
                                       MemTxResult response, uintptr_t retaddr);
-hwaddr xtensa_cpu_get_phys_page_debug(CPUState *cpu, vaddr addr);
-#endif
 void xtensa_cpu_dump_state(CPUState *cpu, FILE *f, int flags);
+hwaddr xtensa_cpu_get_phys_page_debug(CPUState *cpu, vaddr addr);
 void xtensa_count_regs(const XtensaConfig *config,
                        unsigned *n_regs, unsigned *n_core_regs);
 int xtensa_cpu_gdb_read_register(CPUState *cpu, GByteArray *buf, int reg);
 int xtensa_cpu_gdb_write_register(CPUState *cpu, uint8_t *buf, int reg);
-G_NORETURN void xtensa_cpu_do_unaligned_access(CPUState *cpu, vaddr addr,
-                                               MMUAccessType access_type, int mmu_idx,
-                                               uintptr_t retaddr);
+void xtensa_cpu_do_unaligned_access(CPUState *cpu, vaddr addr,
+                                    MMUAccessType access_type,
+                                    int mmu_idx, uintptr_t retaddr);
 
+#define cpu_signal_handler cpu_xtensa_signal_handler
 #define cpu_list xtensa_cpu_list
 
+#define XTENSA_CPU_TYPE_SUFFIX "-" TYPE_XTENSA_CPU
+#define XTENSA_CPU_TYPE_NAME(model) model XTENSA_CPU_TYPE_SUFFIX
 #define CPU_RESOLVING_TYPE TYPE_XTENSA_CPU
 
-#if TARGET_BIG_ENDIAN
+#ifdef TARGET_WORDS_BIGENDIAN
 #define XTENSA_DEFAULT_CPU_MODEL "fsf"
 #define XTENSA_DEFAULT_CPU_NOMMU_MODEL "fsf"
 #else
@@ -626,6 +612,7 @@ void check_interrupts(CPUXtensaState *s);
 void xtensa_irq_init(CPUXtensaState *env);
 qemu_irq *xtensa_get_extints(CPUXtensaState *env);
 qemu_irq xtensa_get_runstall(CPUXtensaState *env);
+int cpu_xtensa_signal_handler(int host_signum, void *pinfo, void *puc);
 void xtensa_cpu_list(void);
 void xtensa_sync_window_from_phys(CPUXtensaState *env);
 void xtensa_sync_phys_from_window(CPUXtensaState *env);
@@ -724,6 +711,7 @@ static inline int cpu_mmu_index(CPUXtensaState *env, bool ifetch)
 #define XTENSA_TBFLAG_ICOUNT 0x20
 #define XTENSA_TBFLAG_CPENABLE_MASK 0x3fc0
 #define XTENSA_TBFLAG_CPENABLE_SHIFT 6
+#define XTENSA_TBFLAG_EXCEPTION 0x4000
 #define XTENSA_TBFLAG_WINDOW_MASK 0x18000
 #define XTENSA_TBFLAG_WINDOW_SHIFT 15
 #define XTENSA_TBFLAG_YIELD 0x20000
@@ -736,11 +724,16 @@ static inline int cpu_mmu_index(CPUXtensaState *env, bool ifetch)
 #define XTENSA_CSBASE_LBEG_OFF_MASK 0x00ff0000
 #define XTENSA_CSBASE_LBEG_OFF_SHIFT 16
 
+typedef CPUXtensaState CPUArchState;
+typedef XtensaCPU ArchCPU;
+
 #include "exec/cpu-all.h"
 
-static inline void cpu_get_tb_cpu_state(CPUXtensaState *env, vaddr *pc,
-                                        uint64_t *cs_base, uint32_t *flags)
+static inline void cpu_get_tb_cpu_state(CPUXtensaState *env, target_ulong *pc,
+        target_ulong *cs_base, uint32_t *flags)
 {
+    CPUState *cs = env_cpu(env);
+
     *pc = env->pc;
     *cs_base = 0;
     *flags = 0;
@@ -789,6 +782,9 @@ static inline void cpu_get_tb_cpu_state(CPUXtensaState *env, vaddr *pc,
     if (xtensa_option_enabled(env->config, XTENSA_OPTION_COPROCESSOR)) {
         *flags |= env->sregs[CPENABLE] << XTENSA_TBFLAG_CPENABLE_SHIFT;
     }
+    if (cs->singlestep_enabled && env->exception_taken) {
+        *flags |= XTENSA_TBFLAG_EXCEPTION;
+    }
     if (xtensa_option_enabled(env->config, XTENSA_OPTION_WINDOWED_REGISTER) &&
         (env->sregs[PS] & (PS_WOE | PS_EXCM)) == PS_WOE) {
         uint32_t windowstart = xtensa_replicate_windowstart(env) >>
@@ -805,8 +801,5 @@ static inline void cpu_get_tb_cpu_state(CPUXtensaState *env, vaddr *pc,
         *flags |= XTENSA_TBFLAG_YIELD;
     }
 }
-
-XtensaCPU *xtensa_cpu_create_with_clock(const char *cpu_type,
-                                        Clock *cpu_refclk);
 
 #endif

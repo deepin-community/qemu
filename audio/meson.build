@@ -1,38 +1,30 @@
-system_ss.add([spice_headers, files('audio.c')])
-system_ss.add(files(
-  'audio-hmp-cmds.c',
+softmmu_ss.add([spice_headers, files('audio.c')])
+softmmu_ss.add(files(
+  'audio_legacy.c',
   'mixeng.c',
   'noaudio.c',
   'wavaudio.c',
   'wavcapture.c',
 ))
 
-system_ss.add(when: coreaudio, if_true: files('coreaudio.m'))
-system_ss.add(when: dsound, if_true: files('dsoundaudio.c', 'audio_win_int.c'))
+softmmu_ss.add(when: [coreaudio, 'CONFIG_AUDIO_COREAUDIO'], if_true: files('coreaudio.c'))
+softmmu_ss.add(when: [dsound, 'CONFIG_AUDIO_DSOUND'], if_true: files('dsoundaudio.c'))
+softmmu_ss.add(when: ['CONFIG_AUDIO_WIN_INT'], if_true: files('audio_win_int.c'))
 
 audio_modules = {}
 foreach m : [
-  ['alsa', alsa, files('alsaaudio.c')],
-  ['oss', oss, files('ossaudio.c')],
-  ['pa', pulse, files('paaudio.c')],
-  ['sdl', sdl, files('sdlaudio.c')],
-  ['jack', jack, files('jackaudio.c')],
-  ['sndio', sndio, files('sndioaudio.c')],
-  ['pipewire', pipewire, files('pwaudio.c')],
-  ['spice', spice, files('spiceaudio.c')]
+  ['CONFIG_AUDIO_ALSA', 'alsa', alsa, 'alsaaudio.c'],
+  ['CONFIG_AUDIO_OSS', 'oss', oss, 'ossaudio.c'],
+  ['CONFIG_AUDIO_PA', 'pa', pulse, 'paaudio.c'],
+  ['CONFIG_AUDIO_SDL', 'sdl', sdl, 'sdlaudio.c'],
+  ['CONFIG_AUDIO_JACK', 'jack', jack, 'jackaudio.c'],
+  ['CONFIG_SPICE', 'spice', spice, 'spiceaudio.c']
 ]
-  if m[1].found()
+  if config_host.has_key(m[0])
     module_ss = ss.source_set()
-    module_ss.add(m[1], m[2])
-    audio_modules += {m[0] : module_ss}
+    module_ss.add(when: m[2], if_true: files(m[3]))
+    audio_modules += {m[1] : module_ss}
   endif
 endforeach
-
-if dbus_display
-    module_ss = ss.source_set()
-    module_ss.add(when: [gio, dbus_display1_dep, pixman],
-                  if_true: files('dbusaudio.c'))
-    audio_modules += {'dbus': module_ss}
-endif
 
 modules += {'audio': audio_modules}

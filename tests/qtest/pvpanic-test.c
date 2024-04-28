@@ -8,31 +8,8 @@
  */
 
 #include "qemu/osdep.h"
-#include "libqtest.h"
+#include "libqos/libqtest.h"
 #include "qapi/qmp/qdict.h"
-
-static void test_panic_nopause(void)
-{
-    uint8_t val;
-    QDict *response, *data;
-    QTestState *qts;
-
-    qts = qtest_init("-device pvpanic -action panic=none");
-
-    val = qtest_inb(qts, 0x505);
-    g_assert_cmpuint(val, ==, 3);
-
-    qtest_outb(qts, 0x505, 0x1);
-
-    response = qtest_qmp_eventwait_ref(qts, "GUEST_PANICKED");
-    g_assert(qdict_haskey(response, "data"));
-    data = qdict_get_qdict(response, "data");
-    g_assert(qdict_haskey(data, "action"));
-    g_assert_cmpstr(qdict_get_str(data, "action"), ==, "run");
-    qobject_unref(response);
-
-    qtest_quit(qts);
-}
 
 static void test_panic(void)
 {
@@ -40,7 +17,7 @@ static void test_panic(void)
     QDict *response, *data;
     QTestState *qts;
 
-    qts = qtest_init("-device pvpanic -action panic=pause");
+    qts = qtest_init("-device pvpanic");
 
     val = qtest_inb(qts, 0x505);
     g_assert_cmpuint(val, ==, 3);
@@ -59,9 +36,12 @@ static void test_panic(void)
 
 int main(int argc, char **argv)
 {
+    int ret;
+
     g_test_init(&argc, &argv, NULL);
     qtest_add_func("/pvpanic/panic", test_panic);
-    qtest_add_func("/pvpanic/panic-nopause", test_panic_nopause);
 
-    return g_test_run();
+    ret = g_test_run();
+
+    return ret;
 }

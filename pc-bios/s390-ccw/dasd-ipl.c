@@ -205,7 +205,7 @@ static void run_ipl2(SubChannelId schid, uint16_t cutype, uint32_t addr)
 
 /*
  * Limitations in vfio-ccw support complicate the IPL process. Details can
- * be found in docs/devel/s390-dasd-ipl.rst
+ * be found in docs/devel/s390-dasd-ipl.txt
  */
 void dasd_ipl(SubChannelId schid, uint16_t cutype)
 {

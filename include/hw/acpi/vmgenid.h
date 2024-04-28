@@ -13,7 +13,7 @@
 
 #define VMGENID_FW_CFG_SIZE      4096 /* Occupy a page of memory */
 #define VMGENID_GUID_OFFSET      40   /* allow space for
-                                       * OVMF SDT Header Probe Suppressor
+                                       * OVMF SDT Header Probe Supressor
                                        */
 
 OBJECT_DECLARE_SIMPLE_TYPE(VmGenIdState, VMGENID)
@@ -31,7 +31,7 @@ static inline Object *find_vmgenid_dev(void)
 }
 
 void vmgenid_build_acpi(VmGenIdState *vms, GArray *table_data, GArray *guid,
-                        BIOSLinker *linker, const char *oem_id);
+                        BIOSLinker *linker);
 void vmgenid_add_fw_cfg(VmGenIdState *vms, FWCfgState *s, GArray *guid);
 
 #endif

@@ -13,7 +13,6 @@
 #include "qapi/error.h"
 #include "migration/vmstate.h"
 #include "hw/qdev-properties.h"
-#include "hw/qdev-properties-system.h"
 #include "hw/hyperv/hyperv.h"
 #include "hw/hyperv/vmbus.h"
 #include "hw/hyperv/vmbus-bridge.h"
@@ -373,8 +372,7 @@ static ssize_t gpadl_iter_io(GpadlIter *iter, void *buf, uint32_t len)
 
             maddr = (iter->gpadl->gfns[idx] << TARGET_PAGE_BITS) | off_in_page;
 
-            iter->map = dma_memory_map(iter->as, maddr, &mlen, iter->dir,
-                                       MEMTXATTRS_UNSPECIFIED);
+            iter->map = dma_memory_map(iter->as, maddr, &mlen, iter->dir);
             if (mlen != pgleft) {
                 dma_memory_unmap(iter->as, iter->map, mlen, iter->dir, 0);
                 iter->map = NULL;
@@ -491,8 +489,7 @@ int vmbus_map_sgl(VMBusChanReq *req, DMADirection dir, struct iovec *iov,
                 goto err;
             }
 
-            iov[ret_cnt].iov_base = dma_memory_map(sgl->as, a, &l, dir,
-                                                   MEMTXATTRS_UNSPECIFIED);
+            iov[ret_cnt].iov_base = dma_memory_map(sgl->as, a, &l, dir);
             if (!l) {
                 ret = -EFAULT;
                 goto err;
@@ -568,7 +565,7 @@ static vmbus_ring_buffer *ringbuf_map_hdr(VMBusRingBufCommon *ringbuf)
     dma_addr_t mlen = sizeof(*rb);
 
     rb = dma_memory_map(ringbuf->as, ringbuf->rb_addr, &mlen,
-                        DMA_DIRECTION_FROM_DEVICE, MEMTXATTRS_UNSPECIFIED);
+                        DMA_DIRECTION_FROM_DEVICE);
     if (mlen != sizeof(*rb)) {
         dma_memory_unmap(ringbuf->as, rb, mlen,
                          DMA_DIRECTION_FROM_DEVICE, 0);
@@ -1273,6 +1270,105 @@ void vmbus_free_req(void *req)
     g_free(req);
 }
 
+static const VMStateDescription vmstate_sgent = {
+    .name = "vmbus/sgentry",
+    .version_id = 0,
+    .minimum_version_id = 0,
+    .fields = (VMStateField[]) {
+        VMSTATE_UINT64(base, ScatterGatherEntry),
+        VMSTATE_UINT64(len, ScatterGatherEntry),
+        VMSTATE_END_OF_LIST()
+    }
+};
+
+typedef struct VMBusChanReqSave {
+    uint16_t chan_idx;
+    uint16_t pkt_type;
+    uint32_t msglen;
+    void *msg;
+    uint64_t transaction_id;
+    bool need_comp;
+    uint32_t num;
+    ScatterGatherEntry *sgl;
+} VMBusChanReqSave;
+
+static const VMStateDescription vmstate_vmbus_chan_req = {
+    .name = "vmbus/vmbus_chan_req",
+    .version_id = 0,
+    .minimum_version_id = 0,
+    .fields = (VMStateField[]) {
+        VMSTATE_UINT16(chan_idx, VMBusChanReqSave),
+        VMSTATE_UINT16(pkt_type, VMBusChanReqSave),
+        VMSTATE_UINT32(msglen, VMBusChanReqSave),
+        VMSTATE_VBUFFER_ALLOC_UINT32(msg, VMBusChanReqSave, 0, NULL, msglen),
+        VMSTATE_UINT64(transaction_id, VMBusChanReqSave),
+        VMSTATE_BOOL(need_comp, VMBusChanReqSave),
+        VMSTATE_UINT32(num, VMBusChanReqSave),
+        VMSTATE_STRUCT_VARRAY_POINTER_UINT32(sgl, VMBusChanReqSave, num,
+                                             vmstate_sgent, ScatterGatherEntry),
+        VMSTATE_END_OF_LIST()
+    }
+};
+
+void vmbus_save_req(QEMUFile *f, VMBusChanReq *req)
+{
+    VMBusChanReqSave req_save;
+
+    req_save.chan_idx = req->chan->subchan_idx;
+    req_save.pkt_type = req->pkt_type;
+    req_save.msglen = req->msglen;
+    req_save.msg = req->msg;
+    req_save.transaction_id = req->transaction_id;
+    req_save.need_comp = req->need_comp;
+    req_save.num = req->sgl.nsg;
+    req_save.sgl = g_memdup(req->sgl.sg,
+                            req_save.num * sizeof(ScatterGatherEntry));
+
+    vmstate_save_state(f, &vmstate_vmbus_chan_req, &req_save, NULL);
+
+    g_free(req_save.sgl);
+}
+
+void *vmbus_load_req(QEMUFile *f, VMBusDevice *dev, uint32_t size)
+{
+    VMBusChanReqSave req_save;
+    VMBusChanReq *req = NULL;
+    VMBusChannel *chan = NULL;
+    uint32_t i;
+
+    vmstate_load_state(f, &vmstate_vmbus_chan_req, &req_save, 0);
+
+    if (req_save.chan_idx >= dev->num_channels) {
+        error_report("%s: %u(chan_idx) > %u(num_channels)", __func__,
+                     req_save.chan_idx, dev->num_channels);
+        goto out;
+    }
+    chan = &dev->channels[req_save.chan_idx];
+
+    if (vmbus_channel_reserve(chan, 0, req_save.msglen)) {
+        goto out;
+    }
+
+    req = vmbus_alloc_req(chan, size, req_save.pkt_type, req_save.msglen,
+                          req_save.transaction_id, req_save.need_comp);
+    if (req_save.msglen) {
+        memcpy(req->msg, req_save.msg, req_save.msglen);
+    }
+
+    for (i = 0; i < req_save.num; i++) {
+        qemu_sglist_add(&req->sgl, req_save.sgl[i].base, req_save.sgl[i].len);
+    }
+
+out:
+    if (req_save.msglen) {
+        g_free(req_save.msg);
+    }
+    if (req_save.num) {
+        g_free(req_save.sgl);
+    }
+    return req;
+}
+
 static void channel_event_cb(EventNotifier *e)
 {
     VMBusChannel *chan = container_of(e, VMBusChannel, notifier);
@@ -1578,7 +1674,7 @@ static bool vmbus_initialized(VMBus *vmbus)
 
 static void vmbus_reset_all(VMBus *vmbus)
 {
-    bus_cold_reset(BUS(vmbus));
+    qbus_reset_all(BUS(vmbus));
 }
 
 static void post_msg(VMBus *vmbus, void *msgdata, uint32_t msglen)
@@ -2035,7 +2131,7 @@ static void vdev_reset_on_close(VMBusDevice *vdev)
     }
 
     /* all channels closed -- reset device */
-    device_cold_reset(DEVICE(vdev));
+    qdev_reset_all(DEVICE(vdev));
 }
 
 static void handle_close_channel(VMBus *vmbus, vmbus_message_close_channel *msg,
@@ -2104,7 +2200,7 @@ static void process_message(VMBus *vmbus)
         goto out;
     }
     msgdata = hv_msg->payload;
-    msg = msgdata;
+    msg = (struct vmbus_message_header *)msgdata;
 
     trace_vmbus_process_incoming_message(msg->message_type);
 
@@ -2271,17 +2367,9 @@ static void vmbus_dev_realize(DeviceState *dev, Error **errp)
     VMBus *vmbus = VMBUS(qdev_get_parent_bus(dev));
     BusChild *child;
     Error *err = NULL;
-    char idstr[UUID_STR_LEN];
+    char idstr[UUID_FMT_LEN + 1];
 
     assert(!qemu_uuid_is_null(&vdev->instanceid));
-
-    if (!qemu_uuid_is_null(&vdc->instanceid)) {
-        /* Class wants to only have a single instance with a fixed UUID */
-        if (!qemu_uuid_is_equal(&vdev->instanceid, &vdc->instanceid)) {
-            error_setg(&err, "instance id can't be changed");
-            goto error_out;
-        }
-    }
 
     /* Check for instance id collision for this class id */
     QTAILQ_FOREACH(child, &BUS(vmbus)->children, sibling) {
@@ -2349,21 +2437,17 @@ static void vmbus_dev_unrealize(DeviceState *dev)
     free_channels(vdev);
 }
 
-static Property vmbus_dev_props[] = {
-    DEFINE_PROP_UUID("instanceid", VMBusDevice, instanceid),
-    DEFINE_PROP_END_OF_LIST()
-};
-
-
 static void vmbus_dev_class_init(ObjectClass *klass, void *data)
 {
     DeviceClass *kdev = DEVICE_CLASS(klass);
-    device_class_set_props(kdev, vmbus_dev_props);
     kdev->bus_type = TYPE_VMBUS;
     kdev->realize = vmbus_dev_realize;
     kdev->unrealize = vmbus_dev_unrealize;
     kdev->reset = vmbus_dev_reset;
 }
+
+static Property vmbus_dev_instanceid =
+                        DEFINE_PROP_UUID("instanceid", VMBusDevice, instanceid);
 
 static void vmbus_dev_instance_init(Object *obj)
 {
@@ -2373,6 +2457,8 @@ static void vmbus_dev_instance_init(Object *obj)
     if (!qemu_uuid_is_null(&vdc->instanceid)) {
         /* Class wants to only have a single instance with a fixed UUID */
         vdev->instanceid = vdc->instanceid;
+    } else {
+        qdev_property_add_static(DEVICE(vdev), &vmbus_dev_instanceid);
     }
 }
 
@@ -2404,6 +2490,7 @@ static const TypeInfo vmbus_dev_type_info = {
 static void vmbus_realize(BusState *bus, Error **errp)
 {
     int ret = 0;
+    Error *local_err = NULL;
     VMBus *vmbus = VMBUS(bus);
 
     qemu_mutex_init(&vmbus->rx_queue_lock);
@@ -2414,13 +2501,13 @@ static void vmbus_realize(BusState *bus, Error **errp)
     ret = hyperv_set_msg_handler(VMBUS_MESSAGE_CONNECTION_ID,
                                  vmbus_recv_message, vmbus);
     if (ret != 0) {
-        error_setg(errp, "hyperv set message handler failed: %d", ret);
+        error_setg(&local_err, "hyperv set message handler failed: %d", ret);
         goto error_out;
     }
 
     ret = event_notifier_init(&vmbus->notifier, 0);
     if (ret != 0) {
-        error_setg(errp, "event notifier failed to init with %d", ret);
+        error_setg(&local_err, "event notifier failed to init with %d", ret);
         goto remove_msg_handler;
     }
 
@@ -2428,7 +2515,7 @@ static void vmbus_realize(BusState *bus, Error **errp)
     ret = hyperv_set_event_flag_handler(VMBUS_EVENT_CONNECTION_ID,
                                         &vmbus->notifier);
     if (ret != 0) {
-        error_setg(errp, "hyperv set event handler failed with %d", ret);
+        error_setg(&local_err, "hyperv set event handler failed with %d", ret);
         goto clear_event_notifier;
     }
 
@@ -2440,6 +2527,7 @@ remove_msg_handler:
     hyperv_set_msg_handler(VMBUS_MESSAGE_CONNECTION_ID, NULL, NULL);
 error_out:
     qemu_mutex_destroy(&vmbus->rx_queue_lock);
+    error_propagate(errp, local_err);
 }
 
 static void vmbus_unrealize(BusState *bus)
@@ -2467,7 +2555,7 @@ static char *vmbus_get_dev_path(DeviceState *dev)
 static char *vmbus_get_fw_dev_path(DeviceState *dev)
 {
     VMBusDevice *vdev = VMBUS_DEVICE(dev);
-    char uuid[UUID_STR_LEN];
+    char uuid[UUID_FMT_LEN + 1];
 
     qemu_uuid_unparse(&vdev->instanceid, uuid);
     return g_strdup_printf("%s@%s", qdev_fw_name(dev), uuid);
@@ -2630,7 +2718,7 @@ static void vmbus_bridge_realize(DeviceState *dev, Error **errp)
         return;
     }
 
-    bridge->bus = VMBUS(qbus_new(TYPE_VMBUS, dev, "vmbus"));
+    bridge->bus = VMBUS(qbus_create(TYPE_VMBUS, dev, "vmbus"));
 }
 
 static char *vmbus_bridge_ofw_unit_address(const SysBusDevice *dev)

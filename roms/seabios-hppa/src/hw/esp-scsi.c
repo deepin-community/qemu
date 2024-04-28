@@ -46,7 +46,6 @@
 #define ESP_DMA_WMAC  0x58c
 
 #define ESP_CMD_DMA      0x80
-#define ESP_CMD_FLUSH    0x01
 #define ESP_CMD_RESET    0x02
 #define ESP_CMD_TI       0x10
 #define ESP_CMD_ICCS     0x11
@@ -57,8 +56,6 @@
 #define ESP_STAT_MSG     0x04
 #define ESP_STAT_TC      0x10
 
-#define ESP_INTR_FC      0x08
-#define ESP_INTR_BS      0x10
 #define ESP_INTR_DC      0x20
 
 struct esp_lun_s {
@@ -99,10 +96,6 @@ esp_scsi_process_op(struct disk_op_s *op)
 
     outb(target, iobase + ESP_WBUSID);
 
-    /* Clear FIFO and interrupts before sending command.  */
-    outb(ESP_CMD_FLUSH, iobase + ESP_CMD);
-    inb(iobase + ESP_RINTR);
-
     /*
      * We need to pass the LUN at the beginning of the command, and the FIFO
      * is only 16 bytes, so we cannot support 16-byte CDBs.  The alternative
@@ -118,49 +111,33 @@ esp_scsi_process_op(struct disk_op_s *op)
 
     for (state = 0;;) {
         u8 stat = inb(iobase + ESP_RSTAT);
-        u8 intr;
 
-        if (state == 0) {
-            intr = inb(iobase + ESP_RINTR);
+        /* Detect disconnected device.  */
+        if (state == 0 && (inb(iobase + ESP_RINTR) & ESP_INTR_DC)) {
+            return DISK_RET_ENOTREADY;
+        }
 
-            /* Detect disconnected device.  */
-            if (intr & ESP_INTR_DC) {
-                return DISK_RET_ENOTREADY;
-            }
-
-            /* HBA reads command, executes it, sets BS/FC -> do DMA if needed.  */
-            if (intr & (ESP_INTR_BS | ESP_INTR_FC)) {
-                state++;
-                if (op->count && blocksize) {
-                    /* Data phase.  */
-                    u32 count = (u32)op->count * blocksize;
-                    esp_scsi_dma(iobase, (u32)op->buf_fl, count, scsi_is_read(op));
-                    outb(ESP_CMD_TI | ESP_CMD_DMA, iobase + ESP_CMD);
-                    continue;
-                } else {
-                    /* No data phase.  */
-                    state++;
-                }
+        /* HBA reads command, clears CD, sets TC -> do DMA if needed.  */
+        if (state == 0 && (stat & ESP_STAT_TC)) {
+            state++;
+            if (op->count && blocksize) {
+                /* Data phase.  */
+                u32 count = (u32)op->count * blocksize;
+                esp_scsi_dma(iobase, (u32)op->buf_fl, count, scsi_is_read(op));
+                outb(ESP_CMD_TI | ESP_CMD_DMA, iobase + ESP_CMD);
+                continue;
             }
         }
 
         /* At end of DMA TC is set again -> complete command.  */
         if (state == 1 && (stat & ESP_STAT_TC)) {
             state++;
-            /* Terminate esp_scsi_dma() command */
-            outb(0, iobase + ESP_DMA_CMD);
-            continue;
-        }
-
-        /* Request message in data.  */
-        if (state == 2) {
-            state++;
             outb(ESP_CMD_ICCS, iobase + ESP_CMD);
             continue;
         }
 
         /* Finally read data from the message in phase.  */
-        if (state == 3 && (stat & ESP_STAT_MSG)) {
+        if (state == 2 && (stat & ESP_STAT_MSG)) {
             state++;
             status = inb(iobase + ESP_FIFO);
             inb(iobase + ESP_FIFO);
@@ -182,7 +159,6 @@ esp_scsi_init_lun(struct esp_lun_s *llun, struct pci_device *pci, u32 iobase,
 {
     memset(llun, 0, sizeof(*llun));
     llun->drive.type = DTYPE_ESP_SCSI;
-    llun->drive.max_bytes_transfer = 64*1024;   /* 64kb */
     llun->drive.cntl_id = pci->bdf;
     llun->pci = pci;
     llun->target = target;
@@ -205,8 +181,6 @@ esp_scsi_add_lun(u32 lun, struct drive_s *tmpl_drv)
 
     char *name = znprintf(MAXDESCSIZE, "esp %pP %d:%d",
                           llun->pci, llun->target, llun->lun);
-    boot_lchs_find_scsi_device(llun->pci, llun->target, llun->lun,
-                               &(llun->drive.lchs));
     int prio = bootprio_find_scsi_device(llun->pci, llun->target, llun->lun);
     int ret = scsi_drive_setup(&llun->drive, name, prio, llun->target, llun->lun);
     free(name);

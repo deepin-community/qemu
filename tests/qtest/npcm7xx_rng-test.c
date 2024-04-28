@@ -20,7 +20,6 @@
 
 #include "libqtest-single.h"
 #include "qemu/bitops.h"
-#include "qemu/cutils.h"
 
 #define RNG_BASE_ADDR   0xf000b000
 
@@ -36,13 +35,6 @@
 
 /* Number of bits to collect for randomness tests. */
 #define TEST_INPUT_BITS  (128)
-
-static void dump_buf_if_failed(const uint8_t *buf, size_t size)
-{
-    if (g_test_failed()) {
-        qemu_hexdump(stderr, "", buf, size);
-    }
-}
 
 static void rng_writeb(unsigned int offset, uint8_t value)
 {
@@ -196,7 +188,6 @@ static void test_continuous_monobit(void)
     }
 
     g_assert_cmpfloat(calc_monobit_p(buf, sizeof(buf)), >, 0.01);
-    dump_buf_if_failed(buf, sizeof(buf));
 }
 
 /*
@@ -218,7 +209,6 @@ static void test_continuous_runs(void)
     }
 
     g_assert_cmpfloat(calc_runs_p(buf.l, sizeof(buf) * BITS_PER_BYTE), >, 0.01);
-    dump_buf_if_failed(buf.c, sizeof(buf));
 }
 
 /*
@@ -240,7 +230,6 @@ static void test_first_byte_monobit(void)
     }
 
     g_assert_cmpfloat(calc_monobit_p(buf, sizeof(buf)), >, 0.01);
-    dump_buf_if_failed(buf, sizeof(buf));
 }
 
 /*
@@ -265,7 +254,6 @@ static void test_first_byte_runs(void)
     }
 
     g_assert_cmpfloat(calc_runs_p(buf.l, sizeof(buf) * BITS_PER_BYTE), >, 0.01);
-    dump_buf_if_failed(buf.c, sizeof(buf));
 }
 
 int main(int argc, char **argv)

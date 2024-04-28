@@ -13,7 +13,6 @@
 #include "qapi/error.h"
 #include "hw/m68k/mcf.h"
 #include "hw/qdev-properties.h"
-#include "hw/qdev-properties-system.h"
 #include "chardev/char-fe.h"
 #include "qom/object.h"
 
@@ -342,26 +341,25 @@ static void mcf_uart_register(void)
 
 type_init(mcf_uart_register)
 
-DeviceState *mcf_uart_create(qemu_irq irq, Chardev *chrdrv)
+void *mcf_uart_init(qemu_irq irq, Chardev *chrdrv)
 {
-    DeviceState *dev;
+    DeviceState  *dev;
 
     dev = qdev_new(TYPE_MCF_UART);
     if (chrdrv) {
         qdev_prop_set_chr(dev, "chardev", chrdrv);
     }
     sysbus_realize_and_unref(SYS_BUS_DEVICE(dev), &error_fatal);
+
     sysbus_connect_irq(SYS_BUS_DEVICE(dev), 0, irq);
 
     return dev;
 }
 
-DeviceState *mcf_uart_create_mmap(hwaddr base, qemu_irq irq, Chardev *chrdrv)
+void mcf_uart_mm_init(hwaddr base, qemu_irq irq, Chardev *chrdrv)
 {
-    DeviceState *dev;
+    DeviceState  *dev;
 
-    dev = mcf_uart_create(irq, chrdrv);
+    dev = mcf_uart_init(irq, chrdrv);
     sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, base);
-
-    return dev;
 }

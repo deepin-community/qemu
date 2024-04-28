@@ -1,28 +1,17 @@
-Historically, there were different naming in use for the
-same architectures within different groups/projects.  For
-example, amd64 architecture (Debian name) is also known as
-x86_64; arm64 and aarch64; and so on.  Qemu used one way
-to name the binaries, debian used another, some architectures
-are named the same way, while for other architectures there's
-a difference.
+qemu-user-static for Debian
+---------------------------
 
-Starting with debian qemu-user-static package version 8.0, we
-provide debian-compatible naming scheme for qemu-$arch-static
-binaries, to be used as qemu-${DEB_HOST_ARCH}-static.  For
-example, qemu-armel-static is a symlink for qemu-arm-static.
+* Configuring qemu-user-static to execute foreign binaries with binfmt
+  qemu-user-ARCH-static can be configured to run foreign binaries with 
+  binfmt. qemu-user-ARCH-static has been built to prefix all paths to 
+  the file system with /etc/qemu-binfmt/ARCH. When using non-static 
+  binaries, a symlink pointing to the foreign libraries should be
+  installed in this directory.
 
-In particular, the following extra names are provided:
+* Configuring qemu-user-static to use in a foreign chroot
+  When used with binfmt, qemu-user-ARCH-static can be configured to run
+  a foreign chroot. The qemu-user-ARCH-static binary should be copied 
+  (or better hard linked) into the chroot in /usr/bin. Then the chroot 
+  can be entered and used like a normal chroot.
 
-  amd64 => x86_64
-  arm64 => aarch64
-  armhf => arm
-  armel => arm
-  loong64 => loongarch64
-  powerpc => ppc
-  ppc64el => ppc64
-
-The other names do match between qemu and debian.
-
-There's another name which is also provided but which is
-neither in debian nor in qemu: it is ppc64le, which is
-the name used for this architecture in the linux kernel.
+ -- Aurelien Jarno <aurel32@debian.org>  Sun, 27 Dec 2009 00:35:15 +0100

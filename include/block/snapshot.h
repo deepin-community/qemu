@@ -25,8 +25,7 @@
 #ifndef SNAPSHOT_H
 #define SNAPSHOT_H
 
-#include "block/graph-lock.h"
-#include "qapi/qapi-builtin-types.h"
+
 
 #define SNAPSHOT_OPT_BASE       "snapshot."
 #define SNAPSHOT_OPT_ID         "snapshot.id"
@@ -46,13 +45,6 @@ typedef struct QEMUSnapshotInfo {
     uint64_t icount; /* record/replay step */
 } QEMUSnapshotInfo;
 
-/*
- * Global state (GS) API. These functions run under the BQL.
- *
- * See include/block/block-global-state.h for more information about
- * the GS API.
- */
-
 int bdrv_snapshot_find(BlockDriverState *bs, QEMUSnapshotInfo *sn_info,
                        const char *name);
 bool bdrv_snapshot_find_by_id_and_name(BlockDriverState *bs,
@@ -60,19 +52,16 @@ bool bdrv_snapshot_find_by_id_and_name(BlockDriverState *bs,
                                        const char *name,
                                        QEMUSnapshotInfo *sn_info,
                                        Error **errp);
-
-int GRAPH_RDLOCK bdrv_can_snapshot(BlockDriverState *bs);
-
-int GRAPH_RDLOCK
-bdrv_snapshot_create(BlockDriverState *bs, QEMUSnapshotInfo *sn_info);
-
-int GRAPH_UNLOCKED
-bdrv_snapshot_goto(BlockDriverState *bs, const char *snapshot_id, Error **errp);
-
-int GRAPH_RDLOCK
-bdrv_snapshot_delete(BlockDriverState *bs, const char *snapshot_id,
-                     const char *name, Error **errp);
-
+int bdrv_can_snapshot(BlockDriverState *bs);
+int bdrv_snapshot_create(BlockDriverState *bs,
+                         QEMUSnapshotInfo *sn_info);
+int bdrv_snapshot_goto(BlockDriverState *bs,
+                       const char *snapshot_id,
+                       Error **errp);
+int bdrv_snapshot_delete(BlockDriverState *bs,
+                         const char *snapshot_id,
+                         const char *name,
+                         Error **errp);
 int bdrv_snapshot_list(BlockDriverState *bs,
                        QEMUSnapshotInfo **psn_info);
 int bdrv_snapshot_load_tmp(BlockDriverState *bs,
@@ -84,32 +73,21 @@ int bdrv_snapshot_load_tmp_by_id_or_name(BlockDriverState *bs,
                                          Error **errp);
 
 
-/*
- * Group operations. All block drivers are involved.
+/* Group operations. All block drivers are involved.
  * These functions will properly handle dataplane (take aio_context_acquire
- * when appropriate for appropriate block drivers
- */
+ * when appropriate for appropriate block drivers */
 
-bool bdrv_all_can_snapshot(bool has_devices, strList *devices,
-                           Error **errp);
-int bdrv_all_delete_snapshot(const char *name,
-                             bool has_devices, strList *devices,
+bool bdrv_all_can_snapshot(BlockDriverState **first_bad_bs);
+int bdrv_all_delete_snapshot(const char *name, BlockDriverState **first_bsd_bs,
                              Error **errp);
-int bdrv_all_goto_snapshot(const char *name,
-                           bool has_devices, strList *devices,
+int bdrv_all_goto_snapshot(const char *name, BlockDriverState **first_bad_bs,
                            Error **errp);
-int bdrv_all_has_snapshot(const char *name,
-                          bool has_devices, strList *devices,
-                          Error **errp);
+int bdrv_all_find_snapshot(const char *name, BlockDriverState **first_bad_bs);
 int bdrv_all_create_snapshot(QEMUSnapshotInfo *sn,
                              BlockDriverState *vm_state_bs,
                              uint64_t vm_state_size,
-                             bool has_devices,
-                             strList *devices,
-                             Error **errp);
+                             BlockDriverState **first_bad_bs);
 
-BlockDriverState *bdrv_all_find_vmstate_bs(const char *vmstate_bs,
-                                           bool has_devices, strList *devices,
-                                           Error **errp);
+BlockDriverState *bdrv_all_find_vmstate_bs(void);
 
 #endif

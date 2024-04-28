@@ -3,9 +3,6 @@
 
 #include "cpu-qom.h"
 #include "exec/cpu-defs.h"
-#ifndef CONFIG_USER_ONLY
-#include "exec/memory.h"
-#endif
 #include "fpu/softfloat-types.h"
 #include "hw/clock.h"
 #include "mips-defs.h"
@@ -38,7 +35,7 @@ union fpr_t {
  *define FP_ENDIAN_IDX to access the same location
  * in the fpr_t union regardless of the host endianness
  */
-#if HOST_BIG_ENDIAN
+#if defined(HOST_WORDS_BIGENDIAN)
 #  define FP_ENDIAN_IDX 1
 #else
 #  define FP_ENDIAN_IDX 0
@@ -463,13 +460,6 @@ typedef struct mips_def_t mips_def_t;
 typedef struct TCState TCState;
 struct TCState {
     target_ulong gpr[32];
-#if defined(TARGET_MIPS64)
-    /*
-     * For CPUs using 128-bit GPR registers, we put the lower halves in gpr[])
-     * and the upper halves in gpr_hi[].
-     */
-    uint64_t gpr_hi[32];
-#endif /* TARGET_MIPS64 */
     target_ulong PC;
     target_ulong HI[MIPS_DSP_ACC];
     target_ulong LO[MIPS_DSP_ACC];
@@ -515,6 +505,9 @@ struct TCState {
 
     float_status msa_fp_status;
 
+    /* Upper 64-bit MMRs (multimedia registers); the lower 64-bit are GPRs */
+    uint64_t mmr[32];
+
 #define NUMBER_OF_MXU_REGISTERS 16
     target_ulong mxu_gpr[NUMBER_OF_MXU_REGISTERS - 1];
     target_ulong mxu_cr;
@@ -527,7 +520,8 @@ struct TCState {
 };
 
 struct MIPSITUState;
-typedef struct CPUArchState {
+typedef struct CPUMIPSState CPUMIPSState;
+struct CPUMIPSState {
     TCState active_tc;
     CPUMIPSFPUContext active_fpu;
 
@@ -834,7 +828,7 @@ typedef struct CPUArchState {
 #define CP0EBase_WG 11
     target_ulong CP0_CMGCRBase;
 /*
- * CP0 Register 16 (after Release 1)
+ * CP0 Register 16
  */
     int32_t CP0_Config0;
 #define CP0C0_M    31
@@ -850,15 +844,6 @@ typedef struct CPUArchState {
 #define CP0C0_MT   7     /*  9..7  */
 #define CP0C0_VI   3
 #define CP0C0_K0   0     /*  2..0  */
-#define CP0C0_AR_LENGTH 3
-/*
- * CP0 Register 16 (before Release 1)
- */
-#define CP0C0_Impl 16    /* 24..16 */
-#define CP0C0_IC   9     /* 11..9 */
-#define CP0C0_DC   6     /*  8..6 */
-#define CP0C0_IB   5
-#define CP0C0_DB   4
     int32_t CP0_Config1;
 #define CP0C1_M    31
 #define CP0C1_MMU  25    /* 30..25 */
@@ -983,7 +968,6 @@ typedef struct CPUArchState {
 #define CP0C6_DATAPREF        0
     int32_t CP0_Config7;
     int64_t CP0_Config7_rw_bitmask;
-#define CP0C7_WII          31
 #define CP0C7_NAPCGEN       2
 #define CP0C7_UNIMUEN       1
 #define CP0C7_VFPUCGEN      0
@@ -1009,7 +993,6 @@ typedef struct CPUArchState {
  */
     uint64_t CP0_WatchHi[8];
 #define CP0WH_ASID 16
-#define CP0WH_M    31
 /*
  * CP0 Register 20
  */
@@ -1071,33 +1054,6 @@ typedef struct CPUArchState {
  */
     int32_t CP0_DESAVE;
     target_ulong CP0_KScratch[MIPS_KSCRATCH_NUM];
-/*
- * Loongson CSR CPUCFG registers
- */
-    uint32_t lcsr_cpucfg1;
-#define CPUCFG1_FP     0
-#define CPUCFG1_FPREV  1
-#define CPUCFG1_MMI    4
-#define CPUCFG1_MSA1   5
-#define CPUCFG1_MSA2   6
-#define CPUCFG1_LSLDR0 16
-#define CPUCFG1_LSPERF 17
-#define CPUCFG1_LSPERFX 18
-#define CPUCFG1_LSSYNCI 19
-#define CPUCFG1_LLEXC   20
-#define CPUCFG1_SCRAND  21
-#define CPUCFG1_MUALP   25
-#define CPUCFG1_KMUALEN 26
-#define CPUCFG1_ITLBT   27
-#define CPUCFG1_SFBP    29
-#define CPUCFG1_CDMAP   30
-    uint32_t lcsr_cpucfg2;
-#define CPUCFG2_LEXT1   0
-#define CPUCFG2_LEXT2   1
-#define CPUCFG2_LEXT3   2
-#define CPUCFG2_LSPW    3
-#define CPUCFG2_LCSRP   27
-#define CPUCFG2_LDISBLIKELY 28
 
     /* We waste some space so we can handle shadow registers like TCs. */
     TCState tcs[MIPS_SHADOW_SET_MAX];
@@ -1108,7 +1064,7 @@ typedef struct CPUArchState {
 #define EXCP_INST_NOTAVAIL 0x2 /* No valid instruction word for BadInstr */
     uint32_t hflags;    /* CPU State */
     /* TMASK defines different execution modes */
-#define MIPS_HFLAG_TMASK  0x3F5807FF
+#define MIPS_HFLAG_TMASK  0x1F5807FF
 #define MIPS_HFLAG_MODE   0x00007 /* execution modes                    */
     /*
      * The KSU flags must be the lowest bits in hflags. The flag order
@@ -1183,64 +1139,52 @@ typedef struct CPUArchState {
     CPUMIPSMVPContext *mvp;
 #if !defined(CONFIG_USER_ONLY)
     CPUMIPSTLBContext *tlb;
-    void *irq[8];
-    struct MIPSITUState *itu;
-    MemoryRegion *itc_tag; /* ITC Configuration Tags */
-
-    /* Loongson IOCSR memory */
-    struct {
-        AddressSpace as;
-        MemoryRegion mr;
-    } iocsr;
 #endif
 
     const mips_def_t *cpu_model;
+    void *irq[8];
     QEMUTimer *timer; /* Internal timer */
-    Clock *count_clock; /* CP0_Count clock */
+    struct MIPSITUState *itu;
+    MemoryRegion *itc_tag; /* ITC Configuration Tags */
     target_ulong exception_base; /* ExceptionBase input to the core */
-} CPUMIPSState;
+    uint64_t cp0_count_ns; /* CP0_Count clock period (in nanoseconds) */
+};
 
 /**
  * MIPSCPU:
  * @env: #CPUMIPSState
  * @clock: this CPU input clock (may be connected
  *         to an output clock from another device).
+ * @cp0_count_rate: rate at which the coprocessor 0 counter increments
  *
  * A MIPS CPU.
  */
-struct ArchCPU {
+struct MIPSCPU {
+    /*< private >*/
     CPUState parent_obj;
-
-    CPUMIPSState env;
+    /*< public >*/
 
     Clock *clock;
-    Clock *count_div; /* Divider for CP0_Count clock */
+    CPUNegativeOffsetState neg;
+    CPUMIPSState env;
+    /*
+     * The Count register acts as a timer, incrementing at a constant rate,
+     * whether or not an instruction is executed, retired, or any forward
+     * progress is made through the pipeline. The rate at which the counter
+     * increments is implementation dependent, and is a function of the
+     * pipeline clock of the processor, not the issue width of the processor.
+     */
+    unsigned cp0_count_rate;
 };
 
-/**
- * MIPSCPUClass:
- * @parent_realize: The parent class' realize handler.
- * @parent_phases: The parent class' reset phase handlers.
- *
- * A MIPS CPU model.
- */
-struct MIPSCPUClass {
-    CPUClass parent_class;
-
-    DeviceRealize parent_realize;
-    ResettablePhases parent_phases;
-    const struct mips_def_t *cpu_def;
-
-    /* Used for the jazz board to modify mips_cpu_do_transaction_failed. */
-    bool no_data_aborts;
-};
 
 void mips_cpu_list(void);
 
+#define cpu_signal_handler cpu_mips_signal_handler
 #define cpu_list mips_cpu_list
 
-void cpu_wrdsp(uint32_t rs, uint32_t mask_num, CPUMIPSState *env);
-uint32_t cpu_rddsp(uint32_t mask_num, CPUMIPSState *env);
+extern void cpu_wrdsp(uint32_t rs, uint32_t mask_num, CPUMIPSState *env);
+extern uint32_t cpu_rddsp(uint32_t mask_num, CPUMIPSState *env);
 
 /*
  * MMU modes definitions. We carefully match the indices with our
@@ -1262,7 +1206,26 @@ static inline int cpu_mmu_index(CPUMIPSState *env, bool ifetch)
     return hflags_mmu_index(env->hflags);
 }
 
+typedef CPUMIPSState CPUArchState;
+typedef MIPSCPU ArchCPU;
+
 #include "exec/cpu-all.h"
+
+/*
+ * Memory access type :
+ * may be needed for precise access rights control and precise exceptions.
+ */
+enum {
+    /* 1 bit to define user level / supervisor access */
+    ACCESS_USER  = 0x00,
+    ACCESS_SUPER = 0x01,
+    /* 1 bit to indicate direction */
+    ACCESS_STORE = 0x02,
+    /* Type of instruction that generated the access */
+    ACCESS_CODE  = 0x10, /* Code fetch access                */
+    ACCESS_INT   = 0x20, /* Integer load/store access        */
+    ACCESS_FLOAT = 0x30, /* floating point load/store access */
+};
 
 /* Exceptions */
 enum {
@@ -1305,9 +1268,8 @@ enum {
     EXCP_MSAFPE,
     EXCP_TLBXI,
     EXCP_TLBRI,
-    EXCP_SEMIHOST,
 
-    EXCP_LAST = EXCP_SEMIHOST,
+    EXCP_LAST = EXCP_TLBRI,
 };
 
 /*
@@ -1318,58 +1280,27 @@ enum {
  */
 #define CPU_INTERRUPT_WAKE CPU_INTERRUPT_TGT_INT_0
 
+int cpu_mips_signal_handler(int host_signum, void *pinfo, void *puc);
+
+#define MIPS_CPU_TYPE_SUFFIX "-" TYPE_MIPS_CPU
+#define MIPS_CPU_TYPE_NAME(model) model MIPS_CPU_TYPE_SUFFIX
 #define CPU_RESOLVING_TYPE TYPE_MIPS_CPU
 
-bool cpu_type_supports_cps_smp(const char *cpu_type);
-bool cpu_supports_isa(const CPUMIPSState *env, uint64_t isa_mask);
-bool cpu_type_supports_isa(const char *cpu_type, uint64_t isa);
-
-/* Check presence of MSA implementation */
-static inline bool ase_msa_available(CPUMIPSState *env)
-{
-    return env->CP0_Config3 & (1 << CP0C3_MSAP);
-}
-
-/* Check presence of Loongson CSR instructions */
-static inline bool ase_lcsr_available(CPUMIPSState *env)
-{
-    return env->lcsr_cpucfg2 & (1 << CPUCFG2_LCSRP);
-}
-
-/* Check presence of multi-threading ASE implementation */
-static inline bool ase_mt_available(CPUMIPSState *env)
-{
-    return env->CP0_Config3 & (1 << CP0C3_MT);
-}
-
-static inline bool cpu_type_is_64bit(const char *cpu_type)
-{
-    return cpu_type_supports_isa(cpu_type, CPU_MIPS64);
-}
-
+bool cpu_supports_cps_smp(const char *cpu_type);
+bool cpu_supports_isa(const char *cpu_type, uint64_t isa);
 void cpu_set_exception_base(int vp_index, target_ulong address);
 
-/* addr.c */
-uint64_t cpu_mips_kseg0_to_phys(void *opaque, uint64_t addr);
-uint64_t cpu_mips_phys_to_kseg0(void *opaque, uint64_t addr);
-
-uint64_t cpu_mips_kseg1_to_phys(void *opaque, uint64_t addr);
-uint64_t cpu_mips_phys_to_kseg1(void *opaque, uint64_t addr);
-
-#if !defined(CONFIG_USER_ONLY)
-
-/* HW declaration specific to the MIPS target */
+/* mips_int.c */
 void cpu_mips_soft_irq(CPUMIPSState *env, int irq, int level);
-void cpu_mips_irq_init_cpu(MIPSCPU *cpu);
-void cpu_mips_clock_init(MIPSCPU *cpu);
 
-#endif /* !CONFIG_USER_ONLY */
+/* mips_itu.c */
+void itc_reconfigure(struct MIPSITUState *tag);
 
 /* helper.c */
 target_ulong exception_resume_pc(CPUMIPSState *env);
 
-static inline void cpu_get_tb_cpu_state(CPUMIPSState *env, vaddr *pc,
-                                        uint64_t *cs_base, uint32_t *flags)
+static inline void cpu_get_tb_cpu_state(CPUMIPSState *env, target_ulong *pc,
+                                        target_ulong *cs_base, uint32_t *flags)
 {
     *pc = env->active_tc.PC;
     *cs_base = 0;

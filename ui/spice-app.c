@@ -27,9 +27,7 @@
 #include <gio/gio.h>
 
 #include "ui/console.h"
-#include "ui/spice-display.h"
 #include "qemu/config-file.h"
-#include "qemu/error-report.h"
 #include "qemu/option.h"
 #include "qemu/cutils.h"
 #include "qemu/module.h"
@@ -96,11 +94,6 @@ static void vc_chr_set_echo(Chardev *chr, bool echo)
     /* TODO: set echo for frontends QMP and qtest */
 }
 
-static void vc_chr_parse(QemuOpts *opts, ChardevBackend *backend, Error **errp)
-{
-    /* fqdn is dealt with in vc_chr_open() */
-}
-
 static void char_vc_class_init(ObjectClass *oc, void *data)
 {
     VCChardevClass *vc = CHARDEV_VC_CLASS(oc);
@@ -108,7 +101,7 @@ static void char_vc_class_init(ObjectClass *oc, void *data)
 
     vc->parent_open = cc->open;
 
-    cc->parse = vc_chr_parse;
+    cc->parse = qemu_chr_parse_vc;
     cc->open = vc_chr_open;
     cc->chr_set_echo = vc_chr_set_echo;
 }
@@ -136,7 +129,6 @@ static void spice_app_atexit(void)
 static void spice_app_display_early_init(DisplayOptions *opts)
 {
     QemuOpts *qopts;
-    QemuOptsList *list;
     GError *err = NULL;
 
     if (opts->has_full_screen) {
@@ -167,22 +159,17 @@ static void spice_app_display_early_init(DisplayOptions *opts)
             exit(1);
         }
     }
-    list = qemu_find_opts("spice");
-    if (list == NULL) {
-        error_report("spice-app missing spice support");
-        exit(1);
-    }
 
     type_register(&char_vc_type_info);
 
     sock_path = g_strjoin("", app_dir, "/", "spice.sock", NULL);
-    qopts = qemu_opts_create(list, NULL, 0, &error_abort);
+    qopts = qemu_opts_create(qemu_find_opts("spice"), NULL, 0, &error_abort);
     qemu_opt_set(qopts, "disable-ticketing", "on", &error_abort);
     qemu_opt_set(qopts, "unix", "on", &error_abort);
     qemu_opt_set(qopts, "addr", sock_path, &error_abort);
     qemu_opt_set(qopts, "image-compression", "off", &error_abort);
     qemu_opt_set(qopts, "streaming-video", "off", &error_abort);
-#ifdef HAVE_SPICE_GL
+#ifdef CONFIG_OPENGL
     qemu_opt_set(qopts, "gl", opts->has_gl ? "on" : "off", &error_abort);
     display_opengl = opts->has_gl;
 #endif
@@ -220,7 +207,6 @@ static QemuDisplay qemu_display_spice_app = {
     .type       = DISPLAY_TYPE_SPICE_APP,
     .early_init = spice_app_display_early_init,
     .init       = spice_app_display_init,
-    .vc         = "vc",
 };
 
 static void register_spice_app(void)
@@ -229,6 +215,3 @@ static void register_spice_app(void)
 }
 
 type_init(register_spice_app);
-
-module_dep("ui-spice-core");
-module_dep("chardev-spice");

@@ -38,10 +38,6 @@
 #include "ui/input.h"
 #include "sysemu/sysemu.h"
 
-#if defined(__APPLE__) || defined(__OpenBSD__)
-#define _XOPEN_SOURCE_EXTENDED 1
-#endif
-
 /* KEY_EVENT is defined in wincon.h and in curses.h. Avoid redefinition. */
 #undef KEY_EVENT
 #include <curses.h>
@@ -69,7 +65,7 @@ static void curses_update(DisplayChangeListener *dcl,
                           int x, int y, int w, int h)
 {
     console_ch_t *line;
-    g_autofree cchar_t *curses_line = g_new(cchar_t, width);
+    cchar_t curses_line[width];
     wchar_t wch[CCHARW_MAX];
     attr_t attrs;
     short colors;
@@ -400,7 +396,7 @@ static void curses_refresh(DisplayChangeListener *dcl)
             if (keysym == -1)
                 keysym = chr;
 
-            qemu_text_console_put_keysym(NULL, keysym);
+            kbd_put_keysym(keysym);
         }
     }
 }

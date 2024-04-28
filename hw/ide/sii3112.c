@@ -149,7 +149,8 @@ static void sii3112_reg_write(void *opaque, hwaddr addr,
         break;
     case 0x02:
     case 0x12:
-        bmdma_status_writeb(&d->i.bmdma[0], val);
+        d->i.bmdma[0].status = (val & 0x60) | (d->i.bmdma[0].status & 1) |
+                               (d->i.bmdma[0].status & ~val & 6);
         break;
     case 0x04 ... 0x07:
         bmdma_addr_ioport_ops.write(&d->i.bmdma[0], addr - 4, val, size);
@@ -164,7 +165,8 @@ static void sii3112_reg_write(void *opaque, hwaddr addr,
         break;
     case 0x0a:
     case 0x1a:
-        bmdma_status_writeb(&d->i.bmdma[1], val);
+        d->i.bmdma[1].status = (val & 0x60) | (d->i.bmdma[1].status & 1) |
+                               (d->i.bmdma[1].status & ~val & 6);
         break;
     case 0x0c ... 0x0f:
         bmdma_addr_ioport_ops.write(&d->i.bmdma[1], addr - 12, val, size);
@@ -281,11 +283,12 @@ static void sii3112_pci_realize(PCIDevice *dev, Error **errp)
 
     qdev_init_gpio_in(ds, sii3112_set_irq, 2);
     for (i = 0; i < 2; i++) {
-        ide_bus_init(&s->bus[i], sizeof(s->bus[i]), ds, i, 1);
-        ide_bus_init_output_irq(&s->bus[i], qdev_get_gpio_in(ds, i));
+        ide_bus_new(&s->bus[i], sizeof(s->bus[i]), ds, i, 1);
+        ide_init2(&s->bus[i], qdev_get_gpio_in(ds, i));
 
         bmdma_init(&s->bus[i], &s->bmdma[i], s);
-        ide_bus_register_restart_cb(&s->bus[i]);
+        s->bmdma[i].bus = &s->bus[i];
+        ide_register_restart_cb(&s->bus[i]);
     }
 }
 

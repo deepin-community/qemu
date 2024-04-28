@@ -19,14 +19,6 @@
 #define KVM_ARM_VGIC_V3   (1 << 1)
 
 /**
- * kvm_arm_init_debug() - initialize guest debug capabilities
- * @s: KVMState
- *
- * Should be called only once before using guest debug capabilities.
- */
-void kvm_arm_init_debug(KVMState *s);
-
-/**
  * kvm_arm_vcpu_init:
  * @cs: CPUState
  *
@@ -222,6 +214,8 @@ bool kvm_arm_create_scratch_host_vcpu(const uint32_t *cpus_to_try,
  */
 void kvm_arm_destroy_scratch_host_vcpu(int *fdarray);
 
+#define TYPE_ARM_HOST_CPU "host-" TYPE_ARM_CPU
+
 /**
  * ARMHostCPUFeatures: information about the host CPU (identified
  * by asking the host kernel)
@@ -247,12 +241,13 @@ bool kvm_arm_get_host_cpu_features(ARMHostCPUFeatures *ahcf);
 /**
  * kvm_arm_sve_get_vls:
  * @cs: CPUState
+ * @map: bitmap to fill in
  *
  * Get all the SVE vector lengths supported by the KVM host, setting
  * the bits corresponding to their length in quadwords minus one
- * (vq - 1) up to ARM_MAX_VQ.  Return the resulting map.
+ * (vq - 1) in @map up to ARM_MAX_VQ.
  */
-uint32_t kvm_arm_sve_get_vls(CPUState *cs);
+void kvm_arm_sve_get_vls(CPUState *cs, unsigned long *map);
 
 /**
  * kvm_arm_set_cpu_features_from_host:
@@ -316,12 +311,10 @@ bool kvm_arm_sve_supported(void);
 /**
  * kvm_arm_get_max_vm_ipa_size:
  * @ms: Machine state handle
- * @fixed_ipa: True when the IPA limit is fixed at 40. This is the case
- * for legacy KVM.
  *
  * Returns the number of bits in the IPA address space supported by KVM
  */
-int kvm_arm_get_max_vm_ipa_size(MachineState *ms, bool *fixed_ipa);
+int kvm_arm_get_max_vm_ipa_size(MachineState *ms);
 
 /**
  * kvm_arm_sync_mpstate_to_kvm:
@@ -359,7 +352,7 @@ void kvm_arm_get_virtual_time(CPUState *cs);
  */
 void kvm_arm_put_virtual_time(CPUState *cs);
 
-void kvm_arm_vm_state_change(void *opaque, bool running, RunState state);
+void kvm_arm_vm_state_change(void *opaque, int running, RunState state);
 
 int kvm_arm_vgic_probe(void);
 
@@ -416,7 +409,7 @@ static inline void kvm_arm_add_vcpu_properties(Object *obj)
     g_assert_not_reached();
 }
 
-static inline int kvm_arm_get_max_vm_ipa_size(MachineState *ms, bool *fixed_ipa)
+static inline int kvm_arm_get_max_vm_ipa_size(MachineState *ms)
 {
     g_assert_not_reached();
 }
@@ -446,12 +439,38 @@ static inline void kvm_arm_steal_time_finalize(ARMCPU *cpu, Error **errp)
     g_assert_not_reached();
 }
 
-static inline uint32_t kvm_arm_sve_get_vls(CPUState *cs)
+static inline void kvm_arm_sve_get_vls(CPUState *cs, unsigned long *map)
 {
     g_assert_not_reached();
 }
 
 #endif
+
+static inline const char *gic_class_name(void)
+{
+    return kvm_irqchip_in_kernel() ? "kvm-arm-gic" : "arm_gic";
+}
+
+/**
+ * gicv3_class_name
+ *
+ * Return name of GICv3 class to use depending on whether KVM acceleration is
+ * in use. May throw an error if the chosen implementation is not available.
+ *
+ * Returns: class name to use
+ */
+static inline const char *gicv3_class_name(void)
+{
+    if (kvm_irqchip_in_kernel()) {
+        return "kvm-arm-gicv3";
+    } else {
+        if (kvm_enabled()) {
+            error_report("Userspace GICv3 is not supported with KVM");
+            exit(1);
+        }
+        return "arm-gicv3";
+    }
+}
 
 /**
  * kvm_arm_handle_debug:
@@ -489,5 +508,24 @@ void kvm_arm_copy_hw_debug_data(struct kvm_guest_debug_arch *ptr);
  * Returns: true if the fault status code is as expected, false otherwise
  */
 bool kvm_arm_verify_ext_dabt_pending(CPUState *cs);
+
+/**
+ * its_class_name:
+ *
+ * Return the ITS class name to use depending on whether KVM acceleration
+ * and KVM CAP_SIGNAL_MSI are supported
+ *
+ * Returns: class name to use or NULL
+ */
+static inline const char *its_class_name(void)
+{
+    if (kvm_irqchip_in_kernel()) {
+        /* KVM implementation requires this capability */
+        return kvm_direct_msi_enabled() ? "arm-its-kvm" : NULL;
+    } else {
+        /* Software emulation is not implemented yet */
+        return NULL;
+    }
+}
 
 #endif

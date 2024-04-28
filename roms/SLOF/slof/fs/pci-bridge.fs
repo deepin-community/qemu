@@ -48,7 +48,7 @@ s" dma-function.fs" included
 \ this device and so for the scanning for the devices behind
 pci-device-disable
 
-\ Enable #PERR and #SERR reporting
+\ Enalbe #PERR and #SERR reporting
 pci-error-enable
 
 \ Print out device information

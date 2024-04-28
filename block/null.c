@@ -16,7 +16,6 @@
 #include "qapi/qmp/qstring.h"
 #include "qemu/module.h"
 #include "qemu/option.h"
-#include "block/block-io.h"
 #include "block/block_int.h"
 #include "sysemu/replay.h"
 
@@ -100,7 +99,7 @@ static int null_file_open(BlockDriverState *bs, QDict *options, int flags,
     return ret;
 }
 
-static int64_t coroutine_fn null_co_getlength(BlockDriverState *bs)
+static int64_t null_getlength(BlockDriverState *bs)
 {
     BDRVNullState *s = bs->opaque;
     return s->length;
@@ -117,9 +116,8 @@ static coroutine_fn int null_co_common(BlockDriverState *bs)
 }
 
 static coroutine_fn int null_co_preadv(BlockDriverState *bs,
-                                       int64_t offset, int64_t bytes,
-                                       QEMUIOVector *qiov,
-                                       BdrvRequestFlags flags)
+                                       uint64_t offset, uint64_t bytes,
+                                       QEMUIOVector *qiov, int flags)
 {
     BDRVNullState *s = bs->opaque;
 
@@ -131,9 +129,8 @@ static coroutine_fn int null_co_preadv(BlockDriverState *bs,
 }
 
 static coroutine_fn int null_co_pwritev(BlockDriverState *bs,
-                                        int64_t offset, int64_t bytes,
-                                        QEMUIOVector *qiov,
-                                        BdrvRequestFlags flags)
+                                        uint64_t offset, uint64_t bytes,
+                                        QEMUIOVector *qiov, int flags)
 {
     return null_co_common(bs);
 }
@@ -190,8 +187,8 @@ static inline BlockAIOCB *null_aio_common(BlockDriverState *bs,
 }
 
 static BlockAIOCB *null_aio_preadv(BlockDriverState *bs,
-                                   int64_t offset, int64_t bytes,
-                                   QEMUIOVector *qiov, BdrvRequestFlags flags,
+                                   uint64_t offset, uint64_t bytes,
+                                   QEMUIOVector *qiov, int flags,
                                    BlockCompletionFunc *cb,
                                    void *opaque)
 {
@@ -205,8 +202,8 @@ static BlockAIOCB *null_aio_preadv(BlockDriverState *bs,
 }
 
 static BlockAIOCB *null_aio_pwritev(BlockDriverState *bs,
-                                    int64_t offset, int64_t bytes,
-                                    QEMUIOVector *qiov, BdrvRequestFlags flags,
+                                    uint64_t offset, uint64_t bytes,
+                                    QEMUIOVector *qiov, int flags,
                                     BlockCompletionFunc *cb,
                                     void *opaque)
 {
@@ -265,8 +262,7 @@ static void null_refresh_filename(BlockDriverState *bs)
              bs->drv->format_name);
 }
 
-static int64_t coroutine_fn
-null_co_get_allocated_file_size(BlockDriverState *bs)
+static int64_t null_allocated_file_size(BlockDriverState *bs)
 {
     return 0;
 }
@@ -285,8 +281,8 @@ static BlockDriver bdrv_null_co = {
 
     .bdrv_file_open         = null_file_open,
     .bdrv_parse_filename    = null_co_parse_filename,
-    .bdrv_co_getlength      = null_co_getlength,
-    .bdrv_co_get_allocated_file_size = null_co_get_allocated_file_size,
+    .bdrv_getlength         = null_getlength,
+    .bdrv_get_allocated_file_size = null_allocated_file_size,
 
     .bdrv_co_preadv         = null_co_preadv,
     .bdrv_co_pwritev        = null_co_pwritev,
@@ -306,8 +302,8 @@ static BlockDriver bdrv_null_aio = {
 
     .bdrv_file_open         = null_file_open,
     .bdrv_parse_filename    = null_aio_parse_filename,
-    .bdrv_co_getlength      = null_co_getlength,
-    .bdrv_co_get_allocated_file_size = null_co_get_allocated_file_size,
+    .bdrv_getlength         = null_getlength,
+    .bdrv_get_allocated_file_size = null_allocated_file_size,
 
     .bdrv_aio_preadv        = null_aio_preadv,
     .bdrv_aio_pwritev       = null_aio_pwritev,

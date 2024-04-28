@@ -26,6 +26,7 @@
 #define HW_MISC_AVR_POWER_H
 
 #include "hw/sysbus.h"
+#include "hw/hw.h"
 #include "qom/object.h"
 
 

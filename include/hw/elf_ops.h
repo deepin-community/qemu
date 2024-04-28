@@ -1,30 +1,30 @@
 static void glue(bswap_ehdr, SZ)(struct elfhdr *ehdr)
 {
-    bswap16s(&ehdr->e_type);      /* Object file type */
-    bswap16s(&ehdr->e_machine);   /* Architecture */
-    bswap32s(&ehdr->e_version);   /* Object file version */
-    bswapSZs(&ehdr->e_entry);     /* Entry point virtual address */
-    bswapSZs(&ehdr->e_phoff);     /* Program header table file offset */
-    bswapSZs(&ehdr->e_shoff);     /* Section header table file offset */
-    bswap32s(&ehdr->e_flags);     /* Processor-specific flags */
-    bswap16s(&ehdr->e_ehsize);    /* ELF header size in bytes */
-    bswap16s(&ehdr->e_phentsize); /* Program header table entry size */
-    bswap16s(&ehdr->e_phnum);     /* Program header table entry count */
-    bswap16s(&ehdr->e_shentsize); /* Section header table entry size */
-    bswap16s(&ehdr->e_shnum);     /* Section header table entry count */
-    bswap16s(&ehdr->e_shstrndx);  /* Section header string table index */
+    bswap16s(&ehdr->e_type);			/* Object file type */
+    bswap16s(&ehdr->e_machine);		/* Architecture */
+    bswap32s(&ehdr->e_version);		/* Object file version */
+    bswapSZs(&ehdr->e_entry);		/* Entry point virtual address */
+    bswapSZs(&ehdr->e_phoff);		/* Program header table file offset */
+    bswapSZs(&ehdr->e_shoff);		/* Section header table file offset */
+    bswap32s(&ehdr->e_flags);		/* Processor-specific flags */
+    bswap16s(&ehdr->e_ehsize);		/* ELF header size in bytes */
+    bswap16s(&ehdr->e_phentsize);		/* Program header table entry size */
+    bswap16s(&ehdr->e_phnum);		/* Program header table entry count */
+    bswap16s(&ehdr->e_shentsize);		/* Section header table entry size */
+    bswap16s(&ehdr->e_shnum);		/* Section header table entry count */
+    bswap16s(&ehdr->e_shstrndx);		/* Section header string table index */
 }
 
 static void glue(bswap_phdr, SZ)(struct elf_phdr *phdr)
 {
-    bswap32s(&phdr->p_type);   /* Segment type */
-    bswapSZs(&phdr->p_offset); /* Segment file offset */
-    bswapSZs(&phdr->p_vaddr);  /* Segment virtual address */
-    bswapSZs(&phdr->p_paddr);  /* Segment physical address */
-    bswapSZs(&phdr->p_filesz); /* Segment size in file */
-    bswapSZs(&phdr->p_memsz);  /* Segment size in memory */
-    bswap32s(&phdr->p_flags);  /* Segment flags */
-    bswapSZs(&phdr->p_align);  /* Segment alignment */
+    bswap32s(&phdr->p_type);			/* Segment type */
+    bswapSZs(&phdr->p_offset);		/* Segment file offset */
+    bswapSZs(&phdr->p_vaddr);		/* Segment virtual address */
+    bswapSZs(&phdr->p_paddr);		/* Segment physical address */
+    bswapSZs(&phdr->p_filesz);		/* Segment size in file */
+    bswapSZs(&phdr->p_memsz);		/* Segment size in memory */
+    bswap32s(&phdr->p_flags);		/* Segment flags */
+    bswapSZs(&phdr->p_align);		/* Segment alignment */
 }
 
 static void glue(bswap_shdr, SZ)(struct elf_shdr *shdr)
@@ -117,7 +117,7 @@ static void glue(load_symbols, SZ)(struct elfhdr *ehdr, int fd, int must_swab,
     shdr_table = load_at(fd, ehdr->e_shoff,
                          sizeof(struct elf_shdr) * ehdr->e_shnum);
     if (!shdr_table) {
-        return;
+        return ;
     }
 
     if (must_swab) {
@@ -312,26 +312,26 @@ static struct elf_note *glue(get_elf_note_type, SZ)(struct elf_note *nhdr,
     return nhdr;
 }
 
-static ssize_t glue(load_elf, SZ)(const char *name, int fd,
-                                  uint64_t (*elf_note_fn)(void *, void *, bool),
-                                  uint64_t (*translate_fn)(void *, uint64_t),
-                                  void *translate_opaque,
-                                  int must_swab, uint64_t *pentry,
-                                  uint64_t *lowaddr, uint64_t *highaddr,
-                                  uint32_t *pflags, int elf_machine,
-                                  int clear_lsb, int data_swab,
-                                  AddressSpace *as, bool load_rom,
-                                  symbol_fn_t sym_cb)
+static int glue(load_elf, SZ)(const char *name, int fd,
+                              uint64_t (*elf_note_fn)(void *, void *, bool),
+                              uint64_t (*translate_fn)(void *, uint64_t),
+                              void *translate_opaque,
+                              int must_swab, uint64_t *pentry,
+                              uint64_t *lowaddr, uint64_t *highaddr,
+                              uint32_t *pflags, int elf_machine,
+                              int clear_lsb, int data_swab,
+                              AddressSpace *as, bool load_rom,
+                              symbol_fn_t sym_cb)
 {
     struct elfhdr ehdr;
     struct elf_phdr *phdr = NULL, *ph;
-    int size, i;
-    ssize_t total_size;
+    int size, i, total_size;
     elf_word mem_size, file_size, data_offset;
     uint64_t addr, low = (uint64_t)-1, high = 0;
     GMappedFile *mapped_file = NULL;
     uint8_t *data = NULL;
-    ssize_t ret = ELF_LOAD_FAILED;
+    char label[128];
+    int ret = ELF_LOAD_FAILED;
 
     if (read(fd, &ehdr, sizeof(ehdr)) != sizeof(ehdr))
         goto fail;
@@ -369,6 +369,14 @@ static ssize_t glue(load_elf, SZ)(const char *name, int fd,
                 }
             }
             break;
+        case EM_MOXIE:
+            if (ehdr.e_machine != EM_MOXIE) {
+                if (ehdr.e_machine != EM_MOXIE_OLD) {
+                    ret = ELF_LOAD_WRONG_ARCH;
+                    goto fail;
+                }
+            }
+            break;
         case EM_MIPS:
         case EM_NANOMIPS:
             if ((ehdr.e_machine != EM_MIPS) &&
@@ -385,11 +393,10 @@ static ssize_t glue(load_elf, SZ)(const char *name, int fd,
     }
 
     if (pflags) {
-        *pflags = ehdr.e_flags;
+        *pflags = (elf_word)ehdr.e_flags;
     }
-    if (pentry) {
-        *pentry = ehdr.e_entry;
-    }
+    if (pentry)
+        *pentry = (uint64_t)(elf_sword)ehdr.e_entry;
 
     glue(load_symbols, SZ)(&ehdr, fd, must_swab, clear_lsb, sym_cb);
 
@@ -411,7 +418,7 @@ static ssize_t glue(load_elf, SZ)(const char *name, int fd,
 
     /*
      * Since we want to be able to modify the mapped buffer, we set the
-     * 'writable' parameter to 'true'. Modifications to the buffer are not
+     * 'writeble' parameter to 'true'. Modifications to the buffer are not
      * written back to the file.
      */
     mapped_file = g_mapped_file_new_from_fd(fd, true, NULL);
@@ -484,7 +491,7 @@ static ssize_t glue(load_elf, SZ)(const char *name, int fd,
                 }
             }
 
-            if (mem_size > SSIZE_MAX - total_size) {
+            if (mem_size > INT_MAX - total_size) {
                 ret = ELF_LOAD_TOO_BIG;
                 goto fail;
             }
@@ -500,7 +507,7 @@ static ssize_t glue(load_elf, SZ)(const char *name, int fd,
             }
 
             if (data_swab) {
-                elf_word j;
+                int j;
                 for (j = 0; j < file_size; j += (1 << data_swab)) {
                     uint8_t *dp = data + j;
                     switch (data_swab) {
@@ -537,9 +544,7 @@ static ssize_t glue(load_elf, SZ)(const char *name, int fd,
              */
             if (mem_size != 0) {
                 if (load_rom) {
-                    g_autofree char *label =
-                        g_strdup_printf("%s ELF program header segment %d",
-                                        name, i);
+                    snprintf(label, sizeof(label), "phdr #%d: %s", i, name);
 
                     /*
                      * rom_add_elf_program() takes its own reference to
@@ -555,19 +560,6 @@ static ssize_t glue(load_elf, SZ)(const char *name, int fd,
                                               data, file_size);
                     if (res != MEMTX_OK) {
                         goto fail;
-                    }
-                    /*
-                     * We need to zero'ify the space that is not copied
-                     * from file
-                     */
-                    if (file_size < mem_size) {
-                        res = address_space_set(as ? as : &address_space_memory,
-                                                addr + file_size, 0,
-                                                mem_size - file_size,
-                                                MEMTXATTRS_UNSPECIFIED);
-                        if (res != MEMTX_OK) {
-                            goto fail;
-                        }
                     }
                 }
             }
@@ -605,18 +597,18 @@ static ssize_t glue(load_elf, SZ)(const char *name, int fd,
             nhdr = glue(get_elf_note_type, SZ)(nhdr, file_size, ph->p_align,
                                                *(uint64_t *)translate_opaque);
             if (nhdr != NULL) {
-                elf_note_fn((void *)nhdr, (void *)&ph->p_align, SZ == 64);
+                bool is64 =
+                    sizeof(struct elf_note) == sizeof(struct elf64_note);
+                elf_note_fn((void *)nhdr, (void *)&ph->p_align, is64);
             }
             data = NULL;
         }
     }
 
-    if (lowaddr) {
-        *lowaddr = low;
-    }
-    if (highaddr) {
-        *highaddr = high;
-    }
+    if (lowaddr)
+        *lowaddr = (uint64_t)(elf_sword)low;
+    if (highaddr)
+        *highaddr = (uint64_t)(elf_sword)high;
     ret = total_size;
  fail:
     if (mapped_file) {

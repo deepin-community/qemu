@@ -2,23 +2,12 @@
 #define HPPA_H
 /* this file is included by x86.h */
 
-/* version number of this SeaBIOS firmware */
-#define SEABIOS_HPPA_VERSION 15
-#define SEABIOS_HPPA_VERSION_STR  "15"
-
-#ifdef __LP64__
-#define CONFIG_64BIT
-#endif
-
 #include "parisc/hppa_hardware.h"
 
 #ifndef __ASSEMBLY__
 
 #include "types.h" // u32
 #include "byteorder.h" // le16_to_cpu
-
-/* Pointer to zero-page of PA-RISC */
-#define PAGE0 ((struct zeropage *) 0UL)
 
 #define   PSW_I   0x00000001
 
@@ -203,103 +192,70 @@ static inline u32 rol(u32 val, u16 rol) {
     return res;
 }
 
-static inline u32 ror(u32 word, unsigned int shift)
-{
-        return (word >> (shift & 31)) | (word << ((-shift) & 31));
-}
-
-extern char has_astro; /* false for B160L machine with Dino PCI chip */
-extern unsigned long hppa_port_pci_cmd;
-extern unsigned long hppa_port_pci_data;
-
-
 #define pci_ioport_addr(port) ((port >= 0x1000)  && (port < FIRMWARE_START))
-#define is_astro_ioport(port) (has_astro && (port < IOS_DIST_BASE_SIZE))
-
-#define astro_ioport_addr(port) ((void *)(portaddr_t)(IOS_DIST_BASE_ADDR + port))
-
-/*  inb()/outb() accesses little-endian memory and does byteswapping to host endianess */
 
 static inline void outl(u32 value, portaddr_t port) {
-    if (is_astro_ioport(port))
-        *(volatile u32 *)(astro_ioport_addr(port)) = cpu_to_le32(value);
-    else
     if (!pci_ioport_addr(port)) {
         *(volatile u32 *)(port) = be32_to_cpu(value);
     } else {
 	/* write PCI I/O address to Dino's PCI_CONFIG_ADDR */
-	*(volatile u32 *)(DINO_HPA + 0x064) = port;
+	outl(port, DINO_HPA + 0x064);
 	/* write value to PCI_IO_DATA */
-	*(volatile u32 *)(DINO_HPA + 0x06c) = cpu_to_le32(value);
+	outl(value, DINO_HPA + 0x06c);
     }
 }
 
 static inline void outw(u16 value, portaddr_t port) {
-    if (is_astro_ioport(port))
-        *(volatile u16 *)(astro_ioport_addr(port)) = cpu_to_le16(value);
-    else
     if (!pci_ioport_addr(port)) {
         *(volatile u16 *)(port) = be16_to_cpu(value);
     } else {
 	/* write PCI I/O address to Dino's PCI_CONFIG_ADDR */
-	*(volatile u32 *)(DINO_HPA + 0x064) = port;
+	outl(port, DINO_HPA + 0x064);
 	/* write value to PCI_IO_DATA */
-	*(volatile u16 *)(DINO_HPA + 0x06c) = cpu_to_le16(value);
+	outw(value, DINO_HPA + 0x06c);
     }
 }
 
 static inline void outb(u8 value, portaddr_t port) {
-    if (is_astro_ioport(port))
-        *(volatile u8 *)(astro_ioport_addr(port)) = value;
-    else
     if (!pci_ioport_addr(port)) {
 	*(volatile u8 *)(port) = value;
     } else {
 	/* write PCI I/O address to Dino's PCI_CONFIG_ADDR */
-	*(volatile u32 *)(DINO_HPA + 0x064) = port & ~3U;
+	outl(port & ~3U, DINO_HPA + 0x064);
 	/* write value to PCI_IO_DATA */
-	*(volatile u8 *)(DINO_HPA + 0x06c + (port & 3)) = value;
+	outb(value, DINO_HPA + 0x06c + (port & 3));
     }
 }
 
 static inline u8 inb(portaddr_t port) {
-    if (is_astro_ioport(port))
-        return *(volatile u8 *)(astro_ioport_addr(port));
-    else
-    if (has_astro || !pci_ioport_addr(port)) {
+    if (!pci_ioport_addr(port)) {
         return *(volatile u8 *)(port);
     } else {
 	/* write PCI I/O address to Dino's PCI_CONFIG_ADDR */
-	*(volatile u32 *)(DINO_HPA + 0x064) = port & ~3U;
+	outl(port & ~3U, DINO_HPA + 0x064);
 	/* read value to PCI_IO_DATA */
-	return *(volatile u8 *)(DINO_HPA + 0x06c + (port & 3));
+	return inb(DINO_HPA + 0x06c + (port & 3));
     }
 }
 
 static inline u16 inw(portaddr_t port) {
-    if (is_astro_ioport(port))
-        return le16_to_cpu(*(volatile u16 *)(astro_ioport_addr(port)));
-    else
     if (!pci_ioport_addr(port)) {
         return *(volatile u16 *)(port);
     } else {
 	/* write PCI I/O address to Dino's PCI_CONFIG_ADDR */
-	*(volatile u32 *)(DINO_HPA + 0x064) = port & ~3U;
+	outl(port & ~3U, DINO_HPA + 0x064);
 	/* read value to PCI_IO_DATA */
-	return le16_to_cpu(*(volatile u16 *)(DINO_HPA + 0x06c + (port & 3U)));
+	return inw(DINO_HPA + 0x06c + (port & 3));
     }
 }
 static inline u32 inl(portaddr_t port) {
-    if (is_astro_ioport(port))
-        return le32_to_cpu(*(volatile u32 *)(astro_ioport_addr(port)));
-    else
     if (!pci_ioport_addr(port)) {
         return *(volatile u32 *)(port);
     } else {
 	/* write PCI I/O address to Dino's PCI_CONFIG_ADDR */
-	*(volatile u32 *)(DINO_HPA + 0x064) = port;
+	outl(port & ~3U, DINO_HPA + 0x064);
 	/* read value to PCI_IO_DATA */
-	return le32_to_cpu(*(volatile u32 *)(DINO_HPA + 0x06c));
+	return inl(DINO_HPA + 0x06c + (port & 3));
     }
 }
 
@@ -309,11 +265,17 @@ static inline void insb(portaddr_t port, u8 *data, u32 count) {
 }
 static inline void insw(portaddr_t port, u16 *data, u32 count) {
     while (count--)
-        *data++ = inw(port);
+	if (pci_ioport_addr(port))
+		*data++ = be16_to_cpu(inw(port));
+	else
+		*data++ = inw(port);
 }
 static inline void insl(portaddr_t port, u32 *data, u32 count) {
     while (count--)
-        *data++ = inl(port);
+	if (pci_ioport_addr(port))
+		*data++ = be32_to_cpu(inl(port));
+	else
+		*data++ = inl(port);
 }
 // XXX - outs not limited to es segment
 static inline void outsb(portaddr_t port, u8 *data, u32 count) {
@@ -322,13 +284,19 @@ static inline void outsb(portaddr_t port, u8 *data, u32 count) {
 }
 static inline void outsw(portaddr_t port, u16 *data, u32 count) {
     while (count--) {
-        outw(*data, port);
+	if (pci_ioport_addr(port))
+		outw(cpu_to_be16(*data), port);
+	else
+		outw(*data, port);
 	data++;
     }
 }
 static inline void outsl(portaddr_t port, u32 *data, u32 count) {
     while (count--) {
-        outl(*data, port);
+	if (pci_ioport_addr(port))
+		outl(cpu_to_be32(*data), port);
+	else
+		outl(*data, port);
 	data++;
     }
 }
@@ -341,15 +309,13 @@ static inline void smp_wmb(void) {
     barrier();
 }
 
-/*  readX()/writeX() do byteswapping */
-
 static inline void writel(void *addr, u32 val) {
     barrier();
-    *(volatile u32 *)addr = cpu_to_le32(val);
+    *(volatile u32 *)addr = val;
 }
 static inline void writew(void *addr, u16 val) {
     barrier();
-    *(volatile u16 *)addr = cpu_to_le16(val);
+    *(volatile u16 *)addr = val;
 }
 static inline void writeb(void *addr, u8 val) {
     barrier();
@@ -358,40 +324,19 @@ static inline void writeb(void *addr, u8 val) {
 static inline u64 readq(const void *addr) {
     u64 val = *(volatile const u64 *)addr;
     barrier();
-    return le64_to_cpu(val);
+    return val;
 }
 static inline u32 readl(const void *addr) {
     u32 val = *(volatile const u32 *)addr;
     barrier();
-    return le32_to_cpu(val);
+    return val;
 }
 static inline u16 readw(const void *addr) {
     u16 val = *(volatile const u16 *)addr;
     barrier();
-    return le16_to_cpu(val);
+    return val;
 }
 static inline u8 readb(const void *addr) {
-    u8 val = *(volatile const u8 *)addr;
-    barrier();
-    return val;
-}
-
-/*  gsc_readX()/gsc_writeX() do no byteswapping */
-
-static inline void gsc_writel(void *addr, u32 val) {
-    barrier();
-    *(volatile u32 *)addr = val;
-}
-static inline void gsc_writeb(void *addr, u8 val) {
-    barrier();
-    *(volatile u8 *)addr = val;
-}
-static inline u32 gsc_readl(const void *addr) {
-    u32 val = *(volatile const u32 *)addr;
-    barrier();
-    return val;
-}
-static inline u8 gsc_readb(const void *addr) {
     u8 val = *(volatile const u8 *)addr;
     barrier();
     return val;
@@ -420,10 +365,6 @@ static inline void wrmsr(u32 index, u64 val)
 
 // x86.c
 void cpuid(u32 index, u32 *eax, u32 *ebx, u32 *ecx, u32 *edx);
-
-// pci.c
-unsigned long elroy_offset(u16 bdf);
-void *elroy_port(unsigned long port, unsigned long offs);
 
 #endif // !__ASSEMBLY__
 #endif

@@ -38,7 +38,7 @@ new-device set-unit                                          ( str len )
   s" 0 pci-alias-" 2swap $cat evaluate
   s" block" device-type      
 
-\ Required interface for deblocker
+\ Requiered interface for deblocker
 
    s" block-size" $call-parent   CONSTANT block-size
    s" max-transfer" $call-parent CONSTANT max-transfer 

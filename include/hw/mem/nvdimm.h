@@ -29,6 +29,14 @@
 #include "hw/acpi/aml-build.h"
 #include "qom/object.h"
 
+#define NVDIMM_DEBUG 0
+#define nvdimm_debug(fmt, ...)                                \
+    do {                                                      \
+        if (NVDIMM_DEBUG) {                                   \
+            fprintf(stderr, "nvdimm: " fmt, ## __VA_ARGS__);  \
+        }                                                     \
+    } while (0)
+
 /*
  * The minimum label data size is required by NVDIMM Namespace
  * specification, see the chapter 2 Namespaces:
@@ -78,12 +86,6 @@ struct NVDIMMDevice {
     bool unarmed;
 
     /*
-     * Whether our DIMM is backed by ROM, and even label data cannot be
-     * written. If set, implies that "unarmed" is also set.
-     */
-    bool readonly;
-
-    /*
      * The PPC64 - spapr requires each nvdimm device have a uuid.
      */
     QemuUUID uuid;
@@ -101,8 +103,6 @@ struct NVDIMMClass {
     /* write @size bytes from @buf to NVDIMM label data at @offset. */
     void (*write_label_data)(NVDIMMDevice *nvdimm, const void *buf,
                              uint64_t size, uint64_t offset);
-    void (*realize)(NVDIMMDevice *nvdimm, Error **errp);
-    void (*unrealize)(NVDIMMDevice *nvdimm);
 };
 
 #define NVDIMM_DSM_MEM_FILE     "etc/acpi/nvdimm-mem"
@@ -154,8 +154,7 @@ void nvdimm_init_acpi_state(NVDIMMState *state, MemoryRegion *io,
 void nvdimm_build_srat(GArray *table_data);
 void nvdimm_build_acpi(GArray *table_offsets, GArray *table_data,
                        BIOSLinker *linker, NVDIMMState *state,
-                       uint32_t ram_slots, const char *oem_id,
-                       const char *oem_table_id);
+                       uint32_t ram_slots);
 void nvdimm_plug(NVDIMMState *state);
 void nvdimm_acpi_plug_cb(HotplugHandler *hotplug_dev, DeviceState *dev);
 #endif

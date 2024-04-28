@@ -11,7 +11,7 @@ HXCOMM HXCOMM can be used for comments, discarded from both rST and C.
         .args_type  = "name:S?",
         .params     = "[cmd]",
         .help       = "show the help",
-        .cmd        = hmp_help,
+        .cmd        = do_help_cmd,
         .flags      = "p",
     },
 
@@ -40,16 +40,15 @@ SRST
 ERST
 
     {
-        .name       = "quit|q",
+        .name       = "q|quit",
         .args_type  = "",
         .params     = "",
         .help       = "quit the emulator",
         .cmd        = hmp_quit,
-        .flags      = "p",
     },
 
 SRST
-``quit`` or ``q``
+``q`` or ``quit``
   Quit the emulator.
 ERST
 
@@ -78,7 +77,6 @@ ERST
         .help       = "resize a block image",
         .cmd        = hmp_block_resize,
         .coroutine  = true,
-        .flags      = "p",
     },
 
 SRST
@@ -95,7 +93,6 @@ ERST
         .params     = "device [speed [base]]",
         .help       = "copy data from a backing file into a block device",
         .cmd        = hmp_block_stream,
-        .flags      = "p",
     },
 
 SRST
@@ -109,7 +106,6 @@ ERST
         .params     = "device speed",
         .help       = "set maximum speed for a background block operation",
         .cmd        = hmp_block_job_set_speed,
-        .flags      = "p",
     },
 
 SRST
@@ -125,7 +121,6 @@ ERST
                       "\n\t\t\t if you want to abort the operation immediately"
                       "\n\t\t\t instead of keep running until data is in sync)",
         .cmd        = hmp_block_job_cancel,
-        .flags      = "p",
     },
 
 SRST
@@ -139,7 +134,6 @@ ERST
         .params     = "device",
         .help       = "stop an active background block operation",
         .cmd        = hmp_block_job_complete,
-        .flags      = "p",
     },
 
 SRST
@@ -154,7 +148,6 @@ ERST
         .params     = "device",
         .help       = "pause an active background block operation",
         .cmd        = hmp_block_job_pause,
-        .flags      = "p",
     },
 
 SRST
@@ -168,7 +161,6 @@ ERST
         .params     = "device",
         .help       = "resume a paused background block operation",
         .cmd        = hmp_block_job_resume,
-        .flags      = "p",
     },
 
 SRST
@@ -209,9 +201,9 @@ ERST
 
     {
         .name       = "change",
-        .args_type  = "device:B,force:-f,target:F,arg:s?,read-only-mode:s?",
-        .params     = "device [-f] filename [format [read-only-mode]]",
-        .help       = "change a removable medium, optional format, use -f to force the operation",
+        .args_type  = "device:B,target:F,arg:s?,read-only-mode:s?",
+        .params     = "device filename [format [read-only-mode]]",
+        .help       = "change a removable medium, optional format",
         .cmd        = hmp_change,
     },
 
@@ -219,13 +211,10 @@ SRST
 ``change`` *device* *setting*
   Change the configuration of a device.
 
-  ``change`` *diskdevice* [-f] *filename* [*format* [*read-only-mode*]]
+  ``change`` *diskdevice* *filename* [*format* [*read-only-mode*]]
     Change the medium for a removable disk device to point to *filename*. eg::
 
       (qemu) change ide1-cd0 /path/to/some.iso
-
-    ``-f``
-      forces the operation even if the guest has locked the tray.
 
     *format* is optional.
 
@@ -241,6 +230,12 @@ SRST
     read-write
       Makes the device writable.
 
+  ``change vnc`` *display*,\ *options*
+    Change the configuration of the VNC server. The valid syntax for *display*
+    and *options* are described at :ref:`sec_005finvocation`. eg::
+
+      (qemu) change vnc localhost:1
+
   ``change vnc password`` [*password*]
 
     Change the password associated with the VNC server. If the new password
@@ -252,15 +247,13 @@ SRST
 
 ERST
 
-#ifdef CONFIG_PIXMAN
     {
         .name       = "screendump",
-        .args_type  = "filename:F,format:-fs,device:s?,head:i?",
-        .params     = "filename [-f format] [device [head]]",
-        .help       = "save screen from head 'head' of display device 'device'"
-                      "in specified format 'format' as image 'filename'."
-                      "Currently only 'png' and 'ppm' formats are supported.",
-         .cmd        = hmp_screendump,
+        .args_type  = "filename:F,device:s?,head:i?",
+        .params     = "filename [device [head]]",
+        .help       = "save screen from head 'head' of display device 'device' "
+                      "into PPM image 'filename'",
+        .cmd        = hmp_screendump,
         .coroutine  = true,
     },
 
@@ -268,7 +261,6 @@ SRST
 ``screendump`` *filename*
   Save screen into PPM image *filename*.
 ERST
-#endif
 
     {
         .name       = "logfile",
@@ -381,38 +373,21 @@ SRST
 ERST
 
     {
-        .name       = "one-insn-per-tb",
-        .args_type  = "option:s?",
-        .params     = "[on|off]",
-        .help       = "run emulation with one guest instruction per translation block",
-        .cmd        = hmp_one_insn_per_tb,
-    },
-
-SRST
-``one-insn-per-tb [off]``
-  Run the emulation with one guest instruction per translation block.
-  This slows down emulation a lot, but can be useful in some situations,
-  such as when trying to analyse the logs produced by the ``-d`` option.
-  This only has an effect when using TCG, not with KVM or other accelerators.
-
-  If called with option off, the emulation returns to normal mode.
-ERST
-
-    {
         .name       = "singlestep",
         .args_type  = "option:s?",
         .params     = "[on|off]",
-        .help       = "deprecated synonym for one-insn-per-tb",
-        .cmd        = hmp_one_insn_per_tb,
+        .help       = "run emulation in singlestep mode or switch to normal mode",
+        .cmd        = hmp_singlestep,
     },
 
 SRST
 ``singlestep [off]``
-  This is a deprecated synonym for the one-insn-per-tb command.
+  Run the emulation in single step mode.
+  If called with option off, the emulation returns to normal mode.
 ERST
 
     {
-        .name       = "stop|s",
+        .name       = "stop",
         .args_type  = "",
         .params     = "",
         .help       = "stop emulation",
@@ -420,12 +395,12 @@ ERST
     },
 
 SRST
-``stop`` or ``s``
+``stop``
   Stop emulation.
 ERST
 
     {
-        .name       = "cont|c",
+        .name       = "c|cont",
         .args_type  = "",
         .params     = "",
         .help       = "resume emulation",
@@ -433,7 +408,7 @@ ERST
     },
 
 SRST
-``cont`` or ``c``
+``c`` or ``cont``
   Resume emulation.
 ERST
 
@@ -578,15 +553,15 @@ SRST
 ERST
 
     {
-        .name       = "print|p",
+        .name       = "p|print",
         .args_type  = "fmt:/,val:l",
         .params     = "/fmt expr",
         .help       = "print expression value (use $reg for CPU register access)",
-        .cmd        = hmp_print,
+        .cmd        = do_print,
     },
 
 SRST
-``print`` or ``p/``\ *fmt* *expr*
+``p`` or ``print/``\ *fmt* *expr*
   Print expression value. Only the *format* part of *fmt* is
   used.
 ERST
@@ -1010,6 +985,51 @@ SRST
 ERST
 
     {
+        .name       = "migrate_set_cache_size",
+        .args_type  = "value:o",
+        .params     = "value",
+        .help       = "set cache size (in bytes) for XBZRLE migrations,"
+                      "the cache size will be rounded down to the nearest "
+                      "power of 2.\n"
+                      "The cache size affects the number of cache misses."
+                      "In case of a high cache miss ratio you need to increase"
+                      " the cache size",
+        .cmd        = hmp_migrate_set_cache_size,
+    },
+
+SRST
+``migrate_set_cache_size`` *value*
+  Set cache size to *value* (in bytes) for xbzrle migrations.
+ERST
+
+    {
+        .name       = "migrate_set_speed",
+        .args_type  = "value:o",
+        .params     = "value",
+        .help       = "set maximum speed (in bytes) for migrations. "
+	"Defaults to MB if no size suffix is specified, ie. B/K/M/G/T",
+        .cmd        = hmp_migrate_set_speed,
+    },
+
+SRST
+``migrate_set_speed`` *value*
+  Set maximum speed to *value* (in bytes) for migrations.
+ERST
+
+    {
+        .name       = "migrate_set_downtime",
+        .args_type  = "value:T",
+        .params     = "value",
+        .help       = "set maximum tolerated downtime (in seconds) for migrations",
+        .cmd        = hmp_migrate_set_downtime,
+    },
+
+SRST
+``migrate_set_downtime`` *second*
+  Set maximum tolerated downtime (in seconds) for migration.
+ERST
+
+    {
         .name       = "migrate_set_capability",
         .args_type  = "capability:s,state:b",
         .params     = "capability state",
@@ -1054,7 +1074,6 @@ SRST
   migration (or once already in postcopy).
 ERST
 
-#ifdef CONFIG_REPLICATION
     {
         .name       = "x_colo_lost_heartbeat",
         .args_type  = "",
@@ -1063,7 +1082,6 @@ ERST
                       "a failover or takeover is needed.",
         .cmd = hmp_x_colo_lost_heartbeat,
     },
-#endif
 
 SRST
 ``x_colo_lost_heartbeat``
@@ -1087,18 +1105,16 @@ ERST
 
     {
         .name       = "dump-guest-memory",
-        .args_type  = "paging:-p,detach:-d,windmp:-w,zlib:-z,lzo:-l,snappy:-s,raw:-R,filename:F,begin:l?,length:l?",
-        .params     = "[-p] [-d] [-z|-l|-s|-w] [-R] filename [begin length]",
+        .args_type  = "paging:-p,detach:-d,windmp:-w,zlib:-z,lzo:-l,snappy:-s,filename:F,begin:l?,length:l?",
+        .params     = "[-p] [-d] [-z|-l|-s|-w] filename [begin length]",
         .help       = "dump guest memory into file 'filename'.\n\t\t\t"
                       "-p: do paging to get guest's memory mapping.\n\t\t\t"
                       "-d: return immediately (do not wait for completion).\n\t\t\t"
                       "-z: dump in kdump-compressed format, with zlib compression.\n\t\t\t"
                       "-l: dump in kdump-compressed format, with lzo compression.\n\t\t\t"
                       "-s: dump in kdump-compressed format, with snappy compression.\n\t\t\t"
-                      "-R: when using kdump (-z, -l, -s), use raw rather than makedumpfile-flattened\n\t\t\t"
-                      "    format\n\t\t\t"
                       "-w: dump in Windows crashdump format (can be used instead of ELF-dump converting),\n\t\t\t"
-                      "    for Windows x86 and x64 guests with vmcoreinfo driver only.\n\t\t\t"
+                      "    for Windows x64 guests with vmcoreinfo driver only.\n\t\t\t"
                       "begin: the starting physical address.\n\t\t\t"
                       "length: the memory size, in bytes.",
         .cmd        = hmp_dump_guest_memory,
@@ -1119,9 +1135,6 @@ SRST
     dump in kdump-compressed format, with lzo compression.
   ``-s``
     dump in kdump-compressed format, with snappy compression.
-  ``-R``
-    when using kdump (-z, -l, -s), use raw rather than makedumpfile-flattened
-    format
   ``-w``
     dump in Windows crashdump format (can be used instead of ELF-dump converting),
     for Windows x64 guests with vmcoreinfo driver only
@@ -1289,8 +1302,8 @@ ERST
 	              " -c for correctable error\n\t\t\t"
                       "<id> = qdev device id\n\t\t\t"
                       "<error_status> = error string or 32bit\n\t\t\t"
-                      "<tlp header> = 32bit x 4\n\t\t\t"
-                      "<tlp header prefix> = 32bit x 4",
+                      "<tlb header> = 32bit x 4\n\t\t\t"
+                      "<tlb header prefix> = 32bit x 4",
         .cmd        = hmp_pcie_aer_inject_error,
     },
 
@@ -1302,18 +1315,10 @@ ERST
     {
         .name       = "netdev_add",
         .args_type  = "netdev:O",
-        .params     = "[user|tap|socket|stream|dgram|vde|bridge|hubport|netmap|vhost-user"
-#ifdef CONFIG_AF_XDP
-                      "|af-xdp"
-#endif
-#ifdef CONFIG_VMNET
-                      "|vmnet-host|vmnet-shared|vmnet-bridged"
-#endif
-                      "],id=str[,prop=value][,...]",
+        .params     = "[user|tap|socket|vde|bridge|hubport|netmap|vhost-user],id=str[,prop=value][,...]",
         .help       = "add host network device",
         .cmd        = hmp_netdev_add,
         .command_completion = netdev_add_completion,
-        .flags      = "p",
     },
 
 SRST
@@ -1328,7 +1333,6 @@ ERST
         .help       = "remove host network device",
         .cmd        = hmp_netdev_del,
         .command_completion = netdev_del_completion,
-        .flags      = "p",
     },
 
 SRST
@@ -1338,12 +1342,11 @@ ERST
 
     {
         .name       = "object_add",
-        .args_type  = "object:S",
+        .args_type  = "object:O",
         .params     = "[qom-type=]type,id=str[,prop=value][,...]",
         .help       = "create QOM object",
         .cmd        = hmp_object_add,
         .command_completion = object_add_completion,
-        .flags      = "p",
     },
 
 SRST
@@ -1358,7 +1361,6 @@ ERST
         .help       = "destroy QOM object",
         .cmd        = hmp_object_del,
         .command_completion = object_del_completion,
-        .flags      = "p",
     },
 
 SRST
@@ -1437,12 +1439,87 @@ SRST
 ERST
 
     {
+        .name       = "acl_show",
+        .args_type  = "aclname:s",
+        .params     = "aclname",
+        .help       = "list rules in the access control list",
+        .cmd        = hmp_acl_show,
+    },
+
+SRST
+``acl_show`` *aclname*
+  List all the matching rules in the access control list, and the default
+  policy. There are currently two named access control lists,
+  *vnc.x509dname* and *vnc.username* matching on the x509 client
+  certificate distinguished name, and SASL username respectively.
+ERST
+
+    {
+        .name       = "acl_policy",
+        .args_type  = "aclname:s,policy:s",
+        .params     = "aclname allow|deny",
+        .help       = "set default access control list policy",
+        .cmd        = hmp_acl_policy,
+    },
+
+SRST
+``acl_policy`` *aclname* ``allow|deny``
+  Set the default access control list policy, used in the event that
+  none of the explicit rules match. The default policy at startup is
+  always ``deny``.
+ERST
+
+    {
+        .name       = "acl_add",
+        .args_type  = "aclname:s,match:s,policy:s,index:i?",
+        .params     = "aclname match allow|deny [index]",
+        .help       = "add a match rule to the access control list",
+        .cmd        = hmp_acl_add,
+    },
+
+SRST
+``acl_add`` *aclname* *match* ``allow|deny`` [*index*]
+  Add a match rule to the access control list, allowing or denying access.
+  The match will normally be an exact username or x509 distinguished name,
+  but can optionally include wildcard globs. eg ``*@EXAMPLE.COM`` to
+  allow all users in the ``EXAMPLE.COM`` kerberos realm. The match will
+  normally be appended to the end of the ACL, but can be inserted
+  earlier in the list if the optional *index* parameter is supplied.
+ERST
+
+    {
+        .name       = "acl_remove",
+        .args_type  = "aclname:s,match:s",
+        .params     = "aclname match",
+        .help       = "remove a match rule from the access control list",
+        .cmd        = hmp_acl_remove,
+    },
+
+SRST
+``acl_remove`` *aclname* *match*
+  Remove the specified match rule from the access control list.
+ERST
+
+    {
+        .name       = "acl_reset",
+        .args_type  = "aclname:s",
+        .params     = "aclname",
+        .help       = "reset the access control list",
+        .cmd        = hmp_acl_reset,
+    },
+
+SRST
+``acl_reset`` *aclname*
+  Remove all matches from the access control list, and set the default
+  policy back to ``deny``.
+ERST
+
+    {
         .name       = "nbd_server_start",
         .args_type  = "all:-a,writable:-w,uri:s",
         .params     = "nbd_server_start [-a] [-w] host:port",
         .help       = "serve block devices on the given host and port",
         .cmd        = hmp_nbd_server_start,
-        .flags      = "p",
     },
 SRST
 ``nbd_server_start`` *host*:*port*
@@ -1458,7 +1535,6 @@ ERST
         .params     = "nbd_server_add [-w] device [name]",
         .help       = "export a block device via NBD",
         .cmd        = hmp_nbd_server_add,
-        .flags      = "p",
     },
 SRST
 ``nbd_server_add`` *device* [ *name* ]
@@ -1474,7 +1550,6 @@ ERST
         .params     = "nbd_server_remove [-f] name",
         .help       = "remove an export previously exposed via NBD",
         .cmd        = hmp_nbd_server_remove,
-        .flags      = "p",
     },
 SRST
 ``nbd_server_remove [-f]`` *name*
@@ -1491,7 +1566,6 @@ ERST
         .params     = "nbd_server_stop",
         .help       = "stop serving block devices using the NBD protocol",
         .cmd        = hmp_nbd_server_stop,
-        .flags      = "p",
     },
 SRST
 ``nbd_server_stop``
@@ -1515,14 +1589,12 @@ SRST
   Inject an MCE on the given CPU (x86 only).
 ERST
 
-#ifdef CONFIG_POSIX
     {
         .name       = "getfd",
         .args_type  = "fdname:s",
         .params     = "getfd name",
         .help       = "receive a file descriptor via SCM rights and assign it a name",
         .cmd        = hmp_getfd,
-        .flags      = "p",
     },
 
 SRST
@@ -1531,7 +1603,6 @@ SRST
   mechanism on unix sockets, it is stored using the name *fdname* for
   later use by other monitor commands.
 ERST
-#endif
 
     {
         .name       = "closefd",
@@ -1539,7 +1610,6 @@ ERST
         .params     = "closefd name",
         .help       = "close a file descriptor previously passed via SCM rights",
         .cmd        = hmp_closefd,
-        .flags      = "p",
     },
 
 SRST
@@ -1550,12 +1620,26 @@ SRST
 ERST
 
     {
+        .name       = "block_passwd",
+        .args_type  = "device:B,password:s",
+        .params     = "block_passwd device password",
+        .help       = "set the password of encrypted block devices",
+        .cmd        = hmp_block_passwd,
+    },
+
+SRST
+``block_passwd`` *device* *password*
+  Set the encrypted device *device* password to *password*
+
+  This command is now obsolete and will always return an error since 2.10
+ERST
+
+    {
         .name       = "block_set_io_throttle",
         .args_type  = "device:B,bps:l,bps_rd:l,bps_wr:l,iops:l,iops_rd:l,iops_wr:l",
         .params     = "device bps bps_rd bps_wr iops iops_rd iops_wr",
         .help       = "change I/O throttle limits for a block drive",
         .cmd        = hmp_block_set_io_throttle,
-        .flags      = "p",
     },
 
 SRST
@@ -1567,35 +1651,34 @@ ERST
 
     {
         .name       = "set_password",
-        .args_type  = "protocol:s,password:s,display:-ds,connected:s?",
-        .params     = "protocol password [-d display] [action-if-connected]",
+        .args_type  = "protocol:s,password:s,connected:s?",
+        .params     = "protocol password action-if-connected",
         .help       = "set spice/vnc password",
         .cmd        = hmp_set_password,
     },
 
 SRST
-``set_password [ vnc | spice ] password [ -d display ] [ action-if-connected ]``
-  Change spice/vnc password.  *display* can be used with 'vnc' to specify
-  which display to set the password on.  *action-if-connected* specifies
-  what should happen in case a connection is established: *fail* makes
-  the password change fail.  *disconnect* changes the password and
-  disconnects the client.  *keep* changes the password and keeps the
-  connection up.  *keep* is the default.
+``set_password [ vnc | spice ] password [ action-if-connected ]``
+  Change spice/vnc password.  Use zero to make the password stay valid
+  forever.  *action-if-connected* specifies what should happen in
+  case a connection is established: *fail* makes the password change
+  fail.  *disconnect* changes the password and disconnects the
+  client.  *keep* changes the password and keeps the connection up.
+  *keep* is the default.
 ERST
 
     {
         .name       = "expire_password",
-        .args_type  = "protocol:s,time:s,display:-ds",
-        .params     = "protocol time [-d display]",
+        .args_type  = "protocol:s,time:s",
+        .params     = "protocol time",
         .help       = "set spice/vnc password expire-time",
         .cmd        = hmp_expire_password,
     },
 
 SRST
-``expire_password [ vnc | spice ] expire-time [ -d display ]``
-  Specify when a password for spice/vnc becomes invalid.
-  *display* behaves the same as in ``set_password``.
-  *expire-time* accepts:
+``expire_password [ vnc | spice ]`` *expire-time*
+  Specify when a password for spice/vnc becomes
+  invalid. *expire-time* accepts:
 
   ``now``
     Invalidate password instantly.
@@ -1725,7 +1808,7 @@ ERST
 
     {
         .name       = "replay_break",
-        .args_type  = "icount:l",
+        .args_type  = "icount:i",
         .params     = "icount",
         .help       = "set breakpoint at the specified instruction count",
         .cmd        = hmp_replay_break,
@@ -1757,7 +1840,7 @@ ERST
 
     {
         .name       = "replay_seek",
-        .args_type  = "icount:l",
+        .args_type  = "icount:i",
         .params     = "icount",
         .help       = "replay execution to the specified instruction count",
         .cmd        = hmp_replay_seek,
@@ -1774,55 +1857,6 @@ SRST
 ERST
 
     {
-        .name       = "calc_dirty_rate",
-        .args_type  = "dirty_ring:-r,dirty_bitmap:-b,second:l,sample_pages_per_GB:l?",
-        .params     = "[-r] [-b] second [sample_pages_per_GB]",
-        .help       = "start a round of guest dirty rate measurement (using -r to"
-                      "\n\t\t\t specify dirty ring as the method of calculation and"
-                      "\n\t\t\t -b to specify dirty bitmap as method of calculation)",
-        .cmd        = hmp_calc_dirty_rate,
-    },
-
-SRST
-``calc_dirty_rate`` *second*
-  Start a round of dirty rate measurement with the period specified in *second*.
-  The result of the dirty rate measurement may be observed with ``info
-  dirty_rate`` command.
-ERST
-
-    {
-        .name       = "set_vcpu_dirty_limit",
-        .args_type  = "dirty_rate:l,cpu_index:l?",
-        .params     = "dirty_rate [cpu_index]",
-        .help       = "set dirty page rate limit, use cpu_index to set limit"
-                      "\n\t\t\t\t\t on a specified virtual cpu",
-        .cmd        = hmp_set_vcpu_dirty_limit,
-    },
-
-SRST
-``set_vcpu_dirty_limit``
-  Set dirty page rate limit on virtual CPU, the information about all the
-  virtual CPU dirty limit status can be observed with ``info vcpu_dirty_limit``
-  command.
-ERST
-
-    {
-        .name       = "cancel_vcpu_dirty_limit",
-        .args_type  = "cpu_index:l?",
-        .params     = "[cpu_index]",
-        .help       = "cancel dirty page rate limit, use cpu_index to cancel"
-                      "\n\t\t\t\t\t limit on a specified virtual cpu",
-        .cmd        = hmp_cancel_vcpu_dirty_limit,
-    },
-
-SRST
-``cancel_vcpu_dirty_limit``
-  Cancel dirty page rate limit on virtual CPU, the information about all the
-  virtual CPU dirty limit status can be observed with ``info vcpu_dirty_limit``
-  command.
-ERST
-
-    {
         .name       = "info",
         .args_type  = "item:s?",
         .params     = "[subcommand]",
@@ -1832,46 +1866,3 @@ ERST
         .flags      = "p",
     },
 
-#if defined(CONFIG_FDT)
-    {
-        .name       = "dumpdtb",
-        .args_type  = "filename:F",
-        .params     = "filename",
-        .help       = "dump the FDT in dtb format to 'filename'",
-        .cmd        = hmp_dumpdtb,
-    },
-
-SRST
-``dumpdtb`` *filename*
-  Dump the FDT in dtb format to *filename*.
-ERST
-#endif
-
-#if defined(CONFIG_XEN_EMU)
-    {
-        .name       = "xen-event-inject",
-        .args_type  = "port:i",
-        .params     = "port",
-        .help       = "inject event channel",
-        .cmd        = hmp_xen_event_inject,
-    },
-
-SRST
-``xen-event-inject`` *port*
-  Notify guest via event channel on port *port*.
-ERST
-
-
-    {
-        .name       = "xen-event-list",
-        .args_type  = "",
-        .params     = "",
-        .help       = "list event channel state",
-        .cmd        = hmp_xen_event_list,
-    },
-
-SRST
-``xen-event-list``
-  List event channels in the guest
-ERST
-#endif

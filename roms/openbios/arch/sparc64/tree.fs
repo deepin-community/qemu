@@ -5,7 +5,11 @@ include config.fs
 \ -------------------------------------------------------------------------
 
 : decode-unit-upa ( str len -- id lun )
-  2 parse-nhex
+  ascii , left-split
+  ( addr-R len-R addr-L len-L )
+  parse-hex
+  -rot parse-hex
+  swap
 ;
 
 : encode-unit-upa ( id lun -- str len)

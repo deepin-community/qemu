@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# group: rw auto quick
 #
 # Test I/O throttle block filter driver interface
 #
@@ -67,8 +66,10 @@ run_qemu <<EOF
   "arguments": {
     "qom-type": "throttle-group",
     "id": "group0",
-    "limits" : {
-      "iops-total": 1000
+    "props": {
+      "limits" : {
+        "iops-total": 1000
+      }
     }
   }
 }
@@ -94,8 +95,10 @@ run_qemu <<EOF
   "arguments": {
     "qom-type": "throttle-group",
     "id": "group0",
-    "limits": {
-        "iops-total": 1000
+    "props" : {
+      "limits": {
+          "iops-total": 1000
+      }
     }
   }
 }
@@ -132,8 +135,10 @@ run_qemu <<EOF
   "arguments": {
     "qom-type": "throttle-group",
     "id": "group0",
-    "limits": {
-        "iops-total": 1000
+    "props" : {
+      "limits": {
+          "iops-total": 1000
+      }
     }
   }
 }

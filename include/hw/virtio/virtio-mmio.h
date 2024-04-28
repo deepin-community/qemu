@@ -22,8 +22,8 @@
 #ifndef HW_VIRTIO_MMIO_H
 #define HW_VIRTIO_MMIO_H
 
-#include "hw/sysbus.h"
 #include "hw/virtio/virtio-bus.h"
+#include "qom/object.h"
 
 /* QOM macros */
 /* virtio-mmio-bus */
@@ -49,17 +49,12 @@ typedef struct VirtIOMMIOQueue {
     uint32_t used[2];
 } VirtIOMMIOQueue;
 
-#define VIRTIO_IOMMIO_FLAG_USE_IOEVENTFD_BIT 1
-#define VIRTIO_IOMMIO_FLAG_USE_IOEVENTFD \
-        (1 << VIRTIO_IOMMIO_FLAG_USE_IOEVENTFD_BIT)
-
 struct VirtIOMMIOProxy {
     /* Generic */
     SysBusDevice parent_obj;
     MemoryRegion iomem;
     qemu_irq irq;
     bool legacy;
-    uint32_t flags;
     /* Guest accessible state needing migration and reset */
     uint32_t host_features_sel;
     uint32_t guest_features_sel;

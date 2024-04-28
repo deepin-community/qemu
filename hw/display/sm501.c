@@ -28,12 +28,11 @@
 #include "qapi/error.h"
 #include "qemu/log.h"
 #include "qemu/module.h"
-#include "hw/usb/hcd-ohci.h"
 #include "hw/char/serial.h"
 #include "ui/console.h"
 #include "hw/sysbus.h"
 #include "migration/vmstate.h"
-#include "hw/pci/pci_device.h"
+#include "hw/pci/pci.h"
 #include "hw/qdev-properties.h"
 #include "hw/i2c/i2c.h"
 #include "hw/display/i2c-ddc.h"
@@ -51,10 +50,10 @@
 
 /* System Configuration area */
 /* System config base */
-#define SM501_SYS_CONFIG                0x000000
+#define SM501_SYS_CONFIG                (0x000000)
 
 /* config 1 */
-#define SM501_SYSTEM_CONTROL            0x000000
+#define SM501_SYSTEM_CONTROL            (0x000000)
 
 #define SM501_SYSCTRL_PANEL_TRISTATE    (1 << 0)
 #define SM501_SYSCTRL_MEM_TRISTATE      (1 << 1)
@@ -73,13 +72,13 @@
 
 /* miscellaneous control */
 
-#define SM501_MISC_CONTROL              0x000004
+#define SM501_MISC_CONTROL              (0x000004)
 
-#define SM501_MISC_BUS_SH               0x0
-#define SM501_MISC_BUS_PCI              0x1
-#define SM501_MISC_BUS_XSCALE           0x2
-#define SM501_MISC_BUS_NEC              0x6
-#define SM501_MISC_BUS_MASK             0x7
+#define SM501_MISC_BUS_SH               (0x0)
+#define SM501_MISC_BUS_PCI              (0x1)
+#define SM501_MISC_BUS_XSCALE           (0x2)
+#define SM501_MISC_BUS_NEC              (0x6)
+#define SM501_MISC_BUS_MASK             (0x7)
 
 #define SM501_MISC_VR_62MB              (1 << 3)
 #define SM501_MISC_CDR_RESET            (1 << 7)
@@ -104,22 +103,22 @@
 
 
 
-#define SM501_GPIO31_0_CONTROL          0x000008
-#define SM501_GPIO63_32_CONTROL         0x00000C
-#define SM501_DRAM_CONTROL              0x000010
+#define SM501_GPIO31_0_CONTROL          (0x000008)
+#define SM501_GPIO63_32_CONTROL         (0x00000C)
+#define SM501_DRAM_CONTROL              (0x000010)
 
 /* command list */
-#define SM501_ARBTRTN_CONTROL           0x000014
+#define SM501_ARBTRTN_CONTROL           (0x000014)
 
 /* command list */
-#define SM501_COMMAND_LIST_STATUS       0x000024
+#define SM501_COMMAND_LIST_STATUS       (0x000024)
 
 /* interrupt debug */
-#define SM501_RAW_IRQ_STATUS            0x000028
-#define SM501_RAW_IRQ_CLEAR             0x000028
-#define SM501_IRQ_STATUS                0x00002C
-#define SM501_IRQ_MASK                  0x000030
-#define SM501_DEBUG_CONTROL             0x000034
+#define SM501_RAW_IRQ_STATUS            (0x000028)
+#define SM501_RAW_IRQ_CLEAR             (0x000028)
+#define SM501_IRQ_STATUS                (0x00002C)
+#define SM501_IRQ_MASK                  (0x000030)
+#define SM501_DEBUG_CONTROL             (0x000034)
 
 /* power management */
 #define SM501_POWERMODE_P2X_SRC         (1 << 29)
@@ -127,74 +126,74 @@
 #define SM501_POWERMODE_M_SRC           (1 << 12)
 #define SM501_POWERMODE_M1_SRC          (1 << 4)
 
-#define SM501_CURRENT_GATE              0x000038
-#define SM501_CURRENT_CLOCK             0x00003C
-#define SM501_POWER_MODE_0_GATE         0x000040
-#define SM501_POWER_MODE_0_CLOCK        0x000044
-#define SM501_POWER_MODE_1_GATE         0x000048
-#define SM501_POWER_MODE_1_CLOCK        0x00004C
-#define SM501_SLEEP_MODE_GATE           0x000050
-#define SM501_POWER_MODE_CONTROL        0x000054
+#define SM501_CURRENT_GATE              (0x000038)
+#define SM501_CURRENT_CLOCK             (0x00003C)
+#define SM501_POWER_MODE_0_GATE         (0x000040)
+#define SM501_POWER_MODE_0_CLOCK        (0x000044)
+#define SM501_POWER_MODE_1_GATE         (0x000048)
+#define SM501_POWER_MODE_1_CLOCK        (0x00004C)
+#define SM501_SLEEP_MODE_GATE           (0x000050)
+#define SM501_POWER_MODE_CONTROL        (0x000054)
 
 /* power gates for units within the 501 */
-#define SM501_GATE_HOST                 0
-#define SM501_GATE_MEMORY               1
-#define SM501_GATE_DISPLAY              2
-#define SM501_GATE_2D_ENGINE            3
-#define SM501_GATE_CSC                  4
-#define SM501_GATE_ZVPORT               5
-#define SM501_GATE_GPIO                 6
-#define SM501_GATE_UART0                7
-#define SM501_GATE_UART1                8
-#define SM501_GATE_SSP                  10
-#define SM501_GATE_USB_HOST             11
-#define SM501_GATE_USB_GADGET           12
-#define SM501_GATE_UCONTROLLER          17
-#define SM501_GATE_AC97                 18
+#define SM501_GATE_HOST                 (0)
+#define SM501_GATE_MEMORY               (1)
+#define SM501_GATE_DISPLAY              (2)
+#define SM501_GATE_2D_ENGINE            (3)
+#define SM501_GATE_CSC                  (4)
+#define SM501_GATE_ZVPORT               (5)
+#define SM501_GATE_GPIO                 (6)
+#define SM501_GATE_UART0                (7)
+#define SM501_GATE_UART1                (8)
+#define SM501_GATE_SSP                  (10)
+#define SM501_GATE_USB_HOST             (11)
+#define SM501_GATE_USB_GADGET           (12)
+#define SM501_GATE_UCONTROLLER          (17)
+#define SM501_GATE_AC97                 (18)
 
 /* panel clock */
-#define SM501_CLOCK_P2XCLK              24
+#define SM501_CLOCK_P2XCLK              (24)
 /* crt clock */
-#define SM501_CLOCK_V2XCLK              16
+#define SM501_CLOCK_V2XCLK              (16)
 /* main clock */
-#define SM501_CLOCK_MCLK                8
+#define SM501_CLOCK_MCLK                (8)
 /* SDRAM controller clock */
-#define SM501_CLOCK_M1XCLK              0
+#define SM501_CLOCK_M1XCLK              (0)
 
 /* config 2 */
-#define SM501_PCI_MASTER_BASE           0x000058
-#define SM501_ENDIAN_CONTROL            0x00005C
-#define SM501_DEVICEID                  0x000060
+#define SM501_PCI_MASTER_BASE           (0x000058)
+#define SM501_ENDIAN_CONTROL            (0x00005C)
+#define SM501_DEVICEID                  (0x000060)
 /* 0x050100A0 */
 
-#define SM501_DEVICEID_SM501            0x05010000
-#define SM501_DEVICEID_IDMASK           0xffff0000
-#define SM501_DEVICEID_REVMASK          0x000000ff
+#define SM501_DEVICEID_SM501            (0x05010000)
+#define SM501_DEVICEID_IDMASK           (0xffff0000)
+#define SM501_DEVICEID_REVMASK          (0x000000ff)
 
-#define SM501_PLLCLOCK_COUNT            0x000064
-#define SM501_MISC_TIMING               0x000068
-#define SM501_CURRENT_SDRAM_CLOCK       0x00006C
+#define SM501_PLLCLOCK_COUNT            (0x000064)
+#define SM501_MISC_TIMING               (0x000068)
+#define SM501_CURRENT_SDRAM_CLOCK       (0x00006C)
 
-#define SM501_PROGRAMMABLE_PLL_CONTROL  0x000074
+#define SM501_PROGRAMMABLE_PLL_CONTROL  (0x000074)
 
 /* GPIO base */
-#define SM501_GPIO                      0x010000
-#define SM501_GPIO_DATA_LOW             0x00
-#define SM501_GPIO_DATA_HIGH            0x04
-#define SM501_GPIO_DDR_LOW              0x08
-#define SM501_GPIO_DDR_HIGH             0x0C
-#define SM501_GPIO_IRQ_SETUP            0x10
-#define SM501_GPIO_IRQ_STATUS           0x14
-#define SM501_GPIO_IRQ_RESET            0x14
+#define SM501_GPIO                      (0x010000)
+#define SM501_GPIO_DATA_LOW             (0x00)
+#define SM501_GPIO_DATA_HIGH            (0x04)
+#define SM501_GPIO_DDR_LOW              (0x08)
+#define SM501_GPIO_DDR_HIGH             (0x0C)
+#define SM501_GPIO_IRQ_SETUP            (0x10)
+#define SM501_GPIO_IRQ_STATUS           (0x14)
+#define SM501_GPIO_IRQ_RESET            (0x14)
 
 /* I2C controller base */
-#define SM501_I2C                       0x010040
-#define SM501_I2C_BYTE_COUNT            0x00
-#define SM501_I2C_CONTROL               0x01
-#define SM501_I2C_STATUS                0x02
-#define SM501_I2C_RESET                 0x02
-#define SM501_I2C_SLAVE_ADDRESS         0x03
-#define SM501_I2C_DATA                  0x04
+#define SM501_I2C                       (0x010040)
+#define SM501_I2C_BYTE_COUNT            (0x00)
+#define SM501_I2C_CONTROL               (0x01)
+#define SM501_I2C_STATUS                (0x02)
+#define SM501_I2C_RESET                 (0x02)
+#define SM501_I2C_SLAVE_ADDRESS         (0x03)
+#define SM501_I2C_DATA                  (0x04)
 
 #define SM501_I2C_CONTROL_START         (1 << 2)
 #define SM501_I2C_CONTROL_ENABLE        (1 << 0)
@@ -205,25 +204,25 @@
 #define SM501_I2C_RESET_ERROR           (1 << 2)
 
 /* SSP base */
-#define SM501_SSP                       0x020000
+#define SM501_SSP                       (0x020000)
 
 /* Uart 0 base */
-#define SM501_UART0                     0x030000
+#define SM501_UART0                     (0x030000)
 
 /* Uart 1 base */
-#define SM501_UART1                     0x030020
+#define SM501_UART1                     (0x030020)
 
 /* USB host port base */
-#define SM501_USB_HOST                  0x040000
+#define SM501_USB_HOST                  (0x040000)
 
 /* USB slave/gadget base */
-#define SM501_USB_GADGET                0x060000
+#define SM501_USB_GADGET                (0x060000)
 
 /* USB slave/gadget data port base */
-#define SM501_USB_GADGET_DATA           0x070000
+#define SM501_USB_GADGET_DATA           (0x070000)
 
 /* Display controller/video engine base */
-#define SM501_DC                        0x080000
+#define SM501_DC                        (0x080000)
 
 /* common defines for the SM501 address registers */
 #define SM501_ADDR_FLIP                 (1 << 31)
@@ -238,12 +237,12 @@
 #define SM501_FIFO_11                   (0x3 << 16)
 
 /* common registers for panel and the crt */
-#define SM501_OFF_DC_H_TOT              0x000
-#define SM501_OFF_DC_V_TOT              0x008
-#define SM501_OFF_DC_H_SYNC             0x004
-#define SM501_OFF_DC_V_SYNC             0x00C
+#define SM501_OFF_DC_H_TOT              (0x000)
+#define SM501_OFF_DC_V_TOT              (0x008)
+#define SM501_OFF_DC_H_SYNC             (0x004)
+#define SM501_OFF_DC_V_SYNC             (0x00C)
 
-#define SM501_DC_PANEL_CONTROL          0x000
+#define SM501_DC_PANEL_CONTROL          (0x000)
 
 #define SM501_DC_PANEL_CONTROL_FPEN     (1 << 27)
 #define SM501_DC_PANEL_CONTROL_BIAS     (1 << 26)
@@ -278,65 +277,65 @@
 #define SM501_DC_PANEL_CONTROL_32BPP    (2 << 0)
 
 
-#define SM501_DC_PANEL_PANNING_CONTROL  0x004
-#define SM501_DC_PANEL_COLOR_KEY        0x008
-#define SM501_DC_PANEL_FB_ADDR          0x00C
-#define SM501_DC_PANEL_FB_OFFSET        0x010
-#define SM501_DC_PANEL_FB_WIDTH         0x014
-#define SM501_DC_PANEL_FB_HEIGHT        0x018
-#define SM501_DC_PANEL_TL_LOC           0x01C
-#define SM501_DC_PANEL_BR_LOC           0x020
-#define SM501_DC_PANEL_H_TOT            0x024
-#define SM501_DC_PANEL_H_SYNC           0x028
-#define SM501_DC_PANEL_V_TOT            0x02C
-#define SM501_DC_PANEL_V_SYNC           0x030
-#define SM501_DC_PANEL_CUR_LINE         0x034
+#define SM501_DC_PANEL_PANNING_CONTROL  (0x004)
+#define SM501_DC_PANEL_COLOR_KEY        (0x008)
+#define SM501_DC_PANEL_FB_ADDR          (0x00C)
+#define SM501_DC_PANEL_FB_OFFSET        (0x010)
+#define SM501_DC_PANEL_FB_WIDTH         (0x014)
+#define SM501_DC_PANEL_FB_HEIGHT        (0x018)
+#define SM501_DC_PANEL_TL_LOC           (0x01C)
+#define SM501_DC_PANEL_BR_LOC           (0x020)
+#define SM501_DC_PANEL_H_TOT            (0x024)
+#define SM501_DC_PANEL_H_SYNC           (0x028)
+#define SM501_DC_PANEL_V_TOT            (0x02C)
+#define SM501_DC_PANEL_V_SYNC           (0x030)
+#define SM501_DC_PANEL_CUR_LINE         (0x034)
 
-#define SM501_DC_VIDEO_CONTROL          0x040
-#define SM501_DC_VIDEO_FB0_ADDR         0x044
-#define SM501_DC_VIDEO_FB_WIDTH         0x048
-#define SM501_DC_VIDEO_FB0_LAST_ADDR    0x04C
-#define SM501_DC_VIDEO_TL_LOC           0x050
-#define SM501_DC_VIDEO_BR_LOC           0x054
-#define SM501_DC_VIDEO_SCALE            0x058
-#define SM501_DC_VIDEO_INIT_SCALE       0x05C
-#define SM501_DC_VIDEO_YUV_CONSTANTS    0x060
-#define SM501_DC_VIDEO_FB1_ADDR         0x064
-#define SM501_DC_VIDEO_FB1_LAST_ADDR    0x068
+#define SM501_DC_VIDEO_CONTROL          (0x040)
+#define SM501_DC_VIDEO_FB0_ADDR         (0x044)
+#define SM501_DC_VIDEO_FB_WIDTH         (0x048)
+#define SM501_DC_VIDEO_FB0_LAST_ADDR    (0x04C)
+#define SM501_DC_VIDEO_TL_LOC           (0x050)
+#define SM501_DC_VIDEO_BR_LOC           (0x054)
+#define SM501_DC_VIDEO_SCALE            (0x058)
+#define SM501_DC_VIDEO_INIT_SCALE       (0x05C)
+#define SM501_DC_VIDEO_YUV_CONSTANTS    (0x060)
+#define SM501_DC_VIDEO_FB1_ADDR         (0x064)
+#define SM501_DC_VIDEO_FB1_LAST_ADDR    (0x068)
 
-#define SM501_DC_VIDEO_ALPHA_CONTROL    0x080
-#define SM501_DC_VIDEO_ALPHA_FB_ADDR    0x084
-#define SM501_DC_VIDEO_ALPHA_FB_OFFSET  0x088
-#define SM501_DC_VIDEO_ALPHA_FB_LAST_ADDR 0x08C
-#define SM501_DC_VIDEO_ALPHA_TL_LOC     0x090
-#define SM501_DC_VIDEO_ALPHA_BR_LOC     0x094
-#define SM501_DC_VIDEO_ALPHA_SCALE      0x098
-#define SM501_DC_VIDEO_ALPHA_INIT_SCALE 0x09C
-#define SM501_DC_VIDEO_ALPHA_CHROMA_KEY 0x0A0
-#define SM501_DC_VIDEO_ALPHA_COLOR_LOOKUP 0x0A4
+#define SM501_DC_VIDEO_ALPHA_CONTROL    (0x080)
+#define SM501_DC_VIDEO_ALPHA_FB_ADDR    (0x084)
+#define SM501_DC_VIDEO_ALPHA_FB_OFFSET  (0x088)
+#define SM501_DC_VIDEO_ALPHA_FB_LAST_ADDR (0x08C)
+#define SM501_DC_VIDEO_ALPHA_TL_LOC     (0x090)
+#define SM501_DC_VIDEO_ALPHA_BR_LOC     (0x094)
+#define SM501_DC_VIDEO_ALPHA_SCALE      (0x098)
+#define SM501_DC_VIDEO_ALPHA_INIT_SCALE (0x09C)
+#define SM501_DC_VIDEO_ALPHA_CHROMA_KEY (0x0A0)
+#define SM501_DC_VIDEO_ALPHA_COLOR_LOOKUP (0x0A4)
 
-#define SM501_DC_PANEL_HWC_BASE         0x0F0
-#define SM501_DC_PANEL_HWC_ADDR         0x0F0
-#define SM501_DC_PANEL_HWC_LOC          0x0F4
-#define SM501_DC_PANEL_HWC_COLOR_1_2    0x0F8
-#define SM501_DC_PANEL_HWC_COLOR_3      0x0FC
+#define SM501_DC_PANEL_HWC_BASE         (0x0F0)
+#define SM501_DC_PANEL_HWC_ADDR         (0x0F0)
+#define SM501_DC_PANEL_HWC_LOC          (0x0F4)
+#define SM501_DC_PANEL_HWC_COLOR_1_2    (0x0F8)
+#define SM501_DC_PANEL_HWC_COLOR_3      (0x0FC)
 
 #define SM501_HWC_EN                    (1 << 31)
 
-#define SM501_OFF_HWC_ADDR              0x00
-#define SM501_OFF_HWC_LOC               0x04
-#define SM501_OFF_HWC_COLOR_1_2         0x08
-#define SM501_OFF_HWC_COLOR_3           0x0C
+#define SM501_OFF_HWC_ADDR              (0x00)
+#define SM501_OFF_HWC_LOC               (0x04)
+#define SM501_OFF_HWC_COLOR_1_2         (0x08)
+#define SM501_OFF_HWC_COLOR_3           (0x0C)
 
-#define SM501_DC_ALPHA_CONTROL          0x100
-#define SM501_DC_ALPHA_FB_ADDR          0x104
-#define SM501_DC_ALPHA_FB_OFFSET        0x108
-#define SM501_DC_ALPHA_TL_LOC           0x10C
-#define SM501_DC_ALPHA_BR_LOC           0x110
-#define SM501_DC_ALPHA_CHROMA_KEY       0x114
-#define SM501_DC_ALPHA_COLOR_LOOKUP     0x118
+#define SM501_DC_ALPHA_CONTROL          (0x100)
+#define SM501_DC_ALPHA_FB_ADDR          (0x104)
+#define SM501_DC_ALPHA_FB_OFFSET        (0x108)
+#define SM501_DC_ALPHA_TL_LOC           (0x10C)
+#define SM501_DC_ALPHA_BR_LOC           (0x110)
+#define SM501_DC_ALPHA_CHROMA_KEY       (0x114)
+#define SM501_DC_ALPHA_COLOR_LOOKUP     (0x118)
 
-#define SM501_DC_CRT_CONTROL            0x200
+#define SM501_DC_CRT_CONTROL            (0x200)
 
 #define SM501_DC_CRT_CONTROL_TVP        (1 << 15)
 #define SM501_DC_CRT_CONTROL_CP         (1 << 14)
@@ -354,95 +353,89 @@
 #define SM501_DC_CRT_CONTROL_16BPP      (1 << 0)
 #define SM501_DC_CRT_CONTROL_32BPP      (2 << 0)
 
-#define SM501_DC_CRT_FB_ADDR            0x204
-#define SM501_DC_CRT_FB_OFFSET          0x208
-#define SM501_DC_CRT_H_TOT              0x20C
-#define SM501_DC_CRT_H_SYNC             0x210
-#define SM501_DC_CRT_V_TOT              0x214
-#define SM501_DC_CRT_V_SYNC             0x218
-#define SM501_DC_CRT_SIGNATURE_ANALYZER 0x21C
-#define SM501_DC_CRT_CUR_LINE           0x220
-#define SM501_DC_CRT_MONITOR_DETECT     0x224
+#define SM501_DC_CRT_FB_ADDR            (0x204)
+#define SM501_DC_CRT_FB_OFFSET          (0x208)
+#define SM501_DC_CRT_H_TOT              (0x20C)
+#define SM501_DC_CRT_H_SYNC             (0x210)
+#define SM501_DC_CRT_V_TOT              (0x214)
+#define SM501_DC_CRT_V_SYNC             (0x218)
+#define SM501_DC_CRT_SIGNATURE_ANALYZER (0x21C)
+#define SM501_DC_CRT_CUR_LINE           (0x220)
+#define SM501_DC_CRT_MONITOR_DETECT     (0x224)
 
-#define SM501_DC_CRT_HWC_BASE           0x230
-#define SM501_DC_CRT_HWC_ADDR           0x230
-#define SM501_DC_CRT_HWC_LOC            0x234
-#define SM501_DC_CRT_HWC_COLOR_1_2      0x238
-#define SM501_DC_CRT_HWC_COLOR_3        0x23C
+#define SM501_DC_CRT_HWC_BASE           (0x230)
+#define SM501_DC_CRT_HWC_ADDR           (0x230)
+#define SM501_DC_CRT_HWC_LOC            (0x234)
+#define SM501_DC_CRT_HWC_COLOR_1_2      (0x238)
+#define SM501_DC_CRT_HWC_COLOR_3        (0x23C)
 
-#define SM501_DC_PANEL_PALETTE          0x400
+#define SM501_DC_PANEL_PALETTE          (0x400)
 
-#define SM501_DC_VIDEO_PALETTE          0x800
+#define SM501_DC_VIDEO_PALETTE          (0x800)
 
-#define SM501_DC_CRT_PALETTE            0xC00
+#define SM501_DC_CRT_PALETTE            (0xC00)
 
 /* Zoom Video port base */
-#define SM501_ZVPORT                    0x090000
+#define SM501_ZVPORT                    (0x090000)
 
 /* AC97/I2S base */
-#define SM501_AC97                      0x0A0000
+#define SM501_AC97                      (0x0A0000)
 
 /* 8051 micro controller base */
-#define SM501_UCONTROLLER               0x0B0000
+#define SM501_UCONTROLLER               (0x0B0000)
 
 /* 8051 micro controller SRAM base */
-#define SM501_UCONTROLLER_SRAM          0x0C0000
+#define SM501_UCONTROLLER_SRAM          (0x0C0000)
 
 /* DMA base */
-#define SM501_DMA                       0x0D0000
+#define SM501_DMA                       (0x0D0000)
 
 /* 2d engine base */
-#define SM501_2D_ENGINE                 0x100000
-#define SM501_2D_SOURCE                 0x00
-#define SM501_2D_DESTINATION            0x04
-#define SM501_2D_DIMENSION              0x08
-#define SM501_2D_CONTROL                0x0C
-#define SM501_2D_PITCH                  0x10
-#define SM501_2D_FOREGROUND             0x14
-#define SM501_2D_BACKGROUND             0x18
-#define SM501_2D_STRETCH                0x1C
-#define SM501_2D_COLOR_COMPARE          0x20
-#define SM501_2D_COLOR_COMPARE_MASK     0x24
-#define SM501_2D_MASK                   0x28
-#define SM501_2D_CLIP_TL                0x2C
-#define SM501_2D_CLIP_BR                0x30
-#define SM501_2D_MONO_PATTERN_LOW       0x34
-#define SM501_2D_MONO_PATTERN_HIGH      0x38
-#define SM501_2D_WINDOW_WIDTH           0x3C
-#define SM501_2D_SOURCE_BASE            0x40
-#define SM501_2D_DESTINATION_BASE       0x44
-#define SM501_2D_ALPHA                  0x48
-#define SM501_2D_WRAP                   0x4C
-#define SM501_2D_STATUS                 0x50
+#define SM501_2D_ENGINE                 (0x100000)
+#define SM501_2D_SOURCE                 (0x00)
+#define SM501_2D_DESTINATION            (0x04)
+#define SM501_2D_DIMENSION              (0x08)
+#define SM501_2D_CONTROL                (0x0C)
+#define SM501_2D_PITCH                  (0x10)
+#define SM501_2D_FOREGROUND             (0x14)
+#define SM501_2D_BACKGROUND             (0x18)
+#define SM501_2D_STRETCH                (0x1C)
+#define SM501_2D_COLOR_COMPARE          (0x20)
+#define SM501_2D_COLOR_COMPARE_MASK     (0x24)
+#define SM501_2D_MASK                   (0x28)
+#define SM501_2D_CLIP_TL                (0x2C)
+#define SM501_2D_CLIP_BR                (0x30)
+#define SM501_2D_MONO_PATTERN_LOW       (0x34)
+#define SM501_2D_MONO_PATTERN_HIGH      (0x38)
+#define SM501_2D_WINDOW_WIDTH           (0x3C)
+#define SM501_2D_SOURCE_BASE            (0x40)
+#define SM501_2D_DESTINATION_BASE       (0x44)
+#define SM501_2D_ALPHA                  (0x48)
+#define SM501_2D_WRAP                   (0x4C)
+#define SM501_2D_STATUS                 (0x50)
 
-#define SM501_CSC_Y_SOURCE_BASE         0xC8
-#define SM501_CSC_CONSTANTS             0xCC
-#define SM501_CSC_Y_SOURCE_X            0xD0
-#define SM501_CSC_Y_SOURCE_Y            0xD4
-#define SM501_CSC_U_SOURCE_BASE         0xD8
-#define SM501_CSC_V_SOURCE_BASE         0xDC
-#define SM501_CSC_SOURCE_DIMENSION      0xE0
-#define SM501_CSC_SOURCE_PITCH          0xE4
-#define SM501_CSC_DESTINATION           0xE8
-#define SM501_CSC_DESTINATION_DIMENSION 0xEC
-#define SM501_CSC_DESTINATION_PITCH     0xF0
-#define SM501_CSC_SCALE_FACTOR          0xF4
-#define SM501_CSC_DESTINATION_BASE      0xF8
-#define SM501_CSC_CONTROL               0xFC
+#define SM501_CSC_Y_SOURCE_BASE         (0xC8)
+#define SM501_CSC_CONSTANTS             (0xCC)
+#define SM501_CSC_Y_SOURCE_X            (0xD0)
+#define SM501_CSC_Y_SOURCE_Y            (0xD4)
+#define SM501_CSC_U_SOURCE_BASE         (0xD8)
+#define SM501_CSC_V_SOURCE_BASE         (0xDC)
+#define SM501_CSC_SOURCE_DIMENSION      (0xE0)
+#define SM501_CSC_SOURCE_PITCH          (0xE4)
+#define SM501_CSC_DESTINATION           (0xE8)
+#define SM501_CSC_DESTINATION_DIMENSION (0xEC)
+#define SM501_CSC_DESTINATION_PITCH     (0xF0)
+#define SM501_CSC_SCALE_FACTOR          (0xF4)
+#define SM501_CSC_DESTINATION_BASE      (0xF8)
+#define SM501_CSC_CONTROL               (0xFC)
 
 /* 2d engine data port base */
-#define SM501_2D_ENGINE_DATA            0x110000
+#define SM501_2D_ENGINE_DATA            (0x110000)
 
 /* end of register definitions */
 
-#define SM501_HWC_WIDTH                 64
-#define SM501_HWC_HEIGHT                64
-
-#ifdef CONFIG_PIXMAN
-#define DEFAULT_X_PIXMAN 7
-#else
-#define DEFAULT_X_PIXMAN 0
-#endif
+#define SM501_HWC_WIDTH                       (64)
+#define SM501_HWC_HEIGHT                      (64)
 
 /* SM501 local memory size taken from "linux/drivers/mfd/sm501.c" */
 static const uint32_t sm501_mem_local_size[] = {
@@ -471,7 +464,6 @@ typedef struct SM501State {
     uint32_t last_width;
     uint32_t last_height;
     bool do_full_update; /* perform a full update next time */
-    uint8_t use_pixman;
     I2CBus *i2c_bus;
 
     /* mmio registers */
@@ -699,7 +691,7 @@ static void sm501_2d_operation(SM501State *s)
     unsigned int dst_pitch = (s->twoD_pitch >> 16) & 0x1FFF;
     int crt = (s->dc_crt_control & SM501_DC_CRT_CONTROL_SEL) ? 1 : 0;
     int fb_len = get_width(s, crt) * get_height(s, crt) * get_bpp(s, crt);
-    bool overlap = false, fallback = false;
+    bool overlap = false;
 
     if ((s->twoD_stretch >> 16) & 0xF) {
         qemu_log_mask(LOG_UNIMP, "sm501: only XY addressing is supported.\n");
@@ -736,6 +728,7 @@ static void sm501_2d_operation(SM501State *s)
     switch (cmd) {
     case 0: /* BitBlt */
     {
+        static uint32_t tmp_buf[16384];
         unsigned int src_x = (s->twoD_source >> 16) & 0x01FFF;
         unsigned int src_y = s->twoD_source & 0xFFFF;
         uint32_t src_base = s->twoD_source_base & 0x03FFFFFF;
@@ -760,7 +753,7 @@ static void sm501_2d_operation(SM501State *s)
         }
 
         if ((rop_mode && rop == 0x5) || (!rop_mode && rop == 0x55)) {
-            /* DSTINVERT, is there a way to do this with pixman? */
+            /* Invert dest, is there a way to do this with pixman? */
             unsigned int x, y, i;
             uint8_t *d = s->local_mem + dst_base;
 
@@ -768,34 +761,6 @@ static void sm501_2d_operation(SM501State *s)
                 i = (dst_x + (dst_y + y) * dst_pitch) * bypp;
                 for (x = 0; x < width; x++, i += bypp) {
                     stn_he_p(&d[i], bypp, ~ldn_he_p(&d[i], bypp));
-                }
-            }
-        } else if (!rop_mode && rop == 0x99) {
-            /* DSxn, is there a way to do this with pixman? */
-            unsigned int x, y, i, j;
-            uint8_t *sp = s->local_mem + src_base;
-            uint8_t *d = s->local_mem + dst_base;
-
-            for (y = 0; y < height; y++) {
-                i = (dst_x + (dst_y + y) * dst_pitch) * bypp;
-                j = (src_x + (src_y + y) * src_pitch) * bypp;
-                for (x = 0; x < width; x++, i += bypp, j += bypp) {
-                    stn_he_p(&d[i], bypp,
-                             ~(ldn_he_p(&sp[j], bypp) ^ ldn_he_p(&d[i], bypp)));
-                }
-            }
-        } else if (!rop_mode && rop == 0xee) {
-            /* SRCPAINT, is there a way to do this with pixman? */
-            unsigned int x, y, i, j;
-            uint8_t *sp = s->local_mem + src_base;
-            uint8_t *d = s->local_mem + dst_base;
-
-            for (y = 0; y < height; y++) {
-                i = (dst_x + (dst_y + y) * dst_pitch) * bypp;
-                j = (src_x + (src_y + y) * src_pitch) * bypp;
-                for (x = 0; x < width; x++, i += bypp, j += bypp) {
-                    stn_he_p(&d[i], bypp,
-                             ldn_he_p(&sp[j], bypp) | ldn_he_p(&d[i], bypp));
                 }
             }
         } else {
@@ -833,62 +798,33 @@ static void sm501_2d_operation(SM501State *s)
                 de = db + (width + (height - 1) * dst_pitch) * bypp;
                 overlap = (db < se && sb < de);
             }
-#ifdef CONFIG_PIXMAN
-            if (overlap && (s->use_pixman & BIT(2))) {
+            if (overlap) {
                 /* pixman can't do reverse blit: copy via temporary */
                 int tmp_stride = DIV_ROUND_UP(width * bypp, sizeof(uint32_t));
-                static uint32_t tmp_buf[16384];
                 uint32_t *tmp = tmp_buf;
 
                 if (tmp_stride * sizeof(uint32_t) * height > sizeof(tmp_buf)) {
                     tmp = g_malloc(tmp_stride * sizeof(uint32_t) * height);
                 }
-                fallback = !pixman_blt((uint32_t *)&s->local_mem[src_base],
-                                       tmp,
-                                       src_pitch * bypp / sizeof(uint32_t),
-                                       tmp_stride,
-                                       8 * bypp, 8 * bypp,
-                                       src_x, src_y, 0, 0, width, height);
-                if (!fallback) {
-                    fallback = !pixman_blt(tmp,
-                                       (uint32_t *)&s->local_mem[dst_base],
-                                       tmp_stride,
-                                       dst_pitch * bypp / sizeof(uint32_t),
-                                       8 * bypp, 8 * bypp,
-                                       0, 0, dst_x, dst_y, width, height);
-                }
+                pixman_blt((uint32_t *)&s->local_mem[src_base], tmp,
+                           src_pitch * bypp / sizeof(uint32_t),
+                           tmp_stride, 8 * bypp, 8 * bypp,
+                           src_x, src_y, 0, 0, width, height);
+                pixman_blt(tmp, (uint32_t *)&s->local_mem[dst_base],
+                           tmp_stride,
+                           dst_pitch * bypp / sizeof(uint32_t),
+                           8 * bypp, 8 * bypp,
+                           0, 0, dst_x, dst_y, width, height);
                 if (tmp != tmp_buf) {
                     g_free(tmp);
                 }
-            } else if (!overlap && (s->use_pixman & BIT(1))) {
-                fallback = !pixman_blt((uint32_t *)&s->local_mem[src_base],
-                                       (uint32_t *)&s->local_mem[dst_base],
-                                       src_pitch * bypp / sizeof(uint32_t),
-                                       dst_pitch * bypp / sizeof(uint32_t),
-                                       8 * bypp, 8 * bypp, src_x, src_y,
-                                       dst_x, dst_y, width, height);
-            } else
-#endif
-            {
-                fallback = true;
-            }
-            if (fallback) {
-                uint8_t *sp = s->local_mem + src_base;
-                uint8_t *d = s->local_mem + dst_base;
-                unsigned int y, i, j;
-                for (y = 0; y < height; y++) {
-                    if (overlap) { /* overlap also means rtl */
-                        i = (dst_y + height - 1 - y) * dst_pitch;
-                        i = (dst_x + i) * bypp;
-                        j = (src_y + height - 1 - y) * src_pitch;
-                        j = (src_x + j) * bypp;
-                        memmove(&d[i], &sp[j], width * bypp);
-                    } else {
-                        i = (dst_x + (dst_y + y) * dst_pitch) * bypp;
-                        j = (src_x + (src_y + y) * src_pitch) * bypp;
-                        memcpy(&d[i], &sp[j], width * bypp);
-                    }
-                }
+            } else {
+                pixman_blt((uint32_t *)&s->local_mem[src_base],
+                           (uint32_t *)&s->local_mem[dst_base],
+                           src_pitch * bypp / sizeof(uint32_t),
+                           dst_pitch * bypp / sizeof(uint32_t),
+                           8 * bypp, 8 * bypp,
+                           src_x, src_y, dst_x, dst_y, width, height);
             }
         }
         break;
@@ -903,23 +839,14 @@ static void sm501_2d_operation(SM501State *s)
             color = cpu_to_le16(color);
         }
 
-#ifdef CONFIG_PIXMAN
-        if (!(s->use_pixman & BIT(0)) || (width == 1 && height == 1) ||
-            !pixman_fill((uint32_t *)&s->local_mem[dst_base],
-                         dst_pitch * bypp / sizeof(uint32_t), 8 * bypp,
-                         dst_x, dst_y, width, height, color))
-#endif
-            {
-                /* fallback when pixman failed or we don't want to call it */
-                uint8_t *d = s->local_mem + dst_base;
-                unsigned int x, y, i;
-                for (y = 0; y < height; y++) {
-                    i = (dst_x + (dst_y + y) * dst_pitch) * bypp;
-                    for (x = 0; x < width; x++, i += bypp) {
-                        stn_he_p(&d[i], bypp, color);
-                    }
-                }
-            }
+        if (width == 1 && height == 1) {
+            unsigned int i = (dst_x + dst_y * dst_pitch) * bypp;
+            stn_he_p(&s->local_mem[dst_base + i], bypp, color);
+        } else {
+            pixman_fill((uint32_t *)&s->local_mem[dst_base],
+                        dst_pitch * bypp / sizeof(uint32_t),
+                        8 * bypp, dst_x, dst_y, width, height, color);
+        }
         break;
     }
     default:
@@ -941,7 +868,7 @@ static void sm501_2d_operation(SM501State *s)
 static uint64_t sm501_system_config_read(void *opaque, hwaddr addr,
                                          unsigned size)
 {
-    SM501State *s = opaque;
+    SM501State *s = (SM501State *)opaque;
     uint32_t ret = 0;
 
     switch (addr) {
@@ -1001,7 +928,7 @@ static uint64_t sm501_system_config_read(void *opaque, hwaddr addr,
 static void sm501_system_config_write(void *opaque, hwaddr addr,
                                       uint64_t value, unsigned size)
 {
-    SM501State *s = opaque;
+    SM501State *s = (SM501State *)opaque;
 
     trace_sm501_system_config_write((uint32_t)addr, (uint32_t)value);
     switch (addr) {
@@ -1069,7 +996,7 @@ static const MemoryRegionOps sm501_system_config_ops = {
 
 static uint64_t sm501_i2c_read(void *opaque, hwaddr addr, unsigned size)
 {
-    SM501State *s = opaque;
+    SM501State *s = (SM501State *)opaque;
     uint8_t ret = 0;
 
     switch (addr) {
@@ -1096,7 +1023,7 @@ static uint64_t sm501_i2c_read(void *opaque, hwaddr addr, unsigned size)
 static void sm501_i2c_write(void *opaque, hwaddr addr, uint64_t value,
                             unsigned size)
 {
-    SM501State *s = opaque;
+    SM501State *s = (SM501State *)opaque;
 
     trace_sm501_i2c_write((uint32_t)addr, (uint32_t)value);
     switch (addr) {
@@ -1106,18 +1033,16 @@ static void sm501_i2c_write(void *opaque, hwaddr addr, uint64_t value,
     case SM501_I2C_CONTROL:
         if (value & SM501_I2C_CONTROL_ENABLE) {
             if (value & SM501_I2C_CONTROL_START) {
-                bool is_recv = s->i2c_addr & 1;
                 int res = i2c_start_transfer(s->i2c_bus,
                                              s->i2c_addr >> 1,
-                                             is_recv);
-                if (res) {
-                    s->i2c_status |= SM501_I2C_STATUS_ERROR;
-                } else {
+                                             s->i2c_addr & 1);
+                s->i2c_status |= (res ? SM501_I2C_STATUS_ERROR : 0);
+                if (!res) {
                     int i;
                     for (i = 0; i <= s->i2c_byte_count; i++) {
-                        if (is_recv) {
-                            s->i2c_data[i] = i2c_recv(s->i2c_bus);
-                        } else if (i2c_send(s->i2c_bus, s->i2c_data[i]) < 0) {
+                        res = i2c_send_recv(s->i2c_bus, &s->i2c_data[i],
+                                            !(s->i2c_addr & 1));
+                        if (res) {
                             s->i2c_status |= SM501_I2C_STATUS_ERROR;
                             return;
                         }
@@ -1165,7 +1090,7 @@ static const MemoryRegionOps sm501_i2c_ops = {
 
 static uint32_t sm501_palette_read(void *opaque, hwaddr addr)
 {
-    SM501State *s = opaque;
+    SM501State *s = (SM501State *)opaque;
 
     trace_sm501_palette_read((uint32_t)addr);
 
@@ -1179,7 +1104,7 @@ static uint32_t sm501_palette_read(void *opaque, hwaddr addr)
 static void sm501_palette_write(void *opaque, hwaddr addr,
                                 uint32_t value)
 {
-    SM501State *s = opaque;
+    SM501State *s = (SM501State *)opaque;
 
     trace_sm501_palette_write((uint32_t)addr, value);
 
@@ -1194,7 +1119,7 @@ static void sm501_palette_write(void *opaque, hwaddr addr,
 static uint64_t sm501_disp_ctrl_read(void *opaque, hwaddr addr,
                                      unsigned size)
 {
-    SM501State *s = opaque;
+    SM501State *s = (SM501State *)opaque;
     uint32_t ret = 0;
 
     switch (addr) {
@@ -1307,7 +1232,7 @@ static uint64_t sm501_disp_ctrl_read(void *opaque, hwaddr addr,
 static void sm501_disp_ctrl_write(void *opaque, hwaddr addr,
                                   uint64_t value, unsigned size)
 {
-    SM501State *s = opaque;
+    SM501State *s = (SM501State *)opaque;
 
     trace_sm501_disp_ctrl_write((uint32_t)addr, (uint32_t)value);
     switch (addr) {
@@ -1452,7 +1377,7 @@ static const MemoryRegionOps sm501_disp_ctrl_ops = {
 static uint64_t sm501_2d_engine_read(void *opaque, hwaddr addr,
                                      unsigned size)
 {
-    SM501State *s = opaque;
+    SM501State *s = (SM501State *)opaque;
     uint32_t ret = 0;
 
     switch (addr) {
@@ -1530,7 +1455,7 @@ static uint64_t sm501_2d_engine_read(void *opaque, hwaddr addr,
 static void sm501_2d_engine_write(void *opaque, hwaddr addr,
                                   uint64_t value, unsigned size)
 {
-    SM501State *s = opaque;
+    SM501State *s = (SM501State *)opaque;
 
     trace_sm501_2d_engine_write((uint32_t)addr, (uint32_t)value);
     switch (addr) {
@@ -1633,91 +1558,92 @@ typedef void draw_hwc_line_func(uint8_t *d, const uint8_t *s,
                                 int width, const uint8_t *palette,
                                 int c_x, int c_y);
 
-static void draw_line8_32(uint8_t *d, const uint8_t *s, int width,
-                          const uint32_t *pal)
+#define DEPTH 8
+#include "sm501_template.h"
+
+#define DEPTH 15
+#include "sm501_template.h"
+
+#define BGR_FORMAT
+#define DEPTH 15
+#include "sm501_template.h"
+
+#define DEPTH 16
+#include "sm501_template.h"
+
+#define BGR_FORMAT
+#define DEPTH 16
+#include "sm501_template.h"
+
+#define DEPTH 32
+#include "sm501_template.h"
+
+#define BGR_FORMAT
+#define DEPTH 32
+#include "sm501_template.h"
+
+static draw_line_func *draw_line8_funcs[] = {
+    draw_line8_8,
+    draw_line8_15,
+    draw_line8_16,
+    draw_line8_32,
+    draw_line8_32bgr,
+    draw_line8_15bgr,
+    draw_line8_16bgr,
+};
+
+static draw_line_func *draw_line16_funcs[] = {
+    draw_line16_8,
+    draw_line16_15,
+    draw_line16_16,
+    draw_line16_32,
+    draw_line16_32bgr,
+    draw_line16_15bgr,
+    draw_line16_16bgr,
+};
+
+static draw_line_func *draw_line32_funcs[] = {
+    draw_line32_8,
+    draw_line32_15,
+    draw_line32_16,
+    draw_line32_32,
+    draw_line32_32bgr,
+    draw_line32_15bgr,
+    draw_line32_16bgr,
+};
+
+static draw_hwc_line_func *draw_hwc_line_funcs[] = {
+    draw_hwc_line_8,
+    draw_hwc_line_15,
+    draw_hwc_line_16,
+    draw_hwc_line_32,
+    draw_hwc_line_32bgr,
+    draw_hwc_line_15bgr,
+    draw_hwc_line_16bgr,
+};
+
+static inline int get_depth_index(DisplaySurface *surface)
 {
-    uint8_t v, r, g, b;
-    do {
-        v = ldub_p(s);
-        r = (pal[v] >> 16) & 0xff;
-        g = (pal[v] >>  8) & 0xff;
-        b = (pal[v] >>  0) & 0xff;
-        *(uint32_t *)d = rgb_to_pixel32(r, g, b);
-        s++;
-        d += 4;
-    } while (--width != 0);
-}
-
-static void draw_line16_32(uint8_t *d, const uint8_t *s, int width,
-                           const uint32_t *pal)
-{
-    uint16_t rgb565;
-    uint8_t r, g, b;
-
-    do {
-        rgb565 = lduw_le_p(s);
-        r = (rgb565 >> 8) & 0xf8;
-        g = (rgb565 >> 3) & 0xfc;
-        b = (rgb565 << 3) & 0xf8;
-        *(uint32_t *)d = rgb_to_pixel32(r, g, b);
-        s += 2;
-        d += 4;
-    } while (--width != 0);
-}
-
-static void draw_line32_32(uint8_t *d, const uint8_t *s, int width,
-                           const uint32_t *pal)
-{
-    uint8_t r, g, b;
-
-    do {
-        r = s[2];
-        g = s[1];
-        b = s[0];
-        *(uint32_t *)d = rgb_to_pixel32(r, g, b);
-        s += 4;
-        d += 4;
-    } while (--width != 0);
-}
-
-/**
- * Draw hardware cursor image on the given line.
- */
-static void draw_hwc_line_32(uint8_t *d, const uint8_t *s, int width,
-                             const uint8_t *palette, int c_x, int c_y)
-{
-    int i;
-    uint8_t r, g, b, v, bitset = 0;
-
-    /* get cursor position */
-    assert(0 <= c_y && c_y < SM501_HWC_HEIGHT);
-    s += SM501_HWC_WIDTH * c_y / 4;  /* 4 pixels per byte */
-    d += c_x * 4;
-
-    for (i = 0; i < SM501_HWC_WIDTH && c_x + i < width; i++) {
-        /* get pixel value */
-        if (i % 4 == 0) {
-            bitset = ldub_p(s);
-            s++;
+    switch (surface_bits_per_pixel(surface)) {
+    default:
+    case 8:
+        return 0;
+    case 15:
+        return 1;
+    case 16:
+        return 2;
+    case 32:
+        if (is_surface_bgr(surface)) {
+            return 4;
+        } else {
+            return 3;
         }
-        v = bitset & 3;
-        bitset >>= 2;
-
-        /* write pixel */
-        if (v) {
-            v--;
-            r = palette[v * 3 + 0];
-            g = palette[v * 3 + 1];
-            b = palette[v * 3 + 2];
-            *(uint32_t *)d = rgb_to_pixel32(r, g, b);
-        }
-        d += 4;
     }
 }
 
 static void sm501_update_display(void *opaque)
 {
-    SM501State *s = opaque;
+    SM501State *s = (SM501State *)opaque;
     DisplaySurface *surface = qemu_console_surface(s->con);
     DirtyBitmapSnapshot *snap;
     int y, c_x = 0, c_y = 0;
@@ -1726,6 +1652,7 @@ static void sm501_update_display(void *opaque)
     int height = get_height(s, crt);
     int src_bpp = get_bpp(s, crt);
     int dst_bpp = surface_bytes_per_pixel(surface);
+    int dst_depth_index = get_depth_index(surface);
     draw_line_func *draw_line = NULL;
     draw_hwc_line_func *draw_hwc_line = NULL;
     int full_update = 0;
@@ -1734,8 +1661,6 @@ static void sm501_update_display(void *opaque)
     uint32_t *palette;
     uint8_t hwc_palette[3 * 3];
     uint8_t *hwc_src = NULL;
-
-    assert(dst_bpp == 4); /* Output is always 32-bit RGB */
 
     if (!((crt ? s->dc_crt_control : s->dc_panel_control)
           & SM501_DC_CRT_CONTROL_ENABLE)) {
@@ -1749,13 +1674,13 @@ static void sm501_update_display(void *opaque)
     /* choose draw_line function */
     switch (src_bpp) {
     case 1:
-        draw_line = draw_line8_32;
+        draw_line = draw_line8_funcs[dst_depth_index];
         break;
     case 2:
-        draw_line = draw_line16_32;
+        draw_line = draw_line16_funcs[dst_depth_index];
         break;
     case 4:
-        draw_line = draw_line32_32;
+        draw_line = draw_line32_funcs[dst_depth_index];
         break;
     default:
         qemu_log_mask(LOG_GUEST_ERROR, "sm501: update display"
@@ -1766,7 +1691,7 @@ static void sm501_update_display(void *opaque)
     /* set up to draw hardware cursor */
     if (is_hwc_enabled(s, crt)) {
         /* choose cursor draw line function */
-        draw_hwc_line = draw_hwc_line_32;
+        draw_hwc_line = draw_hwc_line_funcs[dst_depth_index];
         hwc_src = get_hwc_address(s, crt);
         c_x = get_hwc_x(s, crt);
         c_y = get_hwc_y(s, crt);
@@ -1841,8 +1766,7 @@ static const GraphicHwOps sm501_ops = {
 static void sm501_reset(SM501State *s)
 {
     s->system_control = 0x00100000; /* 2D engine FIFO empty */
-    /*
-     * Bits 17 (SH), 7 (CDR), 6:5 (Test), 2:0 (Bus) are all supposed
+    /* Bits 17 (SH), 7 (CDR), 6:5 (Test), 2:0 (Bus) are all supposed
      * to be determined at reset by GPIO lines which set config bits.
      * We hardwire them:
      *  SH = 0 : Hitachi Ready Polarity == Active Low
@@ -1890,12 +1814,6 @@ static void sm501_reset(SM501State *s)
 static void sm501_init(SM501State *s, DeviceState *dev,
                        uint32_t local_mem_bytes)
 {
-#ifndef CONFIG_PIXMAN
-    if (s->use_pixman != 0) {
-        warn_report("x-pixman != 0, not effective without PIXMAN");
-    }
-#endif
-
     s->local_mem_size_index = get_local_mem_size_index(local_mem_bytes);
 
     /* local memory */
@@ -1908,7 +1826,7 @@ static void sm501_init(SM501State *s, DeviceState *dev,
     s->i2c_bus = i2c_init_bus(dev, "sm501.i2c");
     /* ddc */
     I2CDDCState *ddc = I2CDDC(qdev_new(TYPE_I2CDDC));
-    i2c_slave_set_address(I2C_SLAVE(ddc), 0x50);
+    i2c_set_slave_address(I2C_SLAVE(ddc), 0x50);
     qdev_realize_and_unref(DEVICE(ddc), BUS(s->i2c_bus), &error_abort);
 
     /* mmio */
@@ -2022,14 +1940,15 @@ struct SM501SysBusState {
     /*< public >*/
     SM501State state;
     uint32_t vram_size;
+    uint32_t base;
     SerialMM serial;
-    OHCISysBusState ohci;
 };
 
 static void sm501_realize_sysbus(DeviceState *dev, Error **errp)
 {
     SM501SysBusState *s = SYSBUS_SM501(dev);
     SysBusDevice *sbd = SYS_BUS_DEVICE(dev);
+    DeviceState *usb_dev;
     MemoryRegion *mr;
 
     sm501_init(&s->state, dev, s->vram_size);
@@ -2042,10 +1961,13 @@ static void sm501_realize_sysbus(DeviceState *dev, Error **errp)
     sysbus_init_mmio(sbd, &s->state.mmio_region);
 
     /* bridge to usb host emulation module */
-    sysbus_realize_and_unref(SYS_BUS_DEVICE(&s->ohci), &error_fatal);
+    usb_dev = qdev_new("sysbus-ohci");
+    qdev_prop_set_uint32(usb_dev, "num-ports", 2);
+    qdev_prop_set_uint64(usb_dev, "dma-offset", s->base);
+    sysbus_realize_and_unref(SYS_BUS_DEVICE(usb_dev), &error_fatal);
     memory_region_add_subregion(&s->state.mmio_region, SM501_USB_HOST,
-                       sysbus_mmio_get_region(SYS_BUS_DEVICE(&s->ohci), 0));
-    sysbus_pass_irq(sbd, SYS_BUS_DEVICE(&s->ohci));
+                       sysbus_mmio_get_region(SYS_BUS_DEVICE(usb_dev), 0));
+    sysbus_pass_irq(sbd, SYS_BUS_DEVICE(usb_dev));
 
     /* bridge to serial emulation module */
     sysbus_realize(SYS_BUS_DEVICE(&s->serial), &error_fatal);
@@ -2056,8 +1978,7 @@ static void sm501_realize_sysbus(DeviceState *dev, Error **errp)
 
 static Property sm501_sysbus_properties[] = {
     DEFINE_PROP_UINT32("vram-size", SM501SysBusState, vram_size, 0),
-    /* this a debug option, prefer PROP_UINT over PROP_BIT for simplicity */
-    DEFINE_PROP_UINT8("x-pixman", SM501SysBusState, state.use_pixman, DEFAULT_X_PIXMAN),
+    DEFINE_PROP_UINT32("base", SM501SysBusState, base, 0),
     DEFINE_PROP_END_OF_LIST(),
 };
 
@@ -2093,19 +2014,15 @@ static void sm501_sysbus_class_init(ObjectClass *klass, void *data)
 static void sm501_sysbus_init(Object *o)
 {
     SM501SysBusState *sm501 = SYSBUS_SM501(o);
-    OHCISysBusState *ohci = &sm501->ohci;
     SerialMM *smm = &sm501->serial;
-
-    object_initialize_child(o, "ohci", ohci, TYPE_SYSBUS_OHCI);
-    object_property_add_alias(o, "dma-offset", OBJECT(ohci), "dma-offset");
-    qdev_prop_set_uint32(DEVICE(ohci), "num-ports", 2);
 
     object_initialize_child(o, "serial", smm, TYPE_SERIAL_MM);
     qdev_set_legacy_instance_id(DEVICE(smm), SM501_UART0, 2);
     qdev_prop_set_uint8(DEVICE(smm), "regshift", 2);
     qdev_prop_set_uint8(DEVICE(smm), "endianness", DEVICE_LITTLE_ENDIAN);
 
-    object_property_add_alias(o, "chardev", OBJECT(smm), "chardev");
+    object_property_add_alias(o, "chardev",
+                              OBJECT(smm), "chardev");
 }
 
 static const TypeInfo sm501_sysbus_info = {
@@ -2145,7 +2062,6 @@ static void sm501_realize_pci(PCIDevice *dev, Error **errp)
 
 static Property sm501_pci_properties[] = {
     DEFINE_PROP_UINT32("vram-size", SM501PCIState, vram_size, 64 * MiB),
-    DEFINE_PROP_UINT8("x-pixman", SM501PCIState, state.use_pixman, DEFAULT_X_PIXMAN),
     DEFINE_PROP_END_OF_LIST(),
 };
 
@@ -2186,18 +2102,11 @@ static void sm501_pci_class_init(ObjectClass *klass, void *data)
     dc->vmsd = &vmstate_sm501_pci;
 }
 
-static void sm501_pci_init(Object *o)
-{
-    object_property_set_description(o, "x-pixman", "Use pixman for: "
-                                    "1: fill, 2: blit, 4: overlap blit");
-}
-
 static const TypeInfo sm501_pci_info = {
     .name          = TYPE_PCI_SM501,
     .parent        = TYPE_PCI_DEVICE,
     .instance_size = sizeof(SM501PCIState),
     .class_init    = sm501_pci_class_init,
-    .instance_init = sm501_pci_init,
     .interfaces = (InterfaceInfo[]) {
         { INTERFACE_CONVENTIONAL_PCI_DEVICE },
         { },

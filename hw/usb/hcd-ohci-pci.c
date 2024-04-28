@@ -23,7 +23,7 @@
 #include "qemu/timer.h"
 #include "hw/usb.h"
 #include "migration/vmstate.h"
-#include "hw/pci/pci_device.h"
+#include "hw/pci/pci.h"
 #include "hw/sysbus.h"
 #include "hw/qdev-dma.h"
 #include "hw/qdev-properties.h"
@@ -97,6 +97,7 @@ static void usb_ohci_exit(PCIDevice *dev)
         usb_bus_release(&s->bus);
     }
 
+    timer_del(s->eof_timer);
     timer_free(s->eof_timer);
 }
 

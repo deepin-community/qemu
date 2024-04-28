@@ -228,7 +228,6 @@
 #define TARGET_NR_accept4 242
 #define TARGET_NR_arch_specific_syscall 244
 #define TARGET_NR_riscv_flush_icache (TARGET_NR_arch_specific_syscall + 15)
-#define TARGET_NR_riscv_hwprobe (TARGET_NR_arch_specific_syscall + 14)
 #define TARGET_NR_prlimit64 261
 #define TARGET_NR_fanotify_init 262
 #define TARGET_NR_fanotify_mark 263
@@ -297,12 +296,6 @@
 #define TARGET_NR_openat2 437
 #define TARGET_NR_pidfd_getfd 438
 #define TARGET_NR_faccessat2 439
-#define TARGET_NR_process_madvise 440
-#define TARGET_NR_epoll_pwait2 441
-#define TARGET_NR_mount_setattr 442
-#define TARGET_NR_landlock_create_ruleset 444
-#define TARGET_NR_landlock_add_rule 445
-#define TARGET_NR_landlock_restrict_self 446
-#define TARGET_NR_syscalls 447
+#define TARGET_NR_syscalls 440
 
 #endif /* LINUX_USER_RISCV_SYSCALL32_NR_H */

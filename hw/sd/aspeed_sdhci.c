@@ -3,7 +3,7 @@
  * Eddie James <eajames@linux.ibm.com>
  *
  * Copyright (C) 2019 IBM Corp
- * SPDX-License-Identifier: GPL-2.0-or-later
+ * SPDX-License-Identifer: GPL-2.0-or-later
  */
 
 #include "qemu/osdep.h"
@@ -14,7 +14,6 @@
 #include "hw/irq.h"
 #include "migration/vmstate.h"
 #include "hw/qdev-properties.h"
-#include "trace.h"
 
 #define ASPEED_SDHCI_INFO            0x00
 #define  ASPEED_SDHCI_INFO_SLOT1     (1 << 17)
@@ -61,8 +60,6 @@ static uint64_t aspeed_sdhci_read(void *opaque, hwaddr addr, unsigned int size)
         }
     }
 
-    trace_aspeed_sdhci_read(addr, size, (uint64_t) val);
-
     return (uint64_t)val;
 }
 
@@ -70,8 +67,6 @@ static void aspeed_sdhci_write(void *opaque, hwaddr addr, uint64_t val,
                                unsigned int size)
 {
     AspeedSDHCIState *sdhci = opaque;
-
-    trace_aspeed_sdhci_write(addr, size, val);
 
     switch (addr) {
     case ASPEED_SDHCI_INFO:
@@ -198,13 +193,16 @@ static void aspeed_sdhci_class_init(ObjectClass *classp, void *data)
     device_class_set_props(dc, aspeed_sdhci_properties);
 }
 
-static const TypeInfo aspeed_sdhci_types[] = {
-    {
-        .name           = TYPE_ASPEED_SDHCI,
-        .parent         = TYPE_SYS_BUS_DEVICE,
-        .instance_size  = sizeof(AspeedSDHCIState),
-        .class_init     = aspeed_sdhci_class_init,
-    },
+static TypeInfo aspeed_sdhci_info = {
+    .name          = TYPE_ASPEED_SDHCI,
+    .parent        = TYPE_SYS_BUS_DEVICE,
+    .instance_size = sizeof(AspeedSDHCIState),
+    .class_init    = aspeed_sdhci_class_init,
 };
 
-DEFINE_TYPES(aspeed_sdhci_types)
+static void aspeed_sdhci_register_types(void)
+{
+    type_register_static(&aspeed_sdhci_info);
+}
+
+type_init(aspeed_sdhci_register_types)

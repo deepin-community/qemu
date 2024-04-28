@@ -51,7 +51,6 @@ struct drive_s {
     struct chs_s lchs;  // Logical CHS
     u64 sectors;        // Total sectors count
     u32 cntl_id;        // Unique id for a given driver type.
-    u32 max_bytes_transfer; // maximum number of bytes which can bet transferred at once
     u8 removable;       // Is media removable (currently unused)
 
     // Info for EDD calls
@@ -93,7 +92,6 @@ struct drive_s {
 #define TRANSLATION_LBA   1
 #define TRANSLATION_LARGE 2
 #define TRANSLATION_RECHS 3
-#define TRANSLATION_HOST 4
 
 #define EXTTYPE_FLOPPY 0
 #define EXTTYPE_HD 1

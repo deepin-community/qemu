@@ -11,13 +11,13 @@
  *
  */
 
-/* header to be included in non-KVM-specific code */
-
 #ifndef QEMU_KVM_H
 #define QEMU_KVM_H
 
+#include "qemu/queue.h"
+#include "hw/core/cpu.h"
 #include "exec/memattrs.h"
-#include "qemu/accel.h"
+#include "sysemu/accel.h"
 #include "qom/object.h"
 
 #ifdef NEED_CPU_H
@@ -36,11 +36,15 @@ extern bool kvm_kernel_irqchip;
 extern bool kvm_split_irqchip;
 extern bool kvm_async_interrupts_allowed;
 extern bool kvm_halt_in_kernel_allowed;
+extern bool kvm_eventfds_allowed;
+extern bool kvm_irqfds_allowed;
 extern bool kvm_resamplefds_allowed;
 extern bool kvm_msi_via_irqfd_allowed;
 extern bool kvm_gsi_routing_allowed;
 extern bool kvm_gsi_direct_mapping;
 extern bool kvm_readonly_mem_allowed;
+extern bool kvm_direct_msi_allowed;
+extern bool kvm_ioeventfd_any_length_allowed;
 extern bool kvm_msi_use_devid;
 
 #define kvm_enabled()           (kvm_allowed)
@@ -85,15 +89,22 @@ extern bool kvm_msi_use_devid;
 #define kvm_halt_in_kernel() (kvm_halt_in_kernel_allowed)
 
 /**
+ * kvm_eventfds_enabled:
+ *
+ * Returns: true if we can use eventfds to receive notifications
+ * from a KVM CPU (ie the kernel supports eventds and we are running
+ * with a configuration where it is meaningful to use them).
+ */
+#define kvm_eventfds_enabled() (kvm_eventfds_allowed)
+
+/**
  * kvm_irqfds_enabled:
  *
  * Returns: true if we can use irqfds to inject interrupts into
  * a KVM CPU (ie the kernel supports irqfds and we are running
  * with a configuration where it is meaningful to use them).
- *
- * Always available if running with in-kernel irqchip.
  */
-#define kvm_irqfds_enabled() kvm_irqchip_in_kernel()
+#define kvm_irqfds_enabled() (kvm_irqfds_allowed)
 
 /**
  * kvm_resamplefds_enabled:
@@ -137,6 +148,19 @@ extern bool kvm_msi_use_devid;
 #define kvm_readonly_mem_enabled() (kvm_readonly_mem_allowed)
 
 /**
+ * kvm_direct_msi_enabled:
+ *
+ * Returns: true if KVM allows direct MSI injection.
+ */
+#define kvm_direct_msi_enabled() (kvm_direct_msi_allowed)
+
+/**
+ * kvm_ioeventfd_any_length_enabled:
+ * Returns: true if KVM allows any length io eventfd.
+ */
+#define kvm_ioeventfd_any_length_enabled() (kvm_ioeventfd_any_length_allowed)
+
+/**
  * kvm_msi_devid_required:
  * Returns: true if KVM requires a device id to be provided while
  * defining an MSI routing entry.
@@ -150,17 +174,21 @@ extern bool kvm_msi_use_devid;
 #define kvm_irqchip_is_split() (false)
 #define kvm_async_interrupts_enabled() (false)
 #define kvm_halt_in_kernel() (false)
+#define kvm_eventfds_enabled() (false)
 #define kvm_irqfds_enabled() (false)
 #define kvm_resamplefds_enabled() (false)
 #define kvm_msi_via_irqfd_enabled() (false)
 #define kvm_gsi_routing_allowed() (false)
 #define kvm_gsi_direct_mapping() (false)
 #define kvm_readonly_mem_enabled() (false)
+#define kvm_direct_msi_enabled() (false)
+#define kvm_ioeventfd_any_length_enabled() (false)
 #define kvm_msi_devid_required() (false)
 
 #endif  /* CONFIG_KVM_IS_POSSIBLE */
 
 struct kvm_run;
+struct kvm_lapic_state;
 struct kvm_irq_routing_entry;
 
 typedef struct KVMCapabilityInfo {
@@ -181,19 +209,18 @@ DECLARE_INSTANCE_CHECKER(KVMState, KVM_STATE,
 extern KVMState *kvm_state;
 typedef struct Notifier Notifier;
 
-typedef struct KVMRouteChange {
-     KVMState *s;
-     int changes;
-} KVMRouteChange;
-
 /* external API */
 
-unsigned int kvm_get_max_memslots(void);
-unsigned int kvm_get_free_memslots(void);
+bool kvm_has_free_slot(MachineState *ms);
 bool kvm_has_sync_mmu(void);
 int kvm_has_vcpu_events(void);
+int kvm_has_robust_singlestep(void);
+int kvm_has_debugregs(void);
 int kvm_max_nested_state_length(void);
+int kvm_has_pit_state2(void);
+int kvm_has_many_ioeventfds(void);
 int kvm_has_gsi_routing(void);
+int kvm_has_intx_set_mask(void);
 
 /**
  * kvm_arm_supports_user_irq
@@ -206,32 +233,41 @@ int kvm_has_gsi_routing(void);
  */
 bool kvm_arm_supports_user_irq(void);
 
+/**
+ * kvm_memcrypt_enabled - return boolean indicating whether memory encryption
+ *                        is enabled
+ * Returns: 1 memory encryption is enabled
+ *          0 memory encryption is disabled
+ */
+bool kvm_memcrypt_enabled(void);
 
-int kvm_on_sigbus_vcpu(CPUState *cpu, int code, void *addr);
-int kvm_on_sigbus(int code, void *addr);
+/**
+ * kvm_memcrypt_encrypt_data: encrypt the memory range
+ *
+ * Return: 1 failed to encrypt the range
+ *         0 succesfully encrypted memory region
+ */
+int kvm_memcrypt_encrypt_data(uint8_t *ptr, uint64_t len);
+
 
 #ifdef NEED_CPU_H
 #include "cpu.h"
 
 void kvm_flush_coalesced_mmio_buffer(void);
 
-/**
- * kvm_update_guest_debug(): ensure KVM debug structures updated
- * @cs: the CPUState for this cpu
- * @reinject_trap: KVM trap injection control
- *
- * There are usually per-arch specifics which will be handled by
- * calling down to kvm_arch_update_guest_debug after the generic
- * fields have been set.
- */
-#ifdef KVM_CAP_SET_GUEST_DEBUG
+int kvm_insert_breakpoint(CPUState *cpu, target_ulong addr,
+                          target_ulong len, int type);
+int kvm_remove_breakpoint(CPUState *cpu, target_ulong addr,
+                          target_ulong len, int type);
+void kvm_remove_all_breakpoints(CPUState *cpu);
 int kvm_update_guest_debug(CPUState *cpu, unsigned long reinject_trap);
-#else
-static inline int kvm_update_guest_debug(CPUState *cpu, unsigned long reinject_trap)
-{
-    return -EINVAL;
-}
-#endif
+
+int kvm_on_sigbus_vcpu(CPUState *cpu, int code, void *addr);
+int kvm_on_sigbus(int code, void *addr);
+
+/* interface with exec.c */
+
+void phys_mem_set_alloc(void *(*alloc)(size_t, uint64_t *align, bool shared));
 
 /* internal API */
 
@@ -317,8 +353,6 @@ bool kvm_device_supported(int vmfd, uint64_t type);
 
 extern const KVMCapabilityInfo kvm_arch_required_capabilities[];
 
-void kvm_arch_accel_class_init(ObjectClass *oc);
-
 void kvm_arch_pre_run(CPUState *cpu, struct kvm_run *run);
 MemTxAttrs kvm_arch_post_run(CPUState *cpu, struct kvm_run *run);
 
@@ -336,8 +370,6 @@ int kvm_arch_get_registers(CPUState *cpu);
 #define KVM_PUT_FULL_STATE      3
 
 int kvm_arch_put_registers(CPUState *cpu, int level);
-
-int kvm_arch_get_default_type(MachineState *ms);
 
 int kvm_arch_init(MachineState *ms, KVMState *s);
 
@@ -375,18 +407,20 @@ void kvm_irqchip_add_change_notifier(Notifier *n);
 void kvm_irqchip_remove_change_notifier(Notifier *n);
 void kvm_irqchip_change_notify(void);
 
+void kvm_get_apic_state(DeviceState *d, struct kvm_lapic_state *kapic);
+
 struct kvm_guest_debug;
 struct kvm_debug_exit_arch;
 
 struct kvm_sw_breakpoint {
-    vaddr pc;
-    vaddr saved_insn;
+    target_ulong pc;
+    target_ulong saved_insn;
     int use_count;
     QTAILQ_ENTRY(kvm_sw_breakpoint) entry;
 };
 
 struct kvm_sw_breakpoint *kvm_find_sw_breakpoint(CPUState *cpu,
-                                                 vaddr pc);
+                                                 target_ulong pc);
 
 int kvm_sw_breakpoints_active(CPUState *cpu);
 
@@ -394,8 +428,10 @@ int kvm_arch_insert_sw_breakpoint(CPUState *cpu,
                                   struct kvm_sw_breakpoint *bp);
 int kvm_arch_remove_sw_breakpoint(CPUState *cpu,
                                   struct kvm_sw_breakpoint *bp);
-int kvm_arch_insert_hw_breakpoint(vaddr addr, vaddr len, int type);
-int kvm_arch_remove_hw_breakpoint(vaddr addr, vaddr len, int type);
+int kvm_arch_insert_hw_breakpoint(target_ulong addr,
+                                  target_ulong len, int type);
+int kvm_arch_remove_hw_breakpoint(target_ulong addr,
+                                  target_ulong len, int type);
 void kvm_arch_remove_all_hw_breakpoints(void);
 
 void kvm_arch_update_guest_debug(CPUState *cpu, struct kvm_guest_debug *dbg);
@@ -430,10 +466,17 @@ int kvm_vm_check_extension(KVMState *s, unsigned int extension);
         kvm_vcpu_ioctl(cpu, KVM_ENABLE_CAP, &cap);                   \
     })
 
+uint32_t kvm_arch_get_supported_cpuid(KVMState *env, uint32_t function,
+                                      uint32_t index, int reg);
+uint64_t kvm_arch_get_supported_msr_feature(KVMState *s, uint32_t index);
+
+
 void kvm_set_sigmask_len(KVMState *s, unsigned int sigmask_len);
 
+#if !defined(CONFIG_USER_ONLY)
 int kvm_physical_memory_addr_from_host(KVMState *s, void *ram_addr,
                                        hwaddr *phys_addr);
+#endif
 
 #endif /* NEED_CPU_H */
 
@@ -443,7 +486,7 @@ void kvm_init_cpu_signals(CPUState *cpu);
 
 /**
  * kvm_irqchip_add_msi_route - Add MSI route for specific vector
- * @c:      KVMRouteChange instance.
+ * @s:      KVM state
  * @vector: which vector to add. This can be either MSI/MSIX
  *          vector. The function will automatically detect whether
  *          MSI/MSIX is enabled, and fetch corresponding MSI
@@ -452,24 +495,10 @@ void kvm_init_cpu_signals(CPUState *cpu);
  *          as @NULL, an empty MSI message will be inited.
  * @return: virq (>=0) when success, errno (<0) when failed.
  */
-int kvm_irqchip_add_msi_route(KVMRouteChange *c, int vector, PCIDevice *dev);
+int kvm_irqchip_add_msi_route(KVMState *s, int vector, PCIDevice *dev);
 int kvm_irqchip_update_msi_route(KVMState *s, int virq, MSIMessage msg,
                                  PCIDevice *dev);
 void kvm_irqchip_commit_routes(KVMState *s);
-
-static inline KVMRouteChange kvm_irqchip_begin_route_changes(KVMState *s)
-{
-    return (KVMRouteChange) { .s = s, .changes = 0 };
-}
-
-static inline void kvm_irqchip_commit_route_changes(KVMRouteChange *c)
-{
-    if (c->changes) {
-        kvm_irqchip_commit_routes(c->s);
-        c->changes = 0;
-    }
-}
-
 void kvm_irqchip_release_virq(KVMState *s, int virq);
 
 int kvm_irqchip_add_adapter_route(KVMState *s, AdapterInfo *adapter);
@@ -484,6 +513,7 @@ int kvm_irqchip_add_irqfd_notifier(KVMState *s, EventNotifier *n,
 int kvm_irqchip_remove_irqfd_notifier(KVMState *s, EventNotifier *n,
                                       qemu_irq irq);
 void kvm_irqchip_set_qemuirq_gsi(KVMState *s, qemu_irq irq, int gsi);
+void kvm_pc_setup_irq_routing(bool pci_enabled);
 void kvm_init_irq_routing(KVMState *s);
 
 bool kvm_kernel_irqchip_allowed(void);
@@ -521,21 +551,10 @@ int kvm_set_one_reg(CPUState *cs, uint64_t id, void *source);
  * Returns: 0 on success, or a negative errno on failure.
  */
 int kvm_get_one_reg(CPUState *cs, uint64_t id, void *target);
+struct ppc_radix_page_info *kvm_get_radix_page_info(void);
+int kvm_get_max_memslots(void);
 
 /* Notify resamplefd for EOI of specific interrupts. */
 void kvm_resample_fd_notify(int gsi);
 
-/**
- * kvm_cpu_check_are_resettable - return whether CPUs can be reset
- *
- * Returns: true: CPUs are resettable
- *          false: CPUs are not resettable
- */
-bool kvm_cpu_check_are_resettable(void);
-
-bool kvm_arch_cpu_check_are_resettable(void);
-
-bool kvm_dirty_ring_enabled(void);
-
-uint32_t kvm_dirty_ring_size(void);
 #endif

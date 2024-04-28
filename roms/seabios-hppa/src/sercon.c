@@ -464,7 +464,7 @@ static void sercon_104f(struct bregs *regs)
         regs->ax = 0x0100;
     } else {
         // Disable sercon entry point on any vesa modeset
-        if (regs->al == 0x02)
+        if (regs->al == 0x00)
             SET_LOW(sercon_enable, 0);
     }
 }
@@ -513,7 +513,6 @@ void sercon_setup(void)
     if (!CONFIG_SERCON)
         return;
 
-#if CONFIG_X86
     struct segoff_s seabios, vgabios;
     u16 addr;
 
@@ -543,7 +542,6 @@ void sercon_setup(void)
     SET_LOW(sercon_port, addr);
     outb(0x03, addr + SEROFF_LCR); // 8N1
     outb(0x01, addr + SEROFF_IIR); // enable fifo
-#endif
 }
 
 /****************************************************************

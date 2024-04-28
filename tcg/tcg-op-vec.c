@@ -18,11 +18,20 @@
  */
 
 #include "qemu/osdep.h"
+#include "cpu.h"
 #include "tcg/tcg.h"
-#include "tcg/tcg-temp-internal.h"
-#include "tcg/tcg-op-common.h"
+#include "tcg/tcg-op.h"
 #include "tcg/tcg-mo.h"
-#include "tcg-internal.h"
+
+/* Reduce the number of ifdefs below.  This assumes that all uses of
+   TCGV_HIGH and TCGV_LOW are properly protected by a conditional that
+   the compiler can eliminate.  */
+#if TCG_TARGET_REG_BITS == 64
+extern TCGv_i32 TCGV_LOW_link_error(TCGv_i64);
+extern TCGv_i32 TCGV_HIGH_link_error(TCGv_i64);
+#define TCGV_LOW  TCGV_LOW_link_error
+#define TCGV_HIGH TCGV_HIGH_link_error
+#endif
 
 /*
  * Vector optional opcode tracking.
@@ -42,9 +51,9 @@
  * tcg_ctx->vec_opt_opc is non-NULL, the tcg_gen_*_vec expanders
  * will validate that their opcode is present in the list.
  */
-static void tcg_assert_listed_vecop(TCGOpcode op)
-{
 #ifdef CONFIG_DEBUG_TCG
+void tcg_assert_listed_vecop(TCGOpcode op)
+{
     const TCGOpcode *p = tcg_ctx->vecop_list;
     if (p) {
         for (; *p; ++p) {
@@ -54,8 +63,8 @@ static void tcg_assert_listed_vecop(TCGOpcode op)
         }
         g_assert_not_reached();
     }
-#endif
 }
+#endif
 
 bool tcg_can_emit_vecop_list(const TCGOpcode *list,
                              TCGType type, unsigned vece)
@@ -74,6 +83,7 @@ bool tcg_can_emit_vecop_list(const TCGOpcode *list,
         case INDEX_op_xor_vec:
         case INDEX_op_mov_vec:
         case INDEX_op_dup_vec:
+        case INDEX_op_dupi_vec:
         case INDEX_op_dup2_vec:
         case INDEX_op_ld_vec:
         case INDEX_op_st_vec:
@@ -111,18 +121,6 @@ bool tcg_can_emit_vecop_list(const TCGOpcode *list,
                 continue;
             }
             break;
-        case INDEX_op_usadd_vec:
-            if (tcg_can_emit_vec_op(INDEX_op_umin_vec, type, vece) ||
-                tcg_can_emit_vec_op(INDEX_op_cmp_vec, type, vece)) {
-                continue;
-            }
-            break;
-        case INDEX_op_ussub_vec:
-            if (tcg_can_emit_vec_op(INDEX_op_umax_vec, type, vece) ||
-                tcg_can_emit_vec_op(INDEX_op_cmp_vec, type, vece)) {
-                continue;
-            }
-            break;
         case INDEX_op_cmpsel_vec:
         case INDEX_op_smin_vec:
         case INDEX_op_smax_vec:
@@ -142,7 +140,7 @@ bool tcg_can_emit_vecop_list(const TCGOpcode *list,
 
 void vec_gen_2(TCGOpcode opc, TCGType type, unsigned vece, TCGArg r, TCGArg a)
 {
-    TCGOp *op = tcg_emit_op(opc, 2);
+    TCGOp *op = tcg_emit_op(opc);
     TCGOP_VECL(op) = type - TCG_TYPE_V64;
     TCGOP_VECE(op) = vece;
     op->args[0] = r;
@@ -152,7 +150,7 @@ void vec_gen_2(TCGOpcode opc, TCGType type, unsigned vece, TCGArg r, TCGArg a)
 void vec_gen_3(TCGOpcode opc, TCGType type, unsigned vece,
                TCGArg r, TCGArg a, TCGArg b)
 {
-    TCGOp *op = tcg_emit_op(opc, 3);
+    TCGOp *op = tcg_emit_op(opc);
     TCGOP_VECL(op) = type - TCG_TYPE_V64;
     TCGOP_VECE(op) = vece;
     op->args[0] = r;
@@ -163,7 +161,7 @@ void vec_gen_3(TCGOpcode opc, TCGType type, unsigned vece,
 void vec_gen_4(TCGOpcode opc, TCGType type, unsigned vece,
                TCGArg r, TCGArg a, TCGArg b, TCGArg c)
 {
-    TCGOp *op = tcg_emit_op(opc, 4);
+    TCGOp *op = tcg_emit_op(opc);
     TCGOP_VECL(op) = type - TCG_TYPE_V64;
     TCGOP_VECE(op) = vece;
     op->args[0] = r;
@@ -175,7 +173,7 @@ void vec_gen_4(TCGOpcode opc, TCGType type, unsigned vece,
 static void vec_gen_6(TCGOpcode opc, TCGType type, unsigned vece, TCGArg r,
                       TCGArg a, TCGArg b, TCGArg c, TCGArg d, TCGArg e)
 {
-    TCGOp *op = tcg_emit_op(opc, 6);
+    TCGOp *op = tcg_emit_op(opc);
     TCGOP_VECL(op) = type - TCG_TYPE_V64;
     TCGOP_VECE(op) = vece;
     op->args[0] = r;
@@ -218,10 +216,75 @@ void tcg_gen_mov_vec(TCGv_vec r, TCGv_vec a)
     }
 }
 
-void tcg_gen_dupi_vec(unsigned vece, TCGv_vec r, uint64_t a)
+#define MO_REG  (TCG_TARGET_REG_BITS == 64 ? MO_64 : MO_32)
+
+static void do_dupi_vec(TCGv_vec r, unsigned vece, TCGArg a)
 {
     TCGTemp *rt = tcgv_vec_temp(r);
-    tcg_gen_mov_vec(r, tcg_constant_vec(rt->base_type, vece, a));
+    vec_gen_2(INDEX_op_dupi_vec, rt->base_type, vece, temp_arg(rt), a);
+}
+
+TCGv_vec tcg_const_zeros_vec(TCGType type)
+{
+    TCGv_vec ret = tcg_temp_new_vec(type);
+    do_dupi_vec(ret, MO_REG, 0);
+    return ret;
+}
+
+TCGv_vec tcg_const_ones_vec(TCGType type)
+{
+    TCGv_vec ret = tcg_temp_new_vec(type);
+    do_dupi_vec(ret, MO_REG, -1);
+    return ret;
+}
+
+TCGv_vec tcg_const_zeros_vec_matching(TCGv_vec m)
+{
+    TCGTemp *t = tcgv_vec_temp(m);
+    return tcg_const_zeros_vec(t->base_type);
+}
+
+TCGv_vec tcg_const_ones_vec_matching(TCGv_vec m)
+{
+    TCGTemp *t = tcgv_vec_temp(m);
+    return tcg_const_ones_vec(t->base_type);
+}
+
+void tcg_gen_dup64i_vec(TCGv_vec r, uint64_t a)
+{
+    if (TCG_TARGET_REG_BITS == 64) {
+        do_dupi_vec(r, MO_64, a);
+    } else if (a == dup_const(MO_32, a)) {
+        do_dupi_vec(r, MO_32, a);
+    } else {
+        TCGv_i64 c = tcg_const_i64(a);
+        tcg_gen_dup_i64_vec(MO_64, r, c);
+        tcg_temp_free_i64(c);
+    }
+}
+
+void tcg_gen_dup32i_vec(TCGv_vec r, uint32_t a)
+{
+    do_dupi_vec(r, MO_REG, dup_const(MO_32, a));
+}
+
+void tcg_gen_dup16i_vec(TCGv_vec r, uint32_t a)
+{
+    do_dupi_vec(r, MO_REG, dup_const(MO_16, a));
+}
+
+void tcg_gen_dup8i_vec(TCGv_vec r, uint32_t a)
+{
+    do_dupi_vec(r, MO_REG, dup_const(MO_8, a));
+}
+
+void tcg_gen_dupi_vec(unsigned vece, TCGv_vec r, uint64_t a)
+{
+    if (vece == MO_64) {
+        tcg_gen_dup64i_vec(r, a);
+    } else {
+        do_dupi_vec(r, MO_REG, dup_const(vece, a));
+    }
 }
 
 void tcg_gen_dup_i64_vec(unsigned vece, TCGv_vec r, TCGv_i64 a)
@@ -337,32 +400,23 @@ void tcg_gen_orc_vec(unsigned vece, TCGv_vec r, TCGv_vec a, TCGv_vec b)
 
 void tcg_gen_nand_vec(unsigned vece, TCGv_vec r, TCGv_vec a, TCGv_vec b)
 {
-    if (TCG_TARGET_HAS_nand_vec) {
-        vec_gen_op3(INDEX_op_nand_vec, 0, r, a, b);
-    } else {
-        tcg_gen_and_vec(0, r, a, b);
-        tcg_gen_not_vec(0, r, r);
-    }
+    /* TODO: Add TCG_TARGET_HAS_nand_vec when adding a backend supports it. */
+    tcg_gen_and_vec(0, r, a, b);
+    tcg_gen_not_vec(0, r, r);
 }
 
 void tcg_gen_nor_vec(unsigned vece, TCGv_vec r, TCGv_vec a, TCGv_vec b)
 {
-    if (TCG_TARGET_HAS_nor_vec) {
-        vec_gen_op3(INDEX_op_nor_vec, 0, r, a, b);
-    } else {
-        tcg_gen_or_vec(0, r, a, b);
-        tcg_gen_not_vec(0, r, r);
-    }
+    /* TODO: Add TCG_TARGET_HAS_nor_vec when adding a backend supports it. */
+    tcg_gen_or_vec(0, r, a, b);
+    tcg_gen_not_vec(0, r, r);
 }
 
 void tcg_gen_eqv_vec(unsigned vece, TCGv_vec r, TCGv_vec a, TCGv_vec b)
 {
-    if (TCG_TARGET_HAS_eqv_vec) {
-        vec_gen_op3(INDEX_op_eqv_vec, 0, r, a, b);
-    } else {
-        tcg_gen_xor_vec(0, r, a, b);
-        tcg_gen_not_vec(0, r, r);
-    }
+    /* TODO: Add TCG_TARGET_HAS_eqv_vec when adding a backend supports it. */
+    tcg_gen_xor_vec(0, r, a, b);
+    tcg_gen_not_vec(0, r, r);
 }
 
 static bool do_op2(unsigned vece, TCGv_vec r, TCGv_vec a, TCGOpcode opc)
@@ -391,11 +445,14 @@ static bool do_op2(unsigned vece, TCGv_vec r, TCGv_vec a, TCGOpcode opc)
 
 void tcg_gen_not_vec(unsigned vece, TCGv_vec r, TCGv_vec a)
 {
-    if (TCG_TARGET_HAS_not_vec) {
-        vec_gen_op2(INDEX_op_not_vec, 0, r, a);
-    } else {
-        tcg_gen_xor_vec(0, r, a, tcg_constant_vec_matching(r, 0, -1));
+    const TCGOpcode *hold_list = tcg_swap_vecop_list(NULL);
+
+    if (!TCG_TARGET_HAS_not_vec || !do_op2(vece, r, a, INDEX_op_not_vec)) {
+        TCGv_vec t = tcg_const_ones_vec_matching(r);
+        tcg_gen_xor_vec(0, r, a, t);
+        tcg_temp_free_vec(t);
     }
+    tcg_swap_vecop_list(hold_list);
 }
 
 void tcg_gen_neg_vec(unsigned vece, TCGv_vec r, TCGv_vec a)
@@ -406,7 +463,9 @@ void tcg_gen_neg_vec(unsigned vece, TCGv_vec r, TCGv_vec a)
     hold_list = tcg_swap_vecop_list(NULL);
 
     if (!TCG_TARGET_HAS_neg_vec || !do_op2(vece, r, a, INDEX_op_neg_vec)) {
-        tcg_gen_sub_vec(vece, r, tcg_constant_vec_matching(r, vece, 0), a);
+        TCGv_vec t = tcg_const_zeros_vec_matching(r);
+        tcg_gen_sub_vec(vece, r, t, a);
+        tcg_temp_free_vec(t);
     }
     tcg_swap_vecop_list(hold_list);
 }
@@ -430,8 +489,8 @@ void tcg_gen_abs_vec(unsigned vece, TCGv_vec r, TCGv_vec a)
             if (tcg_can_emit_vec_op(INDEX_op_sari_vec, type, vece) > 0) {
                 tcg_gen_sari_vec(vece, t, a, (8 << vece) - 1);
             } else {
-                tcg_gen_cmp_vec(TCG_COND_LT, vece, t, a,
-                                tcg_constant_vec(type, vece, 0));
+                do_dupi_vec(t, MO_REG, 0);
+                tcg_gen_cmp_vec(TCG_COND_LT, vece, t, a, t);
             }
             tcg_gen_xor_vec(vece, r, a, t);
             tcg_gen_sub_vec(vece, r, r, t);
@@ -585,18 +644,7 @@ void tcg_gen_ssadd_vec(unsigned vece, TCGv_vec r, TCGv_vec a, TCGv_vec b)
 
 void tcg_gen_usadd_vec(unsigned vece, TCGv_vec r, TCGv_vec a, TCGv_vec b)
 {
-    if (!do_op3(vece, r, a, b, INDEX_op_usadd_vec)) {
-        const TCGOpcode *hold_list = tcg_swap_vecop_list(NULL);
-        TCGv_vec t = tcg_temp_new_vec_matching(r);
-
-        /* usadd(a, b) = min(a, ~b) + b */
-        tcg_gen_not_vec(vece, t, b);
-        tcg_gen_umin_vec(vece, t, t, a);
-        tcg_gen_add_vec(vece, r, t, b);
-
-        tcg_temp_free_vec(t);
-        tcg_swap_vecop_list(hold_list);
-    }
+    do_op3_nofail(vece, r, a, b, INDEX_op_usadd_vec);
 }
 
 void tcg_gen_sssub_vec(unsigned vece, TCGv_vec r, TCGv_vec a, TCGv_vec b)
@@ -606,17 +654,7 @@ void tcg_gen_sssub_vec(unsigned vece, TCGv_vec r, TCGv_vec a, TCGv_vec b)
 
 void tcg_gen_ussub_vec(unsigned vece, TCGv_vec r, TCGv_vec a, TCGv_vec b)
 {
-    if (!do_op3(vece, r, a, b, INDEX_op_ussub_vec)) {
-        const TCGOpcode *hold_list = tcg_swap_vecop_list(NULL);
-        TCGv_vec t = tcg_temp_new_vec_matching(r);
-
-        /* ussub(a, b) = max(a, b) - b */
-        tcg_gen_umax_vec(vece, t, a, b);
-        tcg_gen_sub_vec(vece, r, t, b);
-
-        tcg_temp_free_vec(t);
-        tcg_swap_vecop_list(hold_list);
-    }
+    do_op3_nofail(vece, r, a, b, INDEX_op_ussub_vec);
 }
 
 static void do_minmax(unsigned vece, TCGv_vec r, TCGv_vec a,

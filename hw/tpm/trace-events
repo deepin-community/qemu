@@ -1,4 +1,4 @@
-# See docs/devel/tracing.rst for syntax documentation.
+# See docs/devel/tracing.txt for syntax documentation.
 
 # tpm_crb.c
 tpm_crb_mmio_read(uint64_t addr, unsigned size, uint32_t val) "CRB read 0x%016" PRIx64 " len:%u val: 0x%" PRIx32
@@ -25,6 +25,7 @@ tpm_tis_pre_save(uint8_t locty, uint32_t rw_offset) "locty: %d, rw_offset = %u"
 tpm_ppi_memset(uint8_t *ptr, size_t size) "memset: %p %zu"
 
 # tpm_spapr.c
+tpm_spapr_show_buffer(const char *direction, size_t len, const char *buf) "direction: %s len: %zu\n%s"
 tpm_spapr_do_crq(uint8_t raw1, uint8_t raw2) "1st 2 bytes in CRQ: 0x%02x 0x%02x"
 tpm_spapr_do_crq_crq_result(void) "SPAPR_VTPM_INIT_CRQ_RESULT"
 tpm_spapr_do_crq_crq_complete_result(void) "SPAPR_VTPM_INIT_CRQ_COMP_RESULT"
@@ -36,9 +37,3 @@ tpm_spapr_do_crq_unknown_msg_type(uint8_t type) "Unknown message type 0x%02x"
 tpm_spapr_do_crq_unknown_crq(uint8_t raw1, uint8_t raw2) "unknown CRQ 0x%02x 0x%02x ..."
 tpm_spapr_post_load(void) "Delivering TPM response after resume"
 tpm_spapr_caught_response(uint32_t v) "Caught response to deliver after resume: %u bytes"
-
-# tpm_tis_i2c.c
-tpm_tis_i2c_recv(uint8_t data) "TPM I2C read: 0x%X"
-tpm_tis_i2c_send(uint8_t data) "TPM I2C write: 0x%X"
-tpm_tis_i2c_event(const char *event) "TPM I2C event: %s"
-tpm_tis_i2c_send_reg(const char *name, int reg) "TPM I2C write register: %s(0x%X)"

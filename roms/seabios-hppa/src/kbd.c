@@ -63,11 +63,16 @@ dequeue_key(struct bregs *regs, int incr, int extended)
 
         if (buffer_head != buffer_tail)
             break;
+#ifdef CONFIG_PARISC
+        regs->ax = 0;
+        return;
+#else
         if (!incr) {
             regs->flags |= F_ZF;
             return;
         }
         yield_toirq();
+#endif
     }
 
     u16 keycode = GET_FARVAR(SEG_BDA, *(u16*)(buffer_head+0));
@@ -245,7 +250,7 @@ set_leds(void)
 void VISIBLE16
 handle_16(struct bregs *regs)
 {
-    // debug_enter(regs, DEBUG_HDL_16);
+    debug_enter(regs, DEBUG_HDL_16);
     if (! CONFIG_KEYBOARD)
         return;
 

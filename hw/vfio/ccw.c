@@ -20,6 +20,8 @@
 #include <sys/ioctl.h>
 
 #include "qapi/error.h"
+#include "hw/sysbus.h"
+#include "hw/vfio/vfio.h"
 #include "hw/vfio/vfio-common.h"
 #include "hw/s390x/s390-ccw.h"
 #include "hw/s390x/vfio-ccw.h"
@@ -47,7 +49,6 @@ struct VFIOCCWDevice {
     struct ccw_crw_region *crw_region;
     EventNotifier io_notifier;
     EventNotifier crw_notifier;
-    EventNotifier req_notifier;
     bool force_orb_pfch;
     bool warned_orb_pfch;
 };
@@ -75,7 +76,8 @@ struct VFIODeviceOps vfio_ccw_ops = {
 
 static IOInstEnding vfio_ccw_handle_request(SubchDev *sch)
 {
-    VFIOCCWDevice *vcdev = VFIO_CCW(sch->driver_data);
+    S390CCWDevice *cdev = sch->driver_data;
+    VFIOCCWDevice *vcdev = DO_UPCAST(VFIOCCWDevice, cdev, cdev);
     struct ccw_io_region *region = vcdev->io_region;
     int ret;
 
@@ -101,9 +103,9 @@ again:
             goto again;
         }
         error_report("vfio-ccw: write I/O region failed with errno=%d", errno);
-        ret = errno ? -errno : -EFAULT;
+        ret = -errno;
     } else {
-        ret = 0;
+        ret = region->ret_code;
     }
     switch (ret) {
     case 0:
@@ -123,7 +125,8 @@ again:
 
 static IOInstEnding vfio_ccw_handle_store(SubchDev *sch)
 {
-    VFIOCCWDevice *vcdev = VFIO_CCW(sch->driver_data);
+    S390CCWDevice *cdev = sch->driver_data;
+    VFIOCCWDevice *vcdev = DO_UPCAST(VFIOCCWDevice, cdev, cdev);
     SCHIB *schib = &sch->curr_status;
     struct ccw_schib_region *region = vcdev->schib_region;
     SCHIB *s;
@@ -167,7 +170,8 @@ static IOInstEnding vfio_ccw_handle_store(SubchDev *sch)
 
 static int vfio_ccw_handle_clear(SubchDev *sch)
 {
-    VFIOCCWDevice *vcdev = VFIO_CCW(sch->driver_data);
+    S390CCWDevice *cdev = sch->driver_data;
+    VFIOCCWDevice *vcdev = DO_UPCAST(VFIOCCWDevice, cdev, cdev);
     struct ccw_cmd_region *region = vcdev->async_cmd_region;
     int ret;
 
@@ -187,15 +191,15 @@ again:
             goto again;
         }
         error_report("vfio-ccw: write cmd region failed with errno=%d", errno);
-        ret = errno ? -errno : -EFAULT;
+        ret = -errno;
     } else {
-        ret = 0;
+        ret = region->ret_code;
     }
     switch (ret) {
     case 0:
     case -ENODEV:
     case -EACCES:
-        return ret;
+        return 0;
     case -EFAULT:
     default:
         sch_gen_unit_exception(sch);
@@ -206,7 +210,8 @@ again:
 
 static int vfio_ccw_handle_halt(SubchDev *sch)
 {
-    VFIOCCWDevice *vcdev = VFIO_CCW(sch->driver_data);
+    S390CCWDevice *cdev = sch->driver_data;
+    VFIOCCWDevice *vcdev = DO_UPCAST(VFIOCCWDevice, cdev, cdev);
     struct ccw_cmd_region *region = vcdev->async_cmd_region;
     int ret;
 
@@ -226,16 +231,16 @@ again:
             goto again;
         }
         error_report("vfio-ccw: write cmd region failed with errno=%d", errno);
-        ret = errno ? -errno : -EFAULT;
+        ret = -errno;
     } else {
-        ret = 0;
+        ret = region->ret_code;
     }
     switch (ret) {
     case 0:
     case -EBUSY:
     case -ENODEV:
     case -EACCES:
-        return ret;
+        return 0;
     case -EFAULT:
     default:
         sch_gen_unit_exception(sch);
@@ -246,7 +251,9 @@ again:
 
 static void vfio_ccw_reset(DeviceState *dev)
 {
-    VFIOCCWDevice *vcdev = VFIO_CCW(dev);
+    CcwDevice *ccw_dev = DO_UPCAST(CcwDevice, parent_obj, dev);
+    S390CCWDevice *cdev = DO_UPCAST(S390CCWDevice, parent_obj, ccw_dev);
+    VFIOCCWDevice *vcdev = DO_UPCAST(VFIOCCWDevice, cdev, cdev);
 
     ioctl(vcdev->vdev.fd, VFIO_DEVICE_RESET);
 }
@@ -280,21 +287,6 @@ static void vfio_ccw_crw_read(VFIOCCWDevice *vcdev)
     } while (1);
 }
 
-static void vfio_ccw_req_notifier_handler(void *opaque)
-{
-    VFIOCCWDevice *vcdev = opaque;
-    Error *err = NULL;
-
-    if (!event_notifier_test_and_clear(&vcdev->req_notifier)) {
-        return;
-    }
-
-    qdev_unplug(DEVICE(vcdev), &err);
-    if (err) {
-        warn_reportf_err(err, VFIO_MSG_PREFIX, vcdev->vdev.name);
-    }
-}
-
 static void vfio_ccw_crw_notifier_handler(void *opaque)
 {
     VFIOCCWDevice *vcdev = opaque;
@@ -308,12 +300,12 @@ static void vfio_ccw_io_notifier_handler(void *opaque)
 {
     VFIOCCWDevice *vcdev = opaque;
     struct ccw_io_region *region = vcdev->io_region;
-    CcwDevice *ccw_dev = CCW_DEVICE(vcdev);
+    S390CCWDevice *cdev = S390_CCW_DEVICE(vcdev);
+    CcwDevice *ccw_dev = CCW_DEVICE(cdev);
     SubchDev *sch = ccw_dev->sch;
     SCHIB *schib = &sch->curr_status;
     SCSW s;
     IRB irb;
-    ESW esw;
     int size;
 
     if (!event_notifier_test_and_clear(&vcdev->io_notifier)) {
@@ -364,9 +356,6 @@ static void vfio_ccw_io_notifier_handler(void *opaque)
     copy_scsw_to_guest(&s, &irb.scsw);
     schib->scsw = s;
 
-    copy_esw_to_guest(&esw, &irb.esw);
-    sch->esw = esw;
-
     /* If a uint check is pending, copy sense data. */
     if ((schib->scsw.dstat & SCSW_DSTAT_UNIT_CHECK) &&
         (schib->pmcw.chars & PMCW_CHARS_MASK_CSENSE)) {
@@ -397,18 +386,14 @@ static void vfio_ccw_register_irq_notifier(VFIOCCWDevice *vcdev,
         notifier = &vcdev->crw_notifier;
         fd_read = vfio_ccw_crw_notifier_handler;
         break;
-    case VFIO_CCW_REQ_IRQ_INDEX:
-        notifier = &vcdev->req_notifier;
-        fd_read = vfio_ccw_req_notifier_handler;
-        break;
     default:
         error_setg(errp, "vfio: Unsupported device irq(%d)", irq);
         return;
     }
 
     if (vdev->num_irqs < irq + 1) {
-        error_setg(errp, "vfio: IRQ %u not available (number of irqs %u)",
-                   irq, vdev->num_irqs);
+        error_setg(errp, "vfio: unexpected number of irqs %u",
+                   vdev->num_irqs);
         return;
     }
 
@@ -455,9 +440,6 @@ static void vfio_ccw_unregister_irq_notifier(VFIOCCWDevice *vcdev,
     case VFIO_CCW_CRW_IRQ_INDEX:
         notifier = &vcdev->crw_notifier;
         break;
-    case VFIO_CCW_REQ_IRQ_INDEX:
-        notifier = &vcdev->req_notifier;
-        break;
     default:
         error_report("vfio: Unsupported device irq(%d)", irq);
         return;
@@ -465,7 +447,7 @@ static void vfio_ccw_unregister_irq_notifier(VFIOCCWDevice *vcdev,
 
     if (vfio_set_irq_signaling(&vcdev->vdev, irq, 0,
                                VFIO_IRQ_SET_ACTION_TRIGGER, -1, &err)) {
-        warn_reportf_err(err, VFIO_MSG_PREFIX, vcdev->vdev.name);
+        error_reportf_err(err, VFIO_MSG_PREFIX, vcdev->vdev.name);
     }
 
     qemu_set_fd_handler(event_notifier_get_fd(notifier),
@@ -571,29 +553,27 @@ static void vfio_ccw_put_region(VFIOCCWDevice *vcdev)
     g_free(vcdev->io_region);
 }
 
-static void vfio_ccw_realize(DeviceState *dev, Error **errp)
+static void vfio_ccw_put_device(VFIOCCWDevice *vcdev)
 {
-    S390CCWDevice *cdev = S390_CCW_DEVICE(dev);
-    VFIOCCWDevice *vcdev = VFIO_CCW(cdev);
-    S390CCWDeviceClass *cdc = S390_CCW_DEVICE_GET_CLASS(cdev);
-    VFIODevice *vbasedev = &vcdev->vdev;
-    Error *err = NULL;
-    int ret;
+    g_free(vcdev->vdev.name);
+    vfio_put_base_device(&vcdev->vdev);
+}
 
-    /* Call the class init function for subchannel. */
-    if (cdc->realize) {
-        cdc->realize(cdev, vcdev->vdev.sysfsdev, &err);
-        if (err) {
-            goto out_err_propagate;
+static void vfio_ccw_get_device(VFIOGroup *group, VFIOCCWDevice *vcdev,
+                                Error **errp)
+{
+    char *name = g_strdup_printf("%x.%x.%04x", vcdev->cdev.hostid.cssid,
+                                 vcdev->cdev.hostid.ssid,
+                                 vcdev->cdev.hostid.devid);
+    VFIODevice *vbasedev;
+
+    QLIST_FOREACH(vbasedev, &group->device_list, next) {
+        if (strcmp(vbasedev->name, name) == 0) {
+            error_setg(errp, "vfio: subchannel %s has already been attached",
+                       name);
+            goto out_err;
         }
     }
-
-    vbasedev->ops = &vfio_ccw_ops;
-    vbasedev->type = VFIO_DEVICE_TYPE_CCW;
-    vbasedev->name = g_strdup_printf("%x.%x.%04x", vcdev->cdev.hostid.cssid,
-                           vcdev->cdev.hostid.ssid,
-                           vcdev->cdev.hostid.devid);
-    vbasedev->dev = dev;
 
     /*
      * All vfio-ccw devices are believed to operate in a way compatible with
@@ -603,12 +583,75 @@ static void vfio_ccw_realize(DeviceState *dev, Error **errp)
      * needs to be set before vfio_get_device() for vfio common to handle
      * ram_block_discard_disable().
      */
-    vbasedev->ram_block_discard_allowed = true;
+    vcdev->vdev.ram_block_discard_allowed = true;
 
-    ret = vfio_attach_device(cdev->mdevid, vbasedev,
-                             &address_space_memory, errp);
-    if (ret) {
-        goto out_attach_dev_err;
+    if (vfio_get_device(group, vcdev->cdev.mdevid, &vcdev->vdev, errp)) {
+        goto out_err;
+    }
+
+    vcdev->vdev.ops = &vfio_ccw_ops;
+    vcdev->vdev.type = VFIO_DEVICE_TYPE_CCW;
+    vcdev->vdev.name = name;
+    vcdev->vdev.dev = &vcdev->cdev.parent_obj.parent_obj;
+
+    return;
+
+out_err:
+    g_free(name);
+}
+
+static VFIOGroup *vfio_ccw_get_group(S390CCWDevice *cdev, Error **errp)
+{
+    char *tmp, group_path[PATH_MAX];
+    ssize_t len;
+    int groupid;
+
+    tmp = g_strdup_printf("/sys/bus/css/devices/%x.%x.%04x/%s/iommu_group",
+                          cdev->hostid.cssid, cdev->hostid.ssid,
+                          cdev->hostid.devid, cdev->mdevid);
+    len = readlink(tmp, group_path, sizeof(group_path));
+    g_free(tmp);
+
+    if (len <= 0 || len >= sizeof(group_path)) {
+        error_setg(errp, "vfio: no iommu_group found");
+        return NULL;
+    }
+
+    group_path[len] = 0;
+
+    if (sscanf(basename(group_path), "%d", &groupid) != 1) {
+        error_setg(errp, "vfio: failed to read %s", group_path);
+        return NULL;
+    }
+
+    return vfio_get_group(groupid, &address_space_memory, errp);
+}
+
+static void vfio_ccw_realize(DeviceState *dev, Error **errp)
+{
+    VFIOGroup *group;
+    CcwDevice *ccw_dev = DO_UPCAST(CcwDevice, parent_obj, dev);
+    S390CCWDevice *cdev = DO_UPCAST(S390CCWDevice, parent_obj, ccw_dev);
+    VFIOCCWDevice *vcdev = DO_UPCAST(VFIOCCWDevice, cdev, cdev);
+    S390CCWDeviceClass *cdc = S390_CCW_DEVICE_GET_CLASS(cdev);
+    Error *err = NULL;
+
+    /* Call the class init function for subchannel. */
+    if (cdc->realize) {
+        cdc->realize(cdev, vcdev->vdev.sysfsdev, &err);
+        if (err) {
+            goto out_err_propagate;
+        }
+    }
+
+    group = vfio_ccw_get_group(cdev, &err);
+    if (!group) {
+        goto out_group_err;
+    }
+
+    vfio_ccw_get_device(group, vcdev, &err);
+    if (err) {
+        goto out_device_err;
     }
 
     vfio_ccw_get_region(vcdev, &err);
@@ -618,37 +661,26 @@ static void vfio_ccw_realize(DeviceState *dev, Error **errp)
 
     vfio_ccw_register_irq_notifier(vcdev, VFIO_CCW_IO_IRQ_INDEX, &err);
     if (err) {
-        goto out_io_notifier_err;
+        goto out_notifier_err;
     }
 
     if (vcdev->crw_region) {
         vfio_ccw_register_irq_notifier(vcdev, VFIO_CCW_CRW_IRQ_INDEX, &err);
         if (err) {
-            goto out_irq_notifier_err;
+            vfio_ccw_unregister_irq_notifier(vcdev, VFIO_CCW_IO_IRQ_INDEX);
+            goto out_notifier_err;
         }
-    }
-
-    vfio_ccw_register_irq_notifier(vcdev, VFIO_CCW_REQ_IRQ_INDEX, &err);
-    if (err) {
-        /*
-         * Report this error, but do not make it a failing condition.
-         * Lack of this IRQ in the host does not prevent normal operation.
-         */
-        error_report_err(err);
     }
 
     return;
 
-out_irq_notifier_err:
-    vfio_ccw_unregister_irq_notifier(vcdev, VFIO_CCW_REQ_IRQ_INDEX);
-    vfio_ccw_unregister_irq_notifier(vcdev, VFIO_CCW_CRW_IRQ_INDEX);
-    vfio_ccw_unregister_irq_notifier(vcdev, VFIO_CCW_IO_IRQ_INDEX);
-out_io_notifier_err:
+out_notifier_err:
     vfio_ccw_put_region(vcdev);
 out_region_err:
-    vfio_detach_device(vbasedev);
-out_attach_dev_err:
-    g_free(vbasedev->name);
+    vfio_ccw_put_device(vcdev);
+out_device_err:
+    vfio_put_group(group);
+out_group_err:
     if (cdc->unrealize) {
         cdc->unrealize(cdev);
     }
@@ -658,16 +690,17 @@ out_err_propagate:
 
 static void vfio_ccw_unrealize(DeviceState *dev)
 {
-    S390CCWDevice *cdev = S390_CCW_DEVICE(dev);
-    VFIOCCWDevice *vcdev = VFIO_CCW(cdev);
+    CcwDevice *ccw_dev = DO_UPCAST(CcwDevice, parent_obj, dev);
+    S390CCWDevice *cdev = DO_UPCAST(S390CCWDevice, parent_obj, ccw_dev);
+    VFIOCCWDevice *vcdev = DO_UPCAST(VFIOCCWDevice, cdev, cdev);
     S390CCWDeviceClass *cdc = S390_CCW_DEVICE_GET_CLASS(cdev);
+    VFIOGroup *group = vcdev->vdev.group;
 
-    vfio_ccw_unregister_irq_notifier(vcdev, VFIO_CCW_REQ_IRQ_INDEX);
     vfio_ccw_unregister_irq_notifier(vcdev, VFIO_CCW_CRW_IRQ_INDEX);
     vfio_ccw_unregister_irq_notifier(vcdev, VFIO_CCW_IO_IRQ_INDEX);
     vfio_ccw_put_region(vcdev);
-    vfio_detach_device(&vcdev->vdev);
-    g_free(vcdev->vdev.name);
+    vfio_ccw_put_device(vcdev);
+    vfio_put_group(group);
 
     if (cdc->unrealize) {
         cdc->unrealize(cdev);

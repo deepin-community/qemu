@@ -176,20 +176,19 @@ static arm_timer_state *arm_timer_init(uint32_t freq)
 {
     arm_timer_state *s;
 
-    s = g_new0(arm_timer_state, 1);
+    s = (arm_timer_state *)g_malloc0(sizeof(arm_timer_state));
     s->freq = freq;
     s->control = TIMER_CTRL_IE;
 
-    s->timer = ptimer_init(arm_timer_tick, s, PTIMER_POLICY_LEGACY);
-    vmstate_register_any(NULL, &vmstate_arm_timer, s);
+    s->timer = ptimer_init(arm_timer_tick, s, PTIMER_POLICY_DEFAULT);
+    vmstate_register(NULL, VMSTATE_INSTANCE_ID_ANY, &vmstate_arm_timer, s);
     return s;
 }
 
-/*
- * ARM PrimeCell SP804 dual timer module.
+/* ARM PrimeCell SP804 dual timer module.
  * Docs at
- * https://developer.arm.com/documentation/ddi0271/latest/
- */
+ * http://infocenter.arm.com/help/index.jsp?topic=/com.arm.doc.ddi0271d/index.html
+*/
 
 #define TYPE_SP804 "sp804"
 OBJECT_DECLARE_SIMPLE_TYPE(SP804State, SP804)

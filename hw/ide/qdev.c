@@ -26,7 +26,6 @@
 #include "qemu/module.h"
 #include "hw/ide/internal.h"
 #include "hw/qdev-properties.h"
-#include "hw/qdev-properties-system.h"
 #include "sysemu/block-backend.h"
 #include "sysemu/blockdev.h"
 #include "hw/block/block.h"
@@ -68,10 +67,10 @@ static const TypeInfo ide_bus_info = {
     .class_init = ide_bus_class_init,
 };
 
-void ide_bus_init(IDEBus *idebus, size_t idebus_size, DeviceState *dev,
+void ide_bus_new(IDEBus *idebus, size_t idebus_size, DeviceState *dev,
                  int bus_id, int max_units)
 {
-    qbus_init(idebus, idebus_size, TYPE_IDE_BUS, dev, NULL);
+    qbus_create_inplace(idebus, idebus_size, TYPE_IDE_BUS, dev, NULL);
     idebus->bus_id = bus_id;
     idebus->max_units = max_units;
 }
@@ -124,7 +123,7 @@ static void ide_qdev_realize(DeviceState *qdev, Error **errp)
     dc->realize(dev, errp);
 }
 
-IDEDevice *ide_bus_create_drive(IDEBus *bus, int unit, DriveInfo *drive)
+IDEDevice *ide_create_drive(IDEBus *bus, int unit, DriveInfo *drive)
 {
     DeviceState *dev;
 
@@ -283,9 +282,18 @@ static void ide_cd_realize(IDEDevice *dev, Error **errp)
     ide_dev_initfn(dev, IDE_CD, errp);
 }
 
-static void ide_cf_realize(IDEDevice *dev, Error **errp)
+static void ide_drive_realize(IDEDevice *dev, Error **errp)
 {
-    ide_dev_initfn(dev, IDE_CFATA, errp);
+    DriveInfo *dinfo = NULL;
+
+    warn_report("'ide-drive' is deprecated, "
+                "please use 'ide-hd' or 'ide-cd' instead");
+
+    if (dev->conf.blk) {
+        dinfo = blk_legacy_dinfo(dev->conf.blk);
+    }
+
+    ide_dev_initfn(dev, dinfo && dinfo->media_cd ? IDE_CD : IDE_HD, errp);
 }
 
 #define DEFINE_IDE_DEV_PROPERTIES()                     \
@@ -346,30 +354,27 @@ static const TypeInfo ide_cd_info = {
     .class_init    = ide_cd_class_init,
 };
 
-static Property ide_cf_properties[] = {
+static Property ide_drive_properties[] = {
     DEFINE_IDE_DEV_PROPERTIES(),
-    DEFINE_BLOCK_CHS_PROPERTIES(IDEDrive, dev.conf),
-    DEFINE_PROP_BIOS_CHS_TRANS("bios-chs-trans",
-                IDEDrive, dev.chs_trans, BIOS_ATA_TRANSLATION_AUTO),
     DEFINE_PROP_END_OF_LIST(),
 };
 
-static void ide_cf_class_init(ObjectClass *klass, void *data)
+static void ide_drive_class_init(ObjectClass *klass, void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(klass);
     IDEDeviceClass *k = IDE_DEVICE_CLASS(klass);
 
-    k->realize  = ide_cf_realize;
+    k->realize  = ide_drive_realize;
     dc->fw_name = "drive";
-    dc->desc    = "virtual CompactFlash card";
-    device_class_set_props(dc, ide_cf_properties);
+    dc->desc    = "virtual IDE disk or CD-ROM (legacy)";
+    device_class_set_props(dc, ide_drive_properties);
 }
 
-static const TypeInfo ide_cf_info = {
-    .name          = "ide-cf",
+static const TypeInfo ide_drive_info = {
+    .name          = "ide-drive",
     .parent        = TYPE_IDE_DEVICE,
     .instance_size = sizeof(IDEDrive),
-    .class_init    = ide_cf_class_init,
+    .class_init    = ide_drive_class_init,
 };
 
 static void ide_device_class_init(ObjectClass *klass, void *data)
@@ -396,7 +401,7 @@ static void ide_register_types(void)
     type_register_static(&ide_bus_info);
     type_register_static(&ide_hd_info);
     type_register_static(&ide_cd_info);
-    type_register_static(&ide_cf_info);
+    type_register_static(&ide_drive_info);
     type_register_static(&ide_device_type_info);
 }
 

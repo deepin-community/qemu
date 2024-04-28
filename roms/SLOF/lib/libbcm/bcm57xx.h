@@ -41,11 +41,11 @@
 #define PCI_BAR2_R              ( (uint16_t) 0x0014 )
 // PCI bar1 register
 #define PCI_SUBID_R             ( (uint16_t) 0x002e )
-// PCI-X Command register
+// PCI-X Comand register
 #define PCI_X_COM_R             ( (uint16_t) 0x0042 )
 // Message Data Register
 #define MSG_DATA_R		( (uint16_t) 0x0064 )
-// PCI misc host control register
+// PCI misc host contrl register
 #define PCI_MISC_HCTRL_R        ( (uint16_t) 0x0068 )
 // DMA Read/Write Control register
 #define DMA_RW_CTRL_R           ( (uint16_t) 0x006c )

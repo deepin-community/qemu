@@ -9,12 +9,11 @@
 
 #include "qemu/osdep.h"
 
+#include "qemu-common.h"
 #include "qapi/qmp/qdict.h"
 #include "qapi/qmp/qlist.h"
 #include "qemu/cutils.h"
-#include "libqtest.h"
-
-static int verbosity_level;
+#include "libqos/libqtest.h"
 
 static void test_properties(QTestState *qts, const char *path, bool recurse)
 {
@@ -22,11 +21,8 @@ static void test_properties(QTestState *qts, const char *path, bool recurse)
     QDict *response, *tuple, *tmp;
     QList *list;
     QListEntry *entry;
-    GSList *children = NULL, *links = NULL;
 
-    if (verbosity_level >= 2) {
-        g_test_message("Obtaining properties of %s", path);
-    }
+    g_test_message("Obtaining properties of %s", path);
     response = qtest_qmp(qts, "{ 'execute': 'qom-list',"
                               "  'arguments': { 'path': %s } }", path);
     g_assert(response);
@@ -46,16 +42,11 @@ static void test_properties(QTestState *qts, const char *path, bool recurse)
         if (is_child || is_link) {
             child_path = g_strdup_printf("%s/%s",
                                          path, qdict_get_str(tuple, "name"));
-            if (is_child) {
-                children = g_slist_prepend(children, child_path);
-            } else {
-                links = g_slist_prepend(links, child_path);
-            }
+            test_properties(qts, child_path, is_child);
+            g_free(child_path);
         } else {
             const char *prop = qdict_get_str(tuple, "name");
-            if (verbosity_level >= 3) {
-                g_test_message("-> %s", prop);
-            }
+            g_test_message("Testing property %s.%s", path, prop);
             tmp = qtest_qmp(qts,
                             "{ 'execute': 'qom-get',"
                             "  'arguments': { 'path': %s, 'property': %s } }",
@@ -65,18 +56,6 @@ static void test_properties(QTestState *qts, const char *path, bool recurse)
             qobject_unref(tmp);
         }
     }
-
-    while (links) {
-        test_properties(qts, links->data, false);
-        g_free(links->data);
-        links = g_slist_delete_link(links, links);
-    }
-    while (children) {
-        test_properties(qts, children->data, true);
-        g_free(children->data);
-        children = g_slist_delete_link(children, children);
-    }
-
     qobject_unref(response);
 }
 
@@ -109,12 +88,6 @@ static void add_machine_test_case(const char *mname)
 
 int main(int argc, char **argv)
 {
-    char *v_env = getenv("V");
-
-    if (v_env) {
-        verbosity_level = atoi(v_env);
-    }
-
     g_test_init(&argc, &argv, NULL);
 
     qtest_cb_for_every_machine(add_machine_test_case, g_test_quick());

@@ -21,9 +21,7 @@
 #include "qemu/osdep.h"
 #include "qapi/error.h"
 #include "hw/qdev-properties.h"
-#include "hw/qdev-properties-system.h"
 #include "hw/sysbus.h"
-#include "qemu/error-report.h"
 #include "qemu/log.h"
 #include "qemu/module.h"
 #include "hw/misc/sifive_u_otp.h"
@@ -64,12 +62,8 @@ static uint64_t sifive_u_otp_read(void *opaque, hwaddr addr, unsigned int size)
             if (s->blk) {
                 int32_t buf;
 
-                if (blk_pread(s->blk, s->pa * SIFIVE_U_OTP_FUSE_WORD,
-                              SIFIVE_U_OTP_FUSE_WORD, &buf, 0) < 0) {
-                    error_report("read error index<%d>", s->pa);
-                    return 0xff;
-                }
-
+                blk_pread(s->blk, s->pa * SIFIVE_U_OTP_FUSE_WORD, &buf,
+                          SIFIVE_U_OTP_FUSE_WORD);
                 return buf;
             }
 
@@ -166,11 +160,8 @@ static void sifive_u_otp_write(void *opaque, hwaddr addr,
 
             /* write to backend */
             if (s->blk) {
-                if (blk_pwrite(s->blk, s->pa * SIFIVE_U_OTP_FUSE_WORD,
-                               SIFIVE_U_OTP_FUSE_WORD, &s->fuse[s->pa], 0)
-                    < 0) {
-                    error_report("write error index<%d>", s->pa);
-                }
+                blk_pwrite(s->blk, s->pa * SIFIVE_U_OTP_FUSE_WORD,
+                           &s->fuse[s->pa], SIFIVE_U_OTP_FUSE_WORD, 0);
             }
 
             /* update written bit */
@@ -209,7 +200,7 @@ static void sifive_u_otp_realize(DeviceState *dev, Error **errp)
                           TYPE_SIFIVE_U_OTP, SIFIVE_U_OTP_REG_SIZE);
     sysbus_init_mmio(SYS_BUS_DEVICE(dev), &s->mmio);
 
-    dinfo = drive_get(IF_PFLASH, 0, 0);
+    dinfo = drive_get_next(IF_NONE);
     if (dinfo) {
         int ret;
         uint64_t perm;
@@ -227,18 +218,22 @@ static void sifive_u_otp_realize(DeviceState *dev, Error **errp)
 
         if (s->blk) {
             perm = BLK_PERM_CONSISTENT_READ |
-                   (blk_supports_write_perm(s->blk) ? BLK_PERM_WRITE : 0);
+                   (blk_is_read_only(s->blk) ? 0 : BLK_PERM_WRITE);
             ret = blk_set_perm(s->blk, perm, BLK_PERM_ALL, errp);
             if (ret < 0) {
                 return;
             }
 
-            if (blk_pread(s->blk, 0, filesize, s->fuse, 0) < 0) {
+            if (blk_pread(s->blk, 0, s->fuse, filesize) != filesize) {
                 error_setg(errp, "failed to read the initial flash content");
-                return;
             }
         }
     }
+}
+
+static void sifive_u_otp_reset(DeviceState *dev)
+{
+    SiFiveUOTPState *s = SIFIVE_U_OTP(dev);
 
     /* Initialize all fuses' initial value to 0xFFs */
     memset(s->fuse, 0xff, sizeof(s->fuse));
@@ -253,18 +248,12 @@ static void sifive_u_otp_realize(DeviceState *dev, Error **errp)
         int index = SIFIVE_U_OTP_SERIAL_ADDR;
 
         serial_data = s->serial;
-        if (blk_pwrite(s->blk, index * SIFIVE_U_OTP_FUSE_WORD,
-                       SIFIVE_U_OTP_FUSE_WORD, &serial_data, 0) < 0) {
-            error_setg(errp, "failed to write index<%d>", index);
-            return;
-        }
+        blk_pwrite(s->blk, index * SIFIVE_U_OTP_FUSE_WORD,
+                   &serial_data, SIFIVE_U_OTP_FUSE_WORD, 0);
 
         serial_data = ~(s->serial);
-        if (blk_pwrite(s->blk, (index + 1) * SIFIVE_U_OTP_FUSE_WORD,
-                       SIFIVE_U_OTP_FUSE_WORD, &serial_data, 0) < 0) {
-            error_setg(errp, "failed to write index<%d>", index + 1);
-            return;
-        }
+        blk_pwrite(s->blk, (index + 1) * SIFIVE_U_OTP_FUSE_WORD,
+                   &serial_data, SIFIVE_U_OTP_FUSE_WORD, 0);
     }
 
     /* Initialize write-once map */
@@ -277,6 +266,7 @@ static void sifive_u_otp_class_init(ObjectClass *klass, void *data)
 
     device_class_set_props(dc, sifive_u_otp_properties);
     dc->realize = sifive_u_otp_realize;
+    dc->reset = sifive_u_otp_reset;
 }
 
 static const TypeInfo sifive_u_otp_info = {

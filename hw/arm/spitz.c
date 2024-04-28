@@ -30,12 +30,11 @@
 #include "audio/audio.h"
 #include "hw/boards.h"
 #include "hw/sysbus.h"
-#include "hw/adc/max111x.h"
+#include "hw/misc/max111x.h"
 #include "migration/vmstate.h"
 #include "exec/address-spaces.h"
 #include "cpu.h"
 #include "qom/object.h"
-#include "audio/audio.h"
 
 enum spitz_model_e { spitz, akita, borzoi, terrier };
 
@@ -579,7 +578,7 @@ static void spitz_keyboard_realize(DeviceState *dev, Error **errp)
 OBJECT_DECLARE_SIMPLE_TYPE(SpitzLCDTG, SPITZ_LCDTG)
 
 struct SpitzLCDTG {
-    SSIPeripheral ssidev;
+    SSISlave ssidev;
     uint32_t bl_intensity;
     uint32_t bl_power;
 };
@@ -613,7 +612,7 @@ static inline void spitz_bl_power(void *opaque, int line, int level)
     spitz_bl_update(s);
 }
 
-static uint32_t spitz_lcdtg_transfer(SSIPeripheral *dev, uint32_t value)
+static uint32_t spitz_lcdtg_transfer(SSISlave *dev, uint32_t value)
 {
     SpitzLCDTG *s = SPITZ_LCDTG(dev);
     int addr;
@@ -642,7 +641,7 @@ static uint32_t spitz_lcdtg_transfer(SSIPeripheral *dev, uint32_t value)
     return 0;
 }
 
-static void spitz_lcdtg_realize(SSIPeripheral *ssi, Error **errp)
+static void spitz_lcdtg_realize(SSISlave *ssi, Error **errp)
 {
     SpitzLCDTG *s = SPITZ_LCDTG(ssi);
     DeviceState *dev = DEVICE(s);
@@ -668,12 +667,12 @@ OBJECT_DECLARE_SIMPLE_TYPE(CorgiSSPState, CORGI_SSP)
 
 /* "Demux" the signal based on current chipselect */
 struct CorgiSSPState {
-    SSIPeripheral ssidev;
+    SSISlave ssidev;
     SSIBus *bus[3];
     uint32_t enable[3];
 };
 
-static uint32_t corgi_ssp_transfer(SSIPeripheral *dev, uint32_t value)
+static uint32_t corgi_ssp_transfer(SSISlave *dev, uint32_t value)
 {
     CorgiSSPState *s = CORGI_SSP(dev);
     int i;
@@ -701,7 +700,7 @@ static void corgi_ssp_gpio_cs(void *opaque, int line, int level)
 #define SPITZ_BATTERY_VOLT      0xd0    /* About 4.0V */
 #define SPITZ_CHARGEON_ACIN     0x80    /* About 5.0V */
 
-static void corgi_ssp_realize(SSIPeripheral *d, Error **errp)
+static void corgi_ssp_realize(SSISlave *d, Error **errp)
 {
     DeviceState *dev = DEVICE(d);
     CorgiSSPState *s = CORGI_SSP(d);
@@ -716,14 +715,14 @@ static void spitz_ssp_attach(SpitzMachineState *sms)
 {
     void *bus;
 
-    sms->mux = ssi_create_peripheral(sms->mpu->ssp[CORGI_SSP_PORT - 1],
-                                     TYPE_CORGI_SSP);
+    sms->mux = ssi_create_slave(sms->mpu->ssp[CORGI_SSP_PORT - 1],
+                                TYPE_CORGI_SSP);
 
     bus = qdev_get_child_bus(sms->mux, "ssi0");
-    sms->lcdtg = ssi_create_peripheral(bus, TYPE_SPITZ_LCDTG);
+    sms->lcdtg = ssi_create_slave(bus, TYPE_SPITZ_LCDTG);
 
     bus = qdev_get_child_bus(sms->mux, "ssi1");
-    sms->ads7846 = ssi_create_peripheral(bus, "ads7846");
+    sms->ads7846 = ssi_create_slave(bus, "ads7846");
     qdev_connect_gpio_out(sms->ads7846, 0,
                           qdev_get_gpio_in(sms->mpu->gpio, SPITZ_GPIO_TP_INT));
 
@@ -770,24 +769,20 @@ static void spitz_wm8750_addr(void *opaque, int line, int level)
 {
     I2CSlave *wm = (I2CSlave *) opaque;
     if (level)
-        i2c_slave_set_address(wm, SPITZ_WM_ADDRH);
+        i2c_set_slave_address(wm, SPITZ_WM_ADDRH);
     else
-        i2c_slave_set_address(wm, SPITZ_WM_ADDRL);
+        i2c_set_slave_address(wm, SPITZ_WM_ADDRL);
 }
 
-static void spitz_i2c_setup(MachineState *machine, PXA2xxState *cpu)
+static void spitz_i2c_setup(PXA2xxState *cpu)
 {
     /* Attach the CPU on one end of our I2C bus.  */
     I2CBus *bus = pxa2xx_i2c_bus(cpu->i2c[0]);
 
-    /* Attach a WM8750 to the bus */
-    I2CSlave *i2c_dev = i2c_slave_new(TYPE_WM8750, 0);
-    DeviceState *wm = DEVICE(i2c_dev);
+    DeviceState *wm;
 
-    if (machine->audiodev) {
-        qdev_prop_set_string(wm, "audiodev", machine->audiodev);
-    }
-    i2c_slave_realize_and_unref(i2c_dev, bus, &error_abort);
+    /* Attach a WM8750 to the bus */
+    wm = DEVICE(i2c_slave_create_simple(bus, TYPE_WM8750, 0));
 
     spitz_wm8750_addr(wm, 0, 0);
     qdev_connect_gpio_out(cpu->gpio, SPITZ_GPIO_WM,
@@ -991,16 +986,18 @@ static void spitz_common_init(MachineState *machine)
     SpitzMachineState *sms = SPITZ_MACHINE(machine);
     enum spitz_model_e model = smc->model;
     PXA2xxState *mpu;
+    MemoryRegion *address_space_mem = get_system_memory();
     MemoryRegion *rom = g_new(MemoryRegion, 1);
 
     /* Setup CPU & memory */
-    mpu = pxa270_init(spitz_binfo.ram_size, machine->cpu_type);
+    mpu = pxa270_init(address_space_mem, spitz_binfo.ram_size,
+                      machine->cpu_type);
     sms->mpu = mpu;
 
     sl_flash_register(mpu, (model == spitz) ? FLASH_128M : FLASH_1024M);
 
     memory_region_init_rom(rom, NULL, "spitz.rom", SPITZ_ROM, &error_fatal);
-    memory_region_add_subregion(get_system_memory(), 0, rom);
+    memory_region_add_subregion(address_space_mem, 0, rom);
 
     /* Setup peripherals */
     spitz_keyboard_register(mpu);
@@ -1018,7 +1015,7 @@ static void spitz_common_init(MachineState *machine)
 
     spitz_gpio_setup(mpu, (model == akita) ? 1 : 2);
 
-    spitz_i2c_setup(machine, mpu);
+    spitz_i2c_setup(mpu);
 
     if (model == akita)
         spitz_akita_i2c_setup(mpu);
@@ -1042,8 +1039,6 @@ static void spitz_common_class_init(ObjectClass *oc, void *data)
     mc->block_default_type = IF_IDE;
     mc->ignore_memory_transaction_failures = true;
     mc->init = spitz_common_init;
-
-    machine_add_audiodev_property(mc);
 }
 
 static const TypeInfo spitz_common_info = {
@@ -1139,7 +1134,7 @@ static bool is_version_0(void *opaque, int version_id)
     return version_id == 0;
 }
 
-static const VMStateDescription vmstate_sl_nand_info = {
+static VMStateDescription vmstate_sl_nand_info = {
     .name = "sl-nand",
     .version_id = 0,
     .minimum_version_id = 0,
@@ -1175,7 +1170,7 @@ static const TypeInfo sl_nand_info = {
     .class_init    = sl_nand_class_init,
 };
 
-static const VMStateDescription vmstate_spitz_kbd = {
+static VMStateDescription vmstate_spitz_kbd = {
     .name = "spitz-keyboard",
     .version_id = 1,
     .minimum_version_id = 0,
@@ -1209,7 +1204,7 @@ static const VMStateDescription vmstate_corgi_ssp_regs = {
     .version_id = 2,
     .minimum_version_id = 2,
     .fields = (VMStateField[]) {
-        VMSTATE_SSI_PERIPHERAL(ssidev, CorgiSSPState),
+        VMSTATE_SSI_SLAVE(ssidev, CorgiSSPState),
         VMSTATE_UINT32_ARRAY(enable, CorgiSSPState, 3),
         VMSTATE_END_OF_LIST(),
     }
@@ -1218,7 +1213,7 @@ static const VMStateDescription vmstate_corgi_ssp_regs = {
 static void corgi_ssp_class_init(ObjectClass *klass, void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(klass);
-    SSIPeripheralClass *k = SSI_PERIPHERAL_CLASS(klass);
+    SSISlaveClass *k = SSI_SLAVE_CLASS(klass);
 
     k->realize = corgi_ssp_realize;
     k->transfer = corgi_ssp_transfer;
@@ -1227,7 +1222,7 @@ static void corgi_ssp_class_init(ObjectClass *klass, void *data)
 
 static const TypeInfo corgi_ssp_info = {
     .name          = TYPE_CORGI_SSP,
-    .parent        = TYPE_SSI_PERIPHERAL,
+    .parent        = TYPE_SSI_SLAVE,
     .instance_size = sizeof(CorgiSSPState),
     .class_init    = corgi_ssp_class_init,
 };
@@ -1237,7 +1232,7 @@ static const VMStateDescription vmstate_spitz_lcdtg_regs = {
     .version_id = 1,
     .minimum_version_id = 1,
     .fields = (VMStateField[]) {
-        VMSTATE_SSI_PERIPHERAL(ssidev, SpitzLCDTG),
+        VMSTATE_SSI_SLAVE(ssidev, SpitzLCDTG),
         VMSTATE_UINT32(bl_intensity, SpitzLCDTG),
         VMSTATE_UINT32(bl_power, SpitzLCDTG),
         VMSTATE_END_OF_LIST(),
@@ -1247,7 +1242,7 @@ static const VMStateDescription vmstate_spitz_lcdtg_regs = {
 static void spitz_lcdtg_class_init(ObjectClass *klass, void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(klass);
-    SSIPeripheralClass *k = SSI_PERIPHERAL_CLASS(klass);
+    SSISlaveClass *k = SSI_SLAVE_CLASS(klass);
 
     k->realize = spitz_lcdtg_realize;
     k->transfer = spitz_lcdtg_transfer;
@@ -1256,7 +1251,7 @@ static void spitz_lcdtg_class_init(ObjectClass *klass, void *data)
 
 static const TypeInfo spitz_lcdtg_info = {
     .name          = TYPE_SPITZ_LCDTG,
-    .parent        = TYPE_SSI_PERIPHERAL,
+    .parent        = TYPE_SSI_SLAVE,
     .instance_size = sizeof(SpitzLCDTG),
     .class_init    = spitz_lcdtg_class_init,
 };

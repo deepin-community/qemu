@@ -56,7 +56,6 @@ struct QOSGraphNode {
     bool available;     /* set by QEMU via QMP, used during graph walk */
     bool visited;       /* used during graph walk */
     char *name;         /* used to identify the node */
-    char *qemu_name;    /* optional: see qos_node_create_driver_named() */
     char *command_line; /* used to start QEMU at test execution */
     union {
         struct {
@@ -197,7 +196,7 @@ char *qos_graph_edge_get_name(QOSGraphEdge *edge);
  * qos_graph_get_machine(): returns the machine assigned
  * to that @node name.
  *
- * It performs a search only through the list of machines
+ * It performs a search only trough the list of machines
  * (i.e. the QOS_ROOT child).
  *
  * Returns: on success: the %QOSGraphNode
@@ -230,7 +229,7 @@ void qos_graph_foreach_test_path(QOSTestCallback fn);
 /**
  * qos_get_machine_type(): return QEMU machine type for a machine node.
  * This function requires every machine @name to be in the form
- * <arch>/<machine_name>, like "arm/raspi2b" or "x86_64/pc".
+ * <arch>/<machine_name>, like "arm/raspi2" or "x86_64/pc".
  *
  * The function will validate the format and return a pointer to
  * @machine to <machine_name>.  For example, when passed "x86_64/pc"
@@ -254,16 +253,5 @@ void qos_delete_cmd_line(const char *name);
  * by @node with availability @av.
  */
 void qos_graph_node_set_availability(const char *node, bool av);
-
-/*
- * Prepends a '#' character in front for not breaking TAP output format.
- */
-#define qos_printf(...) printf("# " __VA_ARGS__)
-
-/*
- * Intended for printing something literally, i.e. for appending text as is
- * to a line already been started by qos_printf() before.
- */
-#define qos_printf_literal printf
 
 #endif

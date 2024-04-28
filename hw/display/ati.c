@@ -32,12 +32,6 @@
 
 #define ATI_DEBUG_HW_CURSOR 0
 
-#ifdef CONFIG_PIXMAN
-#define DEFAULT_X_PIXMAN 3
-#else
-#define DEFAULT_X_PIXMAN 0
-#endif
-
 static const struct {
     const char *name;
     uint16_t dev_id;
@@ -325,13 +319,11 @@ static uint64_t ati_mm_read(void *opaque, hwaddr addr, unsigned int size)
     case DAC_CNTL:
         val = s->regs.dac_cntl;
         break;
-    case GPIO_VGA_DDC ... GPIO_VGA_DDC + 3:
-        val = ati_reg_read_offs(s->regs.gpio_vga_ddc,
-                                addr - GPIO_VGA_DDC, size);
+    case GPIO_VGA_DDC:
+        val = s->regs.gpio_vga_ddc;
         break;
-    case GPIO_DVI_DDC ... GPIO_DVI_DDC + 3:
-        val = ati_reg_read_offs(s->regs.gpio_dvi_ddc,
-                                addr - GPIO_DVI_DDC, size);
+    case GPIO_DVI_DDC:
+        val = s->regs.gpio_dvi_ddc;
         break;
     case GPIO_MONID ... GPIO_MONID + 3:
         val = ati_reg_read_offs(s->regs.gpio_monid,
@@ -345,9 +337,6 @@ static uint64_t ati_mm_read(void *opaque, hwaddr addr, unsigned int size)
     case PALETTE_DATA:
         val = vga_ioport_read(&s->vga, VGA_PEL_D);
         break;
-    case PALETTE_30_DATA:
-        val = s->regs.palette[vga_ioport_read(&s->vga, VGA_PEL_IR)];
-        break;
     case CNFG_CNTL:
         val = s->regs.config_cntl;
         break;
@@ -360,17 +349,14 @@ static uint64_t ati_mm_read(void *opaque, hwaddr addr, unsigned int size)
                                       PCI_BASE_ADDRESS_0, size) & 0xfffffff0;
         break;
     case CONFIG_APER_SIZE:
-        val = s->vga.vram_size / 2;
+        val = s->vga.vram_size;
         break;
     case CONFIG_REG_1_BASE:
         val = pci_default_read_config(&s->dev,
                                       PCI_BASE_ADDRESS_2, size) & 0xfffffff0;
         break;
     case CONFIG_REG_APER_SIZE:
-        val = memory_region_size(&s->mm) / 2;
-        break;
-    case HOST_PATH_CNTL:
-        val = BIT(23); /* Radeon HDP_APER_CNTL */
+        val = memory_region_size(&s->mm);
         break;
     case MC_STATUS:
         val = 5;
@@ -626,34 +612,29 @@ static void ati_mm_write(void *opaque, hwaddr addr,
         s->regs.dac_cntl = data & 0xffffe3ff;
         s->vga.dac_8bit = !!(data & DAC_8BIT_EN);
         break;
-    /*
-     * GPIO regs for DDC access. Because some drivers access these via
-     * multiple byte writes we have to be careful when we send bits to
-     * avoid spurious changes in bitbang_i2c state. Only do it when either
-     * the enable bits are changed or output bits changed while enabled.
-     */
-    case GPIO_VGA_DDC ... GPIO_VGA_DDC + 3:
+    case GPIO_VGA_DDC:
         if (s->dev_id != PCI_DEVICE_ID_ATI_RAGE128_PF) {
             /* FIXME: Maybe add a property to select VGA or DVI port? */
         }
         break;
-    case GPIO_DVI_DDC ... GPIO_DVI_DDC + 3:
+    case GPIO_DVI_DDC:
         if (s->dev_id != PCI_DEVICE_ID_ATI_RAGE128_PF) {
-            ati_reg_write_offs(&s->regs.gpio_dvi_ddc,
-                               addr - GPIO_DVI_DDC, data, size);
-            if ((addr <= GPIO_DVI_DDC + 2 && addr + size > GPIO_DVI_DDC + 2) ||
-                (addr == GPIO_DVI_DDC && (s->regs.gpio_dvi_ddc & 0x30000))) {
-                s->regs.gpio_dvi_ddc = ati_i2c(&s->bbi2c,
-                                               s->regs.gpio_dvi_ddc, 0);
-            }
+            s->regs.gpio_dvi_ddc = ati_i2c(&s->bbi2c, data, 0);
         }
         break;
     case GPIO_MONID ... GPIO_MONID + 3:
         /* FIXME What does Radeon have here? */
         if (s->dev_id == PCI_DEVICE_ID_ATI_RAGE128_PF) {
-            /* Rage128p accesses DDC via MONID(1-2) with additional mask bit */
             ati_reg_write_offs(&s->regs.gpio_monid,
                                addr - GPIO_MONID, data, size);
+            /*
+             * Rage128p accesses DDC used to get EDID via these bits.
+             * Because some drivers access this via multiple byte writes
+             * we have to be careful when we send bits to avoid spurious
+             * changes in bitbang_i2c state. So only do it when mask is set
+             * and either the enable bits are changed or output bits changed
+             * while enabled.
+             */
             if ((s->regs.gpio_monid & BIT(25)) &&
                 ((addr <= GPIO_MONID + 2 && addr + size > GPIO_MONID + 2) ||
                  (addr == GPIO_MONID && (s->regs.gpio_monid & 0x60000)))) {
@@ -681,12 +662,6 @@ static void ati_mm_write(void *opaque, hwaddr addr,
         vga_ioport_write(&s->vga, VGA_PEL_D, data & 0xff);
         data >>= 8;
         vga_ioport_write(&s->vga, VGA_PEL_D, data & 0xff);
-        break;
-    case PALETTE_30_DATA:
-        s->regs.palette[vga_ioport_read(&s->vga, VGA_PEL_IW)] = data;
-        vga_ioport_write(&s->vga, VGA_PEL_D, (data >> 22) & 0xff);
-        vga_ioport_write(&s->vga, VGA_PEL_D, (data >> 12) & 0xff);
-        vga_ioport_write(&s->vga, VGA_PEL_D, (data >> 2) & 0xff);
         break;
     case CNFG_CNTL:
         s->regs.config_cntl = data;
@@ -952,12 +927,6 @@ static void ati_vga_realize(PCIDevice *dev, Error **errp)
     ATIVGAState *s = ATI_VGA(dev);
     VGACommonState *vga = &s->vga;
 
-#ifndef CONFIG_PIXMAN
-    if (s->use_pixman != 0) {
-        warn_report("x-pixman != 0, not effective without PIXMAN");
-    }
-#endif
-
     if (s->model) {
         int i;
         for (i = 0; i < ARRAY_SIZE(ati_model_aliases); i++) {
@@ -986,9 +955,7 @@ static void ati_vga_realize(PCIDevice *dev, Error **errp)
     }
 
     /* init vga bits */
-    if (!vga_common_init(vga, OBJECT(s), errp)) {
-        return;
-    }
+    vga_common_init(vga, OBJECT(s));
     vga_init(vga, OBJECT(s), pci_address_space(dev),
              pci_address_space_io(dev), true);
     vga->con = graphic_console_init(DEVICE(s), 0, s->vga.hw_ops, &s->vga);
@@ -1001,7 +968,7 @@ static void ati_vga_realize(PCIDevice *dev, Error **errp)
     I2CBus *i2cbus = i2c_init_bus(DEVICE(s), "ati-vga.ddc");
     bitbang_i2c_init(&s->bbi2c, i2cbus);
     I2CSlave *i2cddc = I2C_SLAVE(qdev_new(TYPE_I2CDDC));
-    i2c_slave_set_address(i2cddc, 0x50);
+    i2c_set_slave_address(i2cddc, 0x50);
     qdev_realize_and_unref(DEVICE(i2cddc), BUS(i2cbus), &error_abort);
 
     /* mmio register space */
@@ -1045,8 +1012,6 @@ static Property ati_vga_properties[] = {
     DEFINE_PROP_UINT16("x-device-id", ATIVGAState, dev_id,
                        PCI_DEVICE_ID_ATI_RAGE128_PF),
     DEFINE_PROP_BOOL("guest_hwcursor", ATIVGAState, cursor_guest_mode, false),
-    /* this is a debug option, prefer PROP_UINT over PROP_BIT for simplicity */
-    DEFINE_PROP_UINT8("x-pixman", ATIVGAState, use_pixman, DEFAULT_X_PIXMAN),
     DEFINE_PROP_END_OF_LIST()
 };
 
@@ -1068,18 +1033,11 @@ static void ati_vga_class_init(ObjectClass *klass, void *data)
     k->exit = ati_vga_exit;
 }
 
-static void ati_vga_init(Object *o)
-{
-    object_property_set_description(o, "x-pixman", "Use pixman for: "
-                                    "1: fill, 2: blit");
-}
-
 static const TypeInfo ati_vga_info = {
     .name = TYPE_ATI_VGA,
     .parent = TYPE_PCI_DEVICE,
     .instance_size = sizeof(ATIVGAState),
     .class_init = ati_vga_class_init,
-    .instance_init = ati_vga_init,
     .interfaces = (InterfaceInfo[]) {
           { INTERFACE_CONVENTIONAL_PCI_DEVICE },
           { },

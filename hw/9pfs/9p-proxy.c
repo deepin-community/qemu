@@ -10,19 +10,10 @@
  * the COPYING file in the top-level directory.
  */
 
-/*
- * Not so fast! You might want to read the 9p developer docs first:
- * https://wiki.qemu.org/Documentation/9p
- */
-
-/*
- * NOTE: The 9p 'proxy' backend is deprecated (since QEMU 8.1) and will be
- * removed in a future version of QEMU!
- */
-
 #include "qemu/osdep.h"
 #include <sys/socket.h>
 #include <sys/un.h>
+#include "qemu-common.h"
 #include "9p.h"
 #include "qapi/error.h"
 #include "qemu/cutils.h"
@@ -127,16 +118,10 @@ static void prstatfs_to_statfs(struct statfs *stfs, ProxyStatFS *prstfs)
     stfs->f_bavail = prstfs->f_bavail;
     stfs->f_files = prstfs->f_files;
     stfs->f_ffree = prstfs->f_ffree;
-#ifdef CONFIG_DARWIN
-    /* f_namelen and f_frsize do not exist on Darwin */
-    stfs->f_fsid.val[0] = prstfs->f_fsid[0] & 0xFFFFFFFFU;
-    stfs->f_fsid.val[1] = prstfs->f_fsid[1] >> 32 & 0xFFFFFFFFU;
-#else
     stfs->f_fsid.__val[0] = prstfs->f_fsid[0] & 0xFFFFFFFFU;
     stfs->f_fsid.__val[1] = prstfs->f_fsid[1] >> 32 & 0xFFFFFFFFU;
     stfs->f_namelen = prstfs->f_namelen;
     stfs->f_frsize = prstfs->f_frsize;
-#endif
 }
 
 /* Converts proxy_stat structure to VFS stat structure */
@@ -153,24 +138,12 @@ static void prstat_to_stat(struct stat *stbuf, ProxyStat *prstat)
    stbuf->st_size = prstat->st_size;
    stbuf->st_blksize = prstat->st_blksize;
    stbuf->st_blocks = prstat->st_blocks;
-   stbuf->st_atime = prstat->st_atim_sec;
-   stbuf->st_mtime = prstat->st_mtim_sec;
-   stbuf->st_ctime = prstat->st_ctim_sec;
-#ifdef CONFIG_DARWIN
-   stbuf->st_atimespec.tv_sec = prstat->st_atim_sec;
-   stbuf->st_mtimespec.tv_sec = prstat->st_mtim_sec;
-   stbuf->st_ctimespec.tv_sec = prstat->st_ctim_sec;
-   stbuf->st_atimespec.tv_nsec = prstat->st_atim_nsec;
-   stbuf->st_mtimespec.tv_nsec = prstat->st_mtim_nsec;
-   stbuf->st_ctimespec.tv_nsec = prstat->st_ctim_nsec;
-#else
    stbuf->st_atim.tv_sec = prstat->st_atim_sec;
-   stbuf->st_mtim.tv_sec = prstat->st_mtim_sec;
-   stbuf->st_ctim.tv_sec = prstat->st_ctim_sec;
    stbuf->st_atim.tv_nsec = prstat->st_atim_nsec;
+   stbuf->st_mtime = prstat->st_mtim_sec;
    stbuf->st_mtim.tv_nsec = prstat->st_mtim_nsec;
+   stbuf->st_ctime = prstat->st_ctim_sec;
    stbuf->st_ctim.tv_nsec = prstat->st_ctim_nsec;
-#endif
 }
 
 /*
@@ -564,8 +537,7 @@ static int v9fs_request(V9fsProxy *proxy, int type, void *response, ...)
     }
 
     /* marshal the header details */
-    retval = proxy_marshal(iovec, 0, "dd", header.type, header.size);
-    assert(retval == 4 * 2);
+    proxy_marshal(iovec, 0, "dd", header.type, header.size);
     header.size += PROXY_HDR_SZ;
 
     retval = qemu_write_full(proxy->sockfd, iovec->iov_base, header.size);
@@ -710,21 +682,7 @@ static off_t proxy_telldir(FsContext *ctx, V9fsFidOpenState *fs)
 
 static struct dirent *proxy_readdir(FsContext *ctx, V9fsFidOpenState *fs)
 {
-    struct dirent *entry;
-    entry = readdir(fs->dir.stream);
-#ifdef CONFIG_DARWIN
-    if (!entry) {
-        return NULL;
-    }
-    int td;
-    td = telldir(fs->dir.stream);
-    /* If telldir fails, fail the entire readdir call */
-    if (td < 0) {
-        return NULL;
-    }
-    entry->d_seekoff = td;
-#endif
-    return entry;
+    return readdir(fs->dir.stream);
 }
 
 static void proxy_seekdir(FsContext *ctx, V9fsFidOpenState *fs, off_t off)
@@ -767,7 +725,7 @@ static ssize_t proxy_pwritev(FsContext *ctx, V9fsFidOpenState *fs,
         /*
          * Initiate a writeback. This is not a data integrity sync.
          * We want to ensure that we don't leave dirty pages in the cache
-         * after write when writeout=immediate is specified.
+         * after write when writeout=immediate is sepcified.
          */
         sync_file_range(fs->fd, offset, ret,
                         SYNC_FILE_RANGE_WAIT_BEFORE | SYNC_FILE_RANGE_WRITE);
@@ -1191,7 +1149,7 @@ static int proxy_parse_opts(QemuOpts *opts, FsDriverEntry *fs, Error **errp)
 
 static int proxy_init(FsContext *ctx, Error **errp)
 {
-    V9fsProxy *proxy = g_new(V9fsProxy, 1);
+    V9fsProxy *proxy = g_malloc(sizeof(V9fsProxy));
     int sock_id;
 
     if (ctx->export_flags & V9FS_PROXY_SOCK_NAME) {

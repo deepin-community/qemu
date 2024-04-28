@@ -29,22 +29,23 @@ typedef struct {
 
 static GlobalState global_state;
 
-static void global_state_do_store(RunState state)
+int global_state_store(void)
 {
-    const char *state_str = RunState_str(state);
-    assert(strlen(state_str) < sizeof(global_state.runstate));
-    strpadcpy((char *)global_state.runstate, sizeof(global_state.runstate),
-              state_str, '\0');
-}
-
-void global_state_store(void)
-{
-    global_state_do_store(runstate_get());
+    if (!runstate_store((char *)global_state.runstate,
+                        sizeof(global_state.runstate))) {
+        error_report("runstate name too big: %s", global_state.runstate);
+        trace_migrate_state_too_big();
+        return -EINVAL;
+    }
+    return 0;
 }
 
 void global_state_store_running(void)
 {
-    global_state_do_store(RUN_STATE_RUNNING);
+    const char *state = RunState_str(RUN_STATE_RUNNING);
+    assert(strlen(state) < sizeof(global_state.runstate));
+    strpadcpy((char *)global_state.runstate, sizeof(global_state.runstate),
+              state, '\0');
 }
 
 bool global_state_received(void)

@@ -14,7 +14,7 @@
 
 /* clang-format off */
 
-#ifdef __ASSEMBLER__
+#ifdef __ASSEMBLY__
 #define __ASM_STR(x)	x
 #else
 #define __ASM_STR(x)	#x
@@ -38,7 +38,7 @@
 #define LGREG		__REG_SEL(3, 2)
 
 #if __SIZEOF_POINTER__ == 8
-#ifdef __ASSEMBLER__
+#ifdef __ASSEMBLY__
 #define RISCV_PTR		.dword
 #define RISCV_SZPTR		8
 #define RISCV_LGPTR		3
@@ -48,7 +48,7 @@
 #define RISCV_LGPTR		"3"
 #endif
 #elif __SIZEOF_POINTER__ == 4
-#ifdef __ASSEMBLER__
+#ifdef __ASSEMBLY__
 #define RISCV_PTR		.word
 #define RISCV_SZPTR		4
 #define RISCV_LGPTR		2
@@ -79,7 +79,7 @@
 
 /* clang-format on */
 
-#ifndef __ASSEMBLER__
+#ifndef __ASSEMBLY__
 
 #define csr_swap(csr, val)                                              \
 	({                                                              \
@@ -157,11 +157,6 @@ void csr_write_num(int csr_num, unsigned long val);
 		__asm__ __volatile__("wfi" ::: "memory"); \
 	} while (0)
 
-#define ebreak()                                             \
-	do {                                              \
-		__asm__ __volatile__("ebreak" ::: "memory"); \
-	} while (0)
-
 /* Get current HART id */
 #define current_hartid()	((unsigned int)csr_read(CSR_MHARTID))
 
@@ -185,8 +180,8 @@ int pmp_set(unsigned int n, unsigned long prot, unsigned long addr,
 	    unsigned long log2len);
 
 int pmp_get(unsigned int n, unsigned long *prot_out, unsigned long *addr_out,
-	    unsigned long *log2len);
+	    unsigned long *size);
 
-#endif /* !__ASSEMBLER__ */
+#endif /* !__ASSEMBLY__ */
 
 #endif

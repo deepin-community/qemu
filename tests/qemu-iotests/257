@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# group: rw
 #
 # Test bitmap-sync backups (incremental, differential, and partials)
 #
@@ -160,26 +159,26 @@ class Drive:
         file_node_name = "file_{}".format(basename)
         vm = self.vm
 
-        log(vm.cmd('blockdev-create', job_id='bdc-file-job',
-                   options={
-                       'driver': 'file',
-                       'filename': self.path,
-                       'size': 0,
-                   }))
+        log(vm.command('blockdev-create', job_id='bdc-file-job',
+                       options={
+                           'driver': 'file',
+                           'filename': self.path,
+                           'size': 0,
+                       }))
         vm.run_job('bdc-file-job')
-        log(vm.cmd('blockdev-add', driver='file',
-                   node_name=file_node_name, filename=self.path))
+        log(vm.command('blockdev-add', driver='file',
+                       node_name=file_node_name, filename=self.path))
 
-        log(vm.cmd('blockdev-create', job_id='bdc-fmt-job',
-                   options={
-                       'driver': fmt,
-                       'file': file_node_name,
-                       'size': size,
-                   }))
+        log(vm.command('blockdev-create', job_id='bdc-fmt-job',
+                       options={
+                           'driver': fmt,
+                           'file': file_node_name,
+                           'size': size,
+                       }))
         vm.run_job('bdc-fmt-job')
-        log(vm.cmd('blockdev-add', driver=fmt,
-                   node_name=name,
-                   file=file_node_name))
+        log(vm.command('blockdev-add', driver=fmt,
+                       node_name=name,
+                       file=file_node_name))
         self.fmt = fmt
         self.size = size
         self.node = name
@@ -192,7 +191,6 @@ def blockdev_backup(vm, device, target, sync, **kwargs):
                         target=target,
                         sync=sync,
                         filter_node_name='backup-top',
-                        x_perf={'max-workers': 1},
                         **kwargs)
     return result
 
@@ -240,14 +238,13 @@ def compare_images(image, reference, baseimg=None, expected_match=True):
     """
     expected_ret = 0 if expected_match else 1
     if baseimg:
-        qemu_img("rebase", "-u", "-b", baseimg, '-F', iotests.imgfmt, image)
-
-    sub = qemu_img("compare", image, reference, check=False)
-
+        assert qemu_img("rebase", "-u", "-b", baseimg, '-F', iotests.imgfmt,
+                        image) == 0
+    ret = qemu_img("compare", image, reference)
     log('qemu_img compare "{:s}" "{:s}" ==> {:s}, {:s}'.format(
         image, reference,
-        "Identical" if sub.returncode == 0 else "Mismatch",
-        "OK!" if sub.returncode == expected_ret else "ERROR!"),
+        "Identical" if ret == 0 else "Mismatch",
+        "OK!" if ret == expected_ret else "ERROR!"),
         filters=[iotests.filter_testfiles])
 
 def test_bitmap_sync(bsync_mode, msync_mode='bitmap', failure=None):
@@ -293,7 +290,7 @@ def test_bitmap_sync(bsync_mode, msync_mode='bitmap', failure=None):
         log('--- Preparing image & VM ---\n')
         drive0 = Drive(img_path, vm=vm)
         drive0.img_create(iotests.imgfmt, SIZE)
-        vm.add_device("{},id=scsi0".format('virtio-scsi'))
+        vm.add_device("{},id=scsi0".format(iotests.get_virtio_scsi_device()))
         vm.launch()
 
         file_config = {
@@ -450,7 +447,7 @@ def test_backup_api():
         log('--- Preparing image & VM ---\n')
         drive0 = Drive(img_path, vm=vm)
         drive0.img_create(iotests.imgfmt, SIZE)
-        vm.add_device("{},id=scsi0".format('virtio-scsi'))
+        vm.add_device("{},id=scsi0".format(iotests.get_virtio_scsi_device()))
         vm.launch()
 
         file_config = {

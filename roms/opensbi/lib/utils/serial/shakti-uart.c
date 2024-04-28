@@ -18,43 +18,27 @@
 #define REG_IQ_CYCLES	0x1C
 #define REG_RX_THRES	0x20
 
-#define UART_TX_FULL  0x2
-#define UART_RX_NOT_EMPTY 0x4
-#define UART_RX_FULL  0x8
+static volatile void *uart_base;
 
-static volatile char *uart_base;
-
-static void shakti_uart_putc(char ch)
+void shakti_uart_putc(char ch)
 {
-	while ((readb(uart_base + REG_STATUS) & UART_TX_FULL))
-		;
+	while((readw(uart_base + REG_STATUS) & 0x2) == 0);
 	writeb(ch, uart_base + REG_TX);
 }
 
-static int shakti_uart_getc(void)
+int shakti_uart_getc(void)
 {
-	if (readb(uart_base + REG_STATUS) & UART_RX_NOT_EMPTY)
+	u16 status = readw(uart_base + REG_STATUS);
+	if (status & 0x8)
 		return readb(uart_base + REG_RX);
 	return -1;
 }
 
-static struct sbi_console_device shakti_console = {
-	.name = "shakti_uart",
-	.console_putc = shakti_uart_putc,
-	.console_getc = shakti_uart_getc
-};
-
 int shakti_uart_init(unsigned long base, u32 in_freq, u32 baudrate)
 {
-	uart_base = (volatile char *)base;
-	u16 baud;
-
-	if (baudrate) {
-		baud = (u16)(in_freq / (16 * baudrate));
-		writew(baud, uart_base + REG_BAUD);
-	}
-
-	sbi_console_set_device(&shakti_console);
+	uart_base = (volatile void *)base;
+	u16 baud = (u16)(in_freq/(16 * baudrate));
+	writew(baud, uart_base + REG_BAUD);
 
 	return 0;
 }

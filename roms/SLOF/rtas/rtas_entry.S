@@ -20,8 +20,9 @@ Function:
 		r4:   base address
 	Output:		
 
-Description:
-	Main entry point, called from OS. Second parameter is not used.
+Decription: Main entry point, called from OS. Second parameter is not
+	used.	
+	
 */
 	.globl rtas_entry
 rtas_entry:	

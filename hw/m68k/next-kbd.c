@@ -29,15 +29,18 @@
 
 #include "qemu/osdep.h"
 #include "qemu/log.h"
+#include "exec/address-spaces.h"
+#include "hw/hw.h"
 #include "hw/sysbus.h"
 #include "hw/m68k/next-cube.h"
 #include "ui/console.h"
+#include "sysemu/sysemu.h"
 #include "migration/vmstate.h"
 #include "qom/object.h"
 
 OBJECT_DECLARE_SIMPLE_TYPE(NextKBDState, NEXTKBD)
 
-/* following definitions from next68k netbsd */
+/* following defintions from next68k netbsd */
 #define CSR_INT 0x00800000
 #define CSR_DATA 0x00400000
 

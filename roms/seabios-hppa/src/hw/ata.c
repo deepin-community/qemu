@@ -361,7 +361,7 @@ ata_try_dma(struct disk_op_s *op, int iswrite, int blocksize)
     if (! CONFIG_ATA_DMA)
         return -1;
     ASSERT16(); // behind ATA_DMA, needed on parisc to boot via ata
-    unsigned long dest = (unsigned long)op->buf_fl;
+    u32 dest = (u32)op->buf_fl;
     if (dest & 1)
         // Need minimum alignment of 1.
         return -1;
@@ -392,7 +392,7 @@ ata_try_dma(struct disk_op_s *op, int iswrite, int blocksize)
         if (!bytes)
             // Last descriptor.
             count |= 1<<31;
-        dprintf(16, "dma@%p: %08lx %08x\n", dma, dest, count);
+        dprintf(16, "dma@%p: %08x %08x\n", dma, dest, count);
         dest += count;
         SET_LOWFLAT(dma->count, count);
         dma++;
@@ -701,7 +701,7 @@ ata_extract_model(char *model, u32 size, u16 *buffer)
     // Read model name
     int i;
     for (i=0; i<size/2; i++)
-        *(u16*)&model[i*2] = cpu_to_le16(be16_to_cpu(buffer[27+i]));
+        *(u16*)&model[i*2] = le16_to_cpu(buffer[27+i]);
     model[size] = 0x00;
     nullTrailingSpace(model);
     return model;
@@ -755,10 +755,6 @@ init_drive_atapi(struct atadrive_s *dummy, u16 *buffer)
         int prio = bootprio_find_ata_device(adrive->chan_gf->pci_tmp,
                                             adrive->chan_gf->chanid,
                                             adrive->slave);
-        boot_lchs_find_ata_device(adrive->chan_gf->pci_tmp,
-                                  adrive->chan_gf->chanid,
-                                  adrive->slave,
-                                  &(adrive->drive.lchs));
         boot_add_cd(&adrive->drive, desc, prio);
     }
 
@@ -809,10 +805,6 @@ init_drive_ata(struct atadrive_s *dummy, u16 *buffer)
     int prio = bootprio_find_ata_device(adrive->chan_gf->pci_tmp,
                                         adrive->chan_gf->chanid,
                                         adrive->slave);
-    boot_lchs_find_ata_device(adrive->chan_gf->pci_tmp,
-                              adrive->chan_gf->chanid,
-                              adrive->slave,
-                              &(adrive->drive.lchs));
     // Register with bcv system.
     boot_add_hd(&adrive->drive, desc, prio);
 
@@ -842,7 +834,7 @@ powerup_await_non_bsy(portaddr_t base)
         }
         yield();
     }
-    dprintf(6, "powerup iobase=%lx st=%x\n", base, status);
+    dprintf(6, "powerup iobase=%x st=%x\n", base, status);
     return status;
 }
 

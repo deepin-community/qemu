@@ -488,7 +488,7 @@ constant <colon>
 ;
 
 \ peek/poke minimal implementation, just to support FCode drivers
-\ Any implementation with full error detection will be platform specific
+\ Any implmentation with full error detection will be platform specific
 : cpeek ( addr -- false | byte true ) c@ true ;
 : cpoke ( byte addr -- success? ) c! true ;
 : wpeek ( addr -- false | word true ) w@ true ;
@@ -553,11 +553,11 @@ defer cursor-off ( -- )
 : reset-all reboot ;
 
 \ load-base is an env. variable now, but it can
-\ be overridden temporarily provided users use
+\ be overriden temporarily provided users use
 \ get-load-base rather than load-base directly
 \
 \ default-load-base is set here and can be
-\ overridden by the board code. It will be used
+\ overriden by the board code. It will be used
 \ to set the default value of the envvar "load-base"
 \ when booting without a valid nvram
 

@@ -31,14 +31,14 @@ static inline void *u32toptr(uint32_t n)
 
 static inline void yield(void)
 {
-    asm volatile ("diag %%r0,%%r0,0x44"
+    asm volatile ("diag 0,0,0x44"
                   : :
                   : "memory", "cc");
 }
 
 static inline void sleep(unsigned int seconds)
 {
-    unsigned long target = get_time_seconds() + seconds;
+    ulong target = get_time_seconds() + seconds;
 
     while (get_time_seconds() < target) {
         yield();

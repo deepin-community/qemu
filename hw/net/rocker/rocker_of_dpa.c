@@ -1043,7 +1043,7 @@ static void of_dpa_flow_ig_tbl(OfDpaFlowContext *fc, uint32_t tbl_id)
 static ssize_t of_dpa_ig(World *world, uint32_t pport,
                          const struct iovec *iov, int iovcnt)
 {
-    g_autofree struct iovec *iov_copy = g_new(struct iovec, iovcnt + 2);
+    struct iovec iov_copy[iovcnt + 2];
     OfDpaFlowContext fc = {
         .of_dpa = world_private(world),
         .in_pport = pport,
@@ -2296,6 +2296,7 @@ static void of_dpa_flow_fill(void *cookie, void *value, void *user_data)
     struct of_dpa_flow_key *key = &flow->key;
     struct of_dpa_flow_key *mask = &flow->mask;
     struct of_dpa_flow_fill_context *flow_context = user_data;
+    RockerOfDpaFlowList *new;
     RockerOfDpaFlow *nflow;
     RockerOfDpaFlowKey *nkey;
     RockerOfDpaFlowMask *nmask;
@@ -2306,7 +2307,8 @@ static void of_dpa_flow_fill(void *cookie, void *value, void *user_data)
         return;
     }
 
-    nflow = g_malloc0(sizeof(*nflow));
+    new = g_malloc0(sizeof(*new));
+    nflow = new->value = g_malloc0(sizeof(*nflow));
     nkey = nflow->key = g_malloc0(sizeof(*nkey));
     nmask = nflow->mask = g_malloc0(sizeof(*nmask));
     naction = nflow->action = g_malloc0(sizeof(*naction));
@@ -2348,19 +2350,23 @@ static void of_dpa_flow_fill(void *cookie, void *value, void *user_data)
 
     if (memcmp(key->eth.src.a, zero_mac.a, ETH_ALEN) ||
         memcmp(mask->eth.src.a, zero_mac.a, ETH_ALEN)) {
+        nkey->has_eth_src = true;
         nkey->eth_src = qemu_mac_strdup_printf(key->eth.src.a);
     }
 
-    if (nkey->eth_src && memcmp(mask->eth.src.a, ff_mac.a, ETH_ALEN)) {
+    if (nkey->has_eth_src && memcmp(mask->eth.src.a, ff_mac.a, ETH_ALEN)) {
+        nmask->has_eth_src = true;
         nmask->eth_src = qemu_mac_strdup_printf(mask->eth.src.a);
     }
 
     if (memcmp(key->eth.dst.a, zero_mac.a, ETH_ALEN) ||
         memcmp(mask->eth.dst.a, zero_mac.a, ETH_ALEN)) {
+        nkey->has_eth_dst = true;
         nkey->eth_dst = qemu_mac_strdup_printf(key->eth.dst.a);
     }
 
-    if (nkey->eth_dst && memcmp(mask->eth.dst.a, ff_mac.a, ETH_ALEN)) {
+    if (nkey->has_eth_dst && memcmp(mask->eth.dst.a, ff_mac.a, ETH_ALEN)) {
+        nmask->has_eth_dst = true;
         nmask->eth_dst = qemu_mac_strdup_printf(mask->eth.dst.a);
     }
 
@@ -2396,6 +2402,7 @@ static void of_dpa_flow_fill(void *cookie, void *value, void *user_data)
             if (key->ipv4.addr.dst || mask->ipv4.addr.dst) {
                 char *dst = inet_ntoa(*(struct in_addr *)&key->ipv4.addr.dst);
                 int dst_len = of_dpa_mask2prefix(mask->ipv4.addr.dst);
+                nkey->has_ip_dst = true;
                 nkey->ip_dst = g_strdup_printf("%s/%d", dst, dst_len);
             }
             break;
@@ -2417,7 +2424,8 @@ static void of_dpa_flow_fill(void *cookie, void *value, void *user_data)
         naction->new_vlan_id = flow->action.apply.new_vlan_id;
     }
 
-    QAPI_LIST_PREPEND(flow_context->list, nflow);
+    new->next = flow_context->list;
+    flow_context->list = new;
 }
 
 RockerOfDpaFlowList *qmp_query_rocker_of_dpa_flows(const char *name,
@@ -2461,7 +2469,9 @@ static void of_dpa_group_fill(void *key, void *value, void *user_data)
 {
     struct of_dpa_group *group = value;
     struct of_dpa_group_fill_context *flow_context = user_data;
+    RockerOfDpaGroupList *new;
     RockerOfDpaGroup *ngroup;
+    struct uint32List *id;
     int i;
 
     if (flow_context->type != 9 &&
@@ -2469,7 +2479,8 @@ static void of_dpa_group_fill(void *key, void *value, void *user_data)
         return;
     }
 
-    ngroup = g_malloc0(sizeof(*ngroup));
+    new = g_malloc0(sizeof(*new));
+    ngroup = new->value = g_malloc0(sizeof(*ngroup));
 
     ngroup->id = group->id;
 
@@ -2496,10 +2507,12 @@ static void of_dpa_group_fill(void *key, void *value, void *user_data)
             ngroup->set_vlan_id = ntohs(group->l2_rewrite.vlan_id);
         }
         if (memcmp(group->l2_rewrite.src_mac.a, zero_mac.a, ETH_ALEN)) {
+            ngroup->has_set_eth_src = true;
             ngroup->set_eth_src =
                 qemu_mac_strdup_printf(group->l2_rewrite.src_mac.a);
         }
         if (memcmp(group->l2_rewrite.dst_mac.a, zero_mac.a, ETH_ALEN)) {
+            ngroup->has_set_eth_dst = true;
             ngroup->set_eth_dst =
                 qemu_mac_strdup_printf(group->l2_rewrite.dst_mac.a);
         }
@@ -2512,7 +2525,10 @@ static void of_dpa_group_fill(void *key, void *value, void *user_data)
         ngroup->index = ROCKER_GROUP_INDEX_GET(group->id);
         for (i = 0; i < group->l2_flood.group_count; i++) {
             ngroup->has_group_ids = true;
-            QAPI_LIST_PREPEND(ngroup->group_ids, group->l2_flood.group_ids[i]);
+            id = g_malloc0(sizeof(*id));
+            id->value = group->l2_flood.group_ids[i];
+            id->next = ngroup->group_ids;
+            ngroup->group_ids = id;
         }
         break;
     case ROCKER_OF_DPA_GROUP_TYPE_L3_UCAST:
@@ -2525,10 +2541,12 @@ static void of_dpa_group_fill(void *key, void *value, void *user_data)
             ngroup->set_vlan_id = ntohs(group->l3_unicast.vlan_id);
         }
         if (memcmp(group->l3_unicast.src_mac.a, zero_mac.a, ETH_ALEN)) {
+            ngroup->has_set_eth_src = true;
             ngroup->set_eth_src =
                 qemu_mac_strdup_printf(group->l3_unicast.src_mac.a);
         }
         if (memcmp(group->l3_unicast.dst_mac.a, zero_mac.a, ETH_ALEN)) {
+            ngroup->has_set_eth_dst = true;
             ngroup->set_eth_dst =
                 qemu_mac_strdup_printf(group->l3_unicast.dst_mac.a);
         }
@@ -2539,7 +2557,8 @@ static void of_dpa_group_fill(void *key, void *value, void *user_data)
         break;
     }
 
-    QAPI_LIST_PREPEND(flow_context->list, ngroup);
+    new->next = flow_context->list;
+    flow_context->list = new;
 }
 
 RockerOfDpaGroupList *qmp_query_rocker_of_dpa_groups(const char *name,

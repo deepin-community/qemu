@@ -11,11 +11,6 @@
  *
  */
 
-/*
- * Not so fast! You might want to read the 9p developer docs first:
- * https://wiki.qemu.org/Documentation/9p
- */
-
 #include "qemu/osdep.h"
 #include "hw/virtio/virtio.h"
 #include "qemu/sockets.h"
@@ -216,7 +211,7 @@ static void virtio_9p_device_realize(DeviceState *dev, Error **errp)
     }
 
     v->config_size = sizeof(struct virtio_9p_config) + strlen(s->fsconf.tag);
-    virtio_init(vdev, VIRTIO_ID_9P, v->config_size);
+    virtio_init(vdev, "virtio-9p", VIRTIO_ID_9P, v->config_size);
     v->vq = virtio_add_queue(vdev, MAX_REQ, handle_9p_output);
 }
 

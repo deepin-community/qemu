@@ -1,7 +1,7 @@
 #include "qemu/osdep.h"
-#include "hw/i386/acpi-build.h"
+#include "hw/i386/pc.h"
 
-Object *acpi_get_i386_pci_host(void)
+void pc_madt_cpu_entry(AcpiDeviceIf *adev, int uid,
+                       const CPUArchIdList *apic_ids, GArray *entry)
 {
-       return NULL;
 }

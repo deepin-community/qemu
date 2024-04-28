@@ -56,6 +56,9 @@ struct PCDIMMDevice {
  * PCDIMMDeviceClass:
  * @realize: called after common dimm is realized so that the dimm based
  * devices get the chance to do specified operations.
+ * @get_vmstate_memory_region: returns #MemoryRegion which indicates the
+ * memory of @dimm should be kept during live migration. Will not fail
+ * after the device was realized.
  */
 struct PCDIMMDeviceClass {
     /* private */
@@ -63,7 +66,8 @@ struct PCDIMMDeviceClass {
 
     /* public */
     void (*realize)(PCDIMMDevice *dimm, Error **errp);
-    void (*unrealize)(PCDIMMDevice *dimm);
+    MemoryRegion *(*get_vmstate_memory_region)(PCDIMMDevice *dimm,
+                                               Error **errp);
 };
 
 void pc_dimm_pre_plug(PCDIMMDevice *dimm, MachineState *machine,

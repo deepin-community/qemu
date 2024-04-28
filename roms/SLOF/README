@@ -99,7 +99,7 @@ The SLOF source code is structured into the following directories:
 - llfw : The Low-Level Firmware - this part is platform-specific firmware
          that is responsible to boot the system from the reset vector to a
          state where it is possible to run the Open Firmware Forth engine
-         (i.e. it sets up the necessary CPU registers, initializes the memory,
+         (i.e. it sets up the necessary CPU registers, intializes the memory,
          does some board-specific hardware configuration, etc.)
 
 - slof : The code for the Open Firmware environment, including the Forth
@@ -232,7 +232,7 @@ To add primitives:
     * 2x 256 MB, slots 3/4
     * 2x 256 MB, slots 1/2
 
- On a JS20 SLOF will always report 0.5 GB even if there is much more memory
+ On a JS20 SLOF wil always report 0.5 GB even if there is much more memory
  available.
 
  On a JS21 all memory configurations should work.
@@ -266,20 +266,6 @@ New assembly code submitted to SLOF should follow the coding style
 guidelines for the Linux kernel [4], i.e. indent with tabs, not with spaces.
 
 
-6.0 Tips and tricks
-++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-
-- Note that the serial console support is written with serial terminals in
-  mind. Thus SLOF only looks for CR (0x0d) characters as line endings at the
-  command prompt. If you want to connect to the console with a program like
-  "ncat" for example, you have to make sure that it indeed sends CR characters
-  instead of plain LF (0x0a) characters. For ncat that means that you have to
-  use "nc -C ..." to enable the CR-LF mode, or even better, switch the terminal
-  to raw mode instead, for example like this:
-
-    stty raw -echo ; nc -U /path/to/chardev-socket-from-qemu ; stty sane
-
-
 Documentation
 +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
@@ -293,4 +279,4 @@ Documentation
     http://developercertificate.org/
 
 [4] Linux kernel coding style
-    https://github.com/torvalds/linux/blob/master/Documentation/process/coding-style.rst
+    https://github.com/torvalds/linux/blob/master/Documentation/CodingStyle

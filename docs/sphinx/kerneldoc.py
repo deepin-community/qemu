@@ -69,15 +69,6 @@ class KernelDocDirective(Directive):
         env = self.state.document.settings.env
         cmd = env.config.kerneldoc_bin + ['-rst', '-enable-lineno']
 
-        # Pass the version string to kernel-doc, as it needs to use a different
-        # dialect, depending what the C domain supports for each specific
-        # Sphinx versions
-        cmd += ['-sphinx-version', sphinx.__version__]
-
-        # Pass through the warnings-as-errors flag
-        if env.config.kerneldoc_werror:
-            cmd += ['-Werror']
-
         filename = env.config.kerneldoc_srctree + '/' + self.arguments[0]
         export_file_patterns = []
 
@@ -108,6 +99,7 @@ class KernelDocDirective(Directive):
                 env.note_dependency(os.path.abspath(f))
                 cmd += ['-export-file', f]
 
+        cmd += ['-sphinx-version', sphinx.__version__]
         cmd += [filename]
 
         try:
@@ -171,7 +163,6 @@ def setup(app):
     app.add_config_value('kerneldoc_bin', None, 'env')
     app.add_config_value('kerneldoc_srctree', None, 'env')
     app.add_config_value('kerneldoc_verbosity', 1, 'env')
-    app.add_config_value('kerneldoc_werror', 0, 'env')
 
     app.add_directive('kernel-doc', KernelDocDirective)
 

@@ -32,6 +32,7 @@ struct PXA2xxGPIOInfo {
     MemoryRegion iomem;
     qemu_irq irq0, irq1, irqX;
     int lines;
+    int ncpu;
     ARMCPU *cpu;
 
     /* XXX: GNU C vectors are more suitable */
@@ -265,11 +266,12 @@ static const MemoryRegionOps pxa_gpio_ops = {
 DeviceState *pxa2xx_gpio_init(hwaddr base,
                               ARMCPU *cpu, DeviceState *pic, int lines)
 {
+    CPUState *cs = CPU(cpu);
     DeviceState *dev;
 
     dev = qdev_new(TYPE_PXA2XX_GPIO);
     qdev_prop_set_int32(dev, "lines", lines);
-    object_property_set_link(OBJECT(dev), "cpu", OBJECT(cpu), &error_abort);
+    qdev_prop_set_int32(dev, "ncpu", cs->cpu_index);
     sysbus_realize_and_unref(SYS_BUS_DEVICE(dev), &error_fatal);
 
     sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, base);
@@ -300,6 +302,8 @@ static void pxa2xx_gpio_initfn(Object *obj)
 static void pxa2xx_gpio_realize(DeviceState *dev, Error **errp)
 {
     PXA2xxGPIOInfo *s = PXA2XX_GPIO(dev);
+
+    s->cpu = ARM_CPU(qemu_get_cpu(s->ncpu));
 
     qdev_init_gpio_in(dev, pxa2xx_gpio_set, s->lines);
     qdev_init_gpio_out(dev, s->handler, s->lines);
@@ -335,7 +339,7 @@ static const VMStateDescription vmstate_pxa2xx_gpio_regs = {
 
 static Property pxa2xx_gpio_properties[] = {
     DEFINE_PROP_INT32("lines", PXA2xxGPIOInfo, lines, 0),
-    DEFINE_PROP_LINK("cpu", PXA2xxGPIOInfo, cpu, TYPE_ARM_CPU, ARMCPU *),
+    DEFINE_PROP_INT32("ncpu", PXA2xxGPIOInfo, ncpu, 0),
     DEFINE_PROP_END_OF_LIST(),
 };
 

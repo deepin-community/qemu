@@ -17,20 +17,18 @@
 #ifdef CONFIG_LINUX_IO_URING
 #include <liburing.h>
 #endif
-#include "qemu/coroutine-core.h"
+#include "qemu/coroutine.h"
 #include "qemu/queue.h"
 #include "qemu/event_notifier.h"
 #include "qemu/thread.h"
 #include "qemu/timer.h"
-#include "block/graph-lock.h"
-#include "hw/qdev-core.h"
-
 
 typedef struct BlockAIOCB BlockAIOCB;
 typedef void BlockCompletionFunc(void *opaque, int ret);
 
 typedef struct AIOCBInfo {
     void (*cancel_async)(BlockAIOCB *acb);
+    AioContext *(*get_aio_context)(BlockAIOCB *acb);
     size_t aiocb_size;
 } AIOCBInfo;
 
@@ -53,6 +51,7 @@ typedef void QEMUBHFunc(void *opaque);
 typedef bool AioPollFn(void *opaque);
 typedef void IOHandler(void *opaque);
 
+struct Coroutine;
 struct ThreadPool;
 struct LinuxAioState;
 struct LuringState;
@@ -128,14 +127,6 @@ struct AioContext {
     /* Used by AioContext users to protect from multi-threaded access.  */
     QemuRecMutex lock;
 
-    /*
-     * Keep track of readers and writers of the block layer graph.
-     * This is essential to avoid performing additions and removal
-     * of nodes and edges from block graph while some
-     * other thread is traversing it.
-     */
-    BdrvGraphRWlock *bdrv_graph;
-
     /* The list of registered AIO handlers.  Protected by ctx->list_lock. */
     AioHandlerList aio_handlers;
 
@@ -201,17 +192,23 @@ struct AioContext {
     QSLIST_HEAD(, Coroutine) scheduled_coroutines;
     QEMUBH *co_schedule_bh;
 
-    int thread_pool_min;
-    int thread_pool_max;
     /* Thread pool for performing work and receiving completion callbacks.
      * Has its own locking.
      */
     struct ThreadPool *thread_pool;
 
 #ifdef CONFIG_LINUX_AIO
+    /*
+     * State for native Linux AIO.  Uses aio_context_acquire/release for
+     * locking.
+     */
     struct LinuxAioState *linux_aio;
 #endif
 #ifdef CONFIG_LINUX_IO_URING
+    /*
+     * State for Linux io_uring.  Uses aio_context_acquire/release for
+     * locking.
+     */
     struct LuringState *linux_io_uring;
 
     /* State for file descriptor monitoring using Linux io_uring */
@@ -224,6 +221,8 @@ struct AioContext {
      */
     QEMUTimerListGroup tlg;
 
+    int external_disable_cnt;
+
     /* Number of AioHandlers without .io_poll() */
     int poll_disable_cnt;
 
@@ -232,9 +231,6 @@ struct AioContext {
     int64_t poll_max_ns;    /* maximum polling time in nanoseconds */
     int64_t poll_grow;      /* polling time growth factor */
     int64_t poll_shrink;    /* polling time shrink factor */
-
-    /* AIO engine parameters */
-    int64_t aio_max_batch;  /* maximum number of requests in a batch */
 
     /*
      * List of handlers participating in userspace polling.  Protected by
@@ -296,56 +292,19 @@ void aio_context_acquire(AioContext *ctx);
 void aio_context_release(AioContext *ctx);
 
 /**
- * aio_bh_schedule_oneshot_full: Allocate a new bottom half structure that will
- * run only once and as soon as possible.
- *
- * @name: A human-readable identifier for debugging purposes.
- */
-void aio_bh_schedule_oneshot_full(AioContext *ctx, QEMUBHFunc *cb, void *opaque,
-                                  const char *name);
-
-/**
  * aio_bh_schedule_oneshot: Allocate a new bottom half structure that will run
  * only once and as soon as possible.
- *
- * A convenience wrapper for aio_bh_schedule_oneshot_full() that uses cb as the
- * name string.
  */
-#define aio_bh_schedule_oneshot(ctx, cb, opaque) \
-    aio_bh_schedule_oneshot_full((ctx), (cb), (opaque), (stringify(cb)))
+void aio_bh_schedule_oneshot(AioContext *ctx, QEMUBHFunc *cb, void *opaque);
 
 /**
- * aio_bh_new_full: Allocate a new bottom half structure.
+ * aio_bh_new: Allocate a new bottom half structure.
  *
  * Bottom halves are lightweight callbacks whose invocation is guaranteed
  * to be wait-free, thread-safe and signal-safe.  The #QEMUBH structure
  * is opaque and must be allocated prior to its use.
- *
- * @name: A human-readable identifier for debugging purposes.
- * @reentrancy_guard: A guard set when entering a cb to prevent
- * device-reentrancy issues
  */
-QEMUBH *aio_bh_new_full(AioContext *ctx, QEMUBHFunc *cb, void *opaque,
-                        const char *name, MemReentrancyGuard *reentrancy_guard);
-
-/**
- * aio_bh_new: Allocate a new bottom half structure
- *
- * A convenience wrapper for aio_bh_new_full() that uses the cb as the name
- * string.
- */
-#define aio_bh_new(ctx, cb, opaque) \
-    aio_bh_new_full((ctx), (cb), (opaque), (stringify(cb)), NULL)
-
-/**
- * aio_bh_new_guarded: Allocate a new bottom half structure with a
- * reentrancy_guard
- *
- * A convenience wrapper for aio_bh_new_full() that uses the cb as the name
- * string.
- */
-#define aio_bh_new_guarded(ctx, cb, opaque, guard) \
-    aio_bh_new_full((ctx), (cb), (opaque), (stringify(cb)), guard)
+QEMUBH *aio_bh_new(AioContext *ctx, QEMUBHFunc *cb, void *opaque);
 
 /**
  * aio_notify: Force processing of pending events.
@@ -467,7 +426,7 @@ void aio_dispatch(AioContext *ctx);
  * or more AIO events have completed, to ensure something has moved
  * before returning.
  */
-bool no_coroutine_fn aio_poll(AioContext *ctx, bool blocking);
+bool aio_poll(AioContext *ctx, bool blocking);
 
 /* Register a file descriptor and associated callbacks.  Behaves very similarly
  * to qemu_set_fd_handler.  Unlike qemu_set_fd_handler, these callbacks will
@@ -478,11 +437,19 @@ bool no_coroutine_fn aio_poll(AioContext *ctx, bool blocking);
  */
 void aio_set_fd_handler(AioContext *ctx,
                         int fd,
+                        bool is_external,
                         IOHandler *io_read,
                         IOHandler *io_write,
                         AioPollFn *io_poll,
-                        IOHandler *io_poll_ready,
                         void *opaque);
+
+/* Set polling begin/end callbacks for a file descriptor that has already been
+ * registered with aio_set_fd_handler.  Do nothing if the file descriptor is
+ * not registered.
+ */
+void aio_set_fd_poll(AioContext *ctx, int fd,
+                     IOHandler *io_poll_begin,
+                     IOHandler *io_poll_end);
 
 /* Register an event notifier and associated callbacks.  Behaves very similarly
  * to event_notifier_set_handler.  Unlike event_notifier_set_handler, these callbacks
@@ -493,18 +460,13 @@ void aio_set_fd_handler(AioContext *ctx,
  */
 void aio_set_event_notifier(AioContext *ctx,
                             EventNotifier *notifier,
+                            bool is_external,
                             EventNotifierHandler *io_read,
-                            AioPollFn *io_poll,
-                            EventNotifierHandler *io_poll_ready);
+                            AioPollFn *io_poll);
 
-/*
- * Set polling begin/end callbacks for an event notifier that has already been
+/* Set polling begin/end callbacks for an event notifier that has already been
  * registered with aio_set_event_notifier.  Do nothing if the event notifier is
  * not registered.
- *
- * Note that if the io_poll_end() callback (or the entire notifier) is removed
- * during polling, it will not be called, so an io_poll_begin() is not
- * necessarily always followed by an io_poll_end().
  */
 void aio_set_event_notifier_poll(AioContext *ctx,
                                  EventNotifier *notifier,
@@ -627,6 +589,59 @@ static inline void aio_timer_init(AioContext *ctx,
 int64_t aio_compute_timeout(AioContext *ctx);
 
 /**
+ * aio_disable_external:
+ * @ctx: the aio context
+ *
+ * Disable the further processing of external clients.
+ */
+static inline void aio_disable_external(AioContext *ctx)
+{
+    qatomic_inc(&ctx->external_disable_cnt);
+}
+
+/**
+ * aio_enable_external:
+ * @ctx: the aio context
+ *
+ * Enable the processing of external clients.
+ */
+static inline void aio_enable_external(AioContext *ctx)
+{
+    int old;
+
+    old = qatomic_fetch_dec(&ctx->external_disable_cnt);
+    assert(old > 0);
+    if (old == 1) {
+        /* Kick event loop so it re-arms file descriptors */
+        aio_notify(ctx);
+    }
+}
+
+/**
+ * aio_external_disabled:
+ * @ctx: the aio context
+ *
+ * Return true if the external clients are disabled.
+ */
+static inline bool aio_external_disabled(AioContext *ctx)
+{
+    return qatomic_read(&ctx->external_disable_cnt);
+}
+
+/**
+ * aio_node_check:
+ * @ctx: the aio context
+ * @is_external: Whether or not the checked node is an external event source.
+ *
+ * Check if the node's is_external flag is okay to be polled by the ctx at this
+ * moment. True means green light.
+ */
+static inline bool aio_node_check(AioContext *ctx, bool is_external)
+{
+    return !is_external || !qatomic_read(&ctx->external_disable_cnt);
+}
+
+/**
  * aio_co_schedule:
  * @ctx: the aio context
  * @co: the coroutine
@@ -638,7 +653,7 @@ int64_t aio_compute_timeout(AioContext *ctx);
  * is the context in which the coroutine is running (i.e. the value of
  * qemu_get_current_aio_context() from the coroutine itself).
  */
-void aio_co_schedule(AioContext *ctx, Coroutine *co);
+void aio_co_schedule(AioContext *ctx, struct Coroutine *co);
 
 /**
  * aio_co_reschedule_self:
@@ -661,7 +676,7 @@ void coroutine_fn aio_co_reschedule_self(AioContext *new_ctx);
  * context.  The coroutine must not be entered by anyone else while
  * aio_co_wake() is active.
  */
-void aio_co_wake(Coroutine *co);
+void aio_co_wake(struct Coroutine *co);
 
 /**
  * aio_co_enter:
@@ -670,18 +685,15 @@ void aio_co_wake(Coroutine *co);
  *
  * Enter a coroutine in the specified AioContext.
  */
-void aio_co_enter(AioContext *ctx, Coroutine *co);
+void aio_co_enter(AioContext *ctx, struct Coroutine *co);
 
 /**
  * Return the AioContext whose event loop runs in the current thread.
  *
  * If called from an IOThread this will be the IOThread's AioContext.  If
- * called from the main thread or with the "big QEMU lock" taken it
- * will be the main loop AioContext.
+ * called from another thread it will be the main loop AioContext.
  */
 AioContext *qemu_get_current_aio_context(void);
-
-void qemu_set_current_aio_context(AioContext *ctx);
 
 /**
  * aio_context_setup:
@@ -715,21 +727,4 @@ void aio_context_set_poll_params(AioContext *ctx, int64_t max_ns,
                                  int64_t grow, int64_t shrink,
                                  Error **errp);
 
-/**
- * aio_context_set_aio_params:
- * @ctx: the aio context
- * @max_batch: maximum number of requests in a batch, 0 means that the
- *             engine will use its default
- */
-void aio_context_set_aio_params(AioContext *ctx, int64_t max_batch,
-                                Error **errp);
-
-/**
- * aio_context_set_thread_pool_params:
- * @ctx: the aio context
- * @min: min number of threads to have readily available in the thread pool
- * @min: max number of threads the thread pool can contain
- */
-void aio_context_set_thread_pool_params(AioContext *ctx, int64_t min,
-                                        int64_t max, Error **errp);
 #endif

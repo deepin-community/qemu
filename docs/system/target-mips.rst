@@ -8,6 +8,8 @@ endian options, ``qemu-system-mips``, ``qemu-system-mipsel``
 ``qemu-system-mips64`` and ``qemu-system-mips64el``. Five different
 machine types are emulated:
 
+-  A generic ISA PC-like machine \"mips\"
+
 -  The MIPS Malta prototype board \"malta\"
 
 -  An ACER Pica \"pica61\". This machine needs the 64-bit emulator.
@@ -16,6 +18,18 @@ machine types are emulated:
 
 -  A MIPS Magnum R4000 machine \"magnum\". This machine needs the
    64-bit emulator.
+
+The generic emulation is supported by Debian 'Etch' and is able to
+install Debian into a virtual disk image. The following devices are
+emulated:
+
+-  A range of MIPS CPUs, default is the 24Kf
+
+-  PC style serial port
+
+-  PC style IDE disk
+
+-  NE2000 network card
 
 The Malta emulation supports the following devices:
 
@@ -69,16 +83,6 @@ The Fuloong 2E emulation supports:
 -  VT82C686 chipset as South Bridge
 
 -  RTL8139D as a network card chipset
-
-The Loongson-3 virtual platform emulation supports:
-
--  Loongson 3A CPU
-
--  LIOINTC as interrupt controller
-
--  GPEX and virtio as peripheral devices
-
--  Both KVM and TCG supported
 
 The mipssim pseudo board emulation provides an environment similar to
 what the proprietary MIPS emulator uses for running Linux. It supports:

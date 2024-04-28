@@ -14,7 +14,7 @@
 #include "hw/isa/i8259_internal.h"
 #include "hw/intc/i8259.h"
 #include "qemu/module.h"
-#include "hw/intc/kvm_irqcount.h"
+#include "hw/i386/apic_internal.h"
 #include "hw/irq.h"
 #include "sysemu/kvm.h"
 #include "qom/object.h"
@@ -43,7 +43,7 @@ static void kvm_pic_get(PICCommonState *s)
     chip.chip_id = s->master ? KVM_IRQCHIP_PIC_MASTER : KVM_IRQCHIP_PIC_SLAVE;
     ret = kvm_vm_ioctl(kvm_state, KVM_GET_IRQCHIP, &chip);
     if (ret < 0) {
-        fprintf(stderr, "KVM_GET_IRQCHIP failed: %s\n", strerror(-ret));
+        fprintf(stderr, "KVM_GET_IRQCHIP failed: %s\n", strerror(ret));
         abort();
     }
 
@@ -96,7 +96,7 @@ static void kvm_pic_put(PICCommonState *s)
 
     ret = kvm_vm_ioctl(kvm_state, KVM_SET_IRQCHIP, &chip);
     if (ret < 0) {
-        fprintf(stderr, "KVM_SET_IRQCHIP failed: %s\n", strerror(-ret));
+        fprintf(stderr, "KVM_SET_IRQCHIP failed: %s\n", strerror(ret));
         abort();
     }
 }
@@ -117,7 +117,7 @@ static void kvm_pic_set_irq(void *opaque, int irq, int level)
 
     pic_stat_update_irq(irq, level);
     delivered = kvm_set_irq(kvm_state, irq, level);
-    kvm_report_irq_delivered(delivered);
+    apic_report_irq_delivered(delivered);
 }
 
 static void kvm_pic_realize(DeviceState *dev, Error **errp)

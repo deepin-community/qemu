@@ -307,16 +307,15 @@
 
 : .p-bytes? ( data len -- 1 | data len 0 )
   ." -- " dup . ." : "
-  swap >r dup 100 min 0
+  swap >r 0
   begin 2dup > while
     dup r@ + c@
     ( len n ch )
 
     2 0.r space
     1+
-  repeat
-  drop > if ." ..." then
-  r> drop 1
+  repeat 
+  2drop r> drop 1
 ;
 
 \ this function tries to heuristically determine the data format

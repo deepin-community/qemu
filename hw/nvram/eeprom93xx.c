@@ -104,7 +104,7 @@ static int get_uint16_from_uint8(QEMUFile *f, void *pv, size_t size,
 }
 
 static int put_unused(QEMUFile *f, void *pv, size_t size,
-                      const VMStateField *field, JSONWriter *vmdesc)
+                      const VMStateField *field, QJSON *vmdesc)
 {
     fprintf(stderr, "uint16_from_uint8 is used only for backwards compatibility.\n");
     fprintf(stderr, "Never should be used to write a new state.\n");
@@ -315,13 +315,13 @@ eeprom_t *eeprom93xx_new(DeviceState *dev, uint16_t nwords)
         addrbits = 6;
     }
 
-    eeprom = g_malloc0(sizeof(*eeprom) + nwords * 2);
+    eeprom = (eeprom_t *)g_malloc0(sizeof(*eeprom) + nwords * 2);
     eeprom->size = nwords;
     eeprom->addrbits = addrbits;
     /* Output DO is tristate, read results in 1. */
     eeprom->eedo = 1;
     logout("eeprom = 0x%p, nwords = %u\n", eeprom, nwords);
-    vmstate_register_any(VMSTATE_IF(dev), &vmstate_eeprom, eeprom);
+    vmstate_register(VMSTATE_IF(dev), 0, &vmstate_eeprom, eeprom);
     return eeprom;
 }
 

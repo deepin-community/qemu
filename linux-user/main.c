@@ -18,18 +18,16 @@
  */
 
 #include "qemu/osdep.h"
-#include "qemu/help-texts.h"
+#include "qemu-common.h"
 #include "qemu/units.h"
-#include "qemu/accel.h"
+#include "sysemu/tcg.h"
 #include "qemu-version.h"
 #include <sys/syscall.h>
 #include <sys/resource.h>
 #include <sys/shm.h>
-#include <linux/binfmts.h>
 
 #include "qapi/error.h"
 #include "qemu.h"
-#include "user-internals.h"
 #include "qemu/path.h"
 #include "qemu/queue.h"
 #include "qemu/config-file.h"
@@ -38,10 +36,9 @@
 #include "qemu/help_option.h"
 #include "qemu/module.h"
 #include "qemu/plugin.h"
+#include "cpu.h"
 #include "exec/exec-all.h"
-#include "exec/gdbstub.h"
-#include "gdbstub/user.h"
-#include "tcg/startup.h"
+#include "tcg/tcg.h"
 #include "qemu/timer.h"
 #include "qemu/envlist.h"
 #include "qemu/guest-random.h"
@@ -50,25 +47,10 @@
 #include "target_elf.h"
 #include "cpu_loop-common.h"
 #include "crypto/init.h"
-#include "fd-trans.h"
-#include "signal-common.h"
-#include "loader.h"
-#include "user-mmap.h"
-#include "accel/tcg/perf.h"
-
-#ifdef CONFIG_SEMIHOSTING
-#include "semihosting/semihost.h"
-#endif
-
-#ifndef AT_FLAGS_PRESERVE_ARGV0
-#define AT_FLAGS_PRESERVE_ARGV0_BIT 0
-#define AT_FLAGS_PRESERVE_ARGV0 (1 << AT_FLAGS_PRESERVE_ARGV0_BIT)
-#endif
 
 char *exec_path;
-char real_exec_path[PATH_MAX];
 
-static bool opt_one_insn_per_tb;
+int singlestep;
 static const char *argv0;
 static const char *gdbstub;
 static envlist_t *envlist;
@@ -76,7 +58,7 @@ static const char *cpu_model;
 static const char *cpu_type;
 static const char *seed_optarg;
 unsigned long mmap_min_addr;
-uintptr_t guest_base;
+unsigned long guest_base;
 bool have_guest_base;
 
 /*
@@ -91,7 +73,6 @@ static bool enable_strace;
  * Used to support command line arguments overriding environment variables.
  */
 static int last_log_mask;
-static const char *last_log_filename;
 
 /*
  * When running 32-on-64 we should make sure we can fit all of the possible
@@ -109,9 +90,11 @@ static const char *last_log_filename;
 # if HOST_LONG_BITS > TARGET_VIRT_ADDR_SPACE_BITS
 #  if TARGET_VIRT_ADDR_SPACE_BITS == 32 && \
       (TARGET_LONG_BITS == 32 || defined(TARGET_ABI32))
-#   define MAX_RESERVED_VA(CPU)  0xfffffffful
+/* There are a number of places where we assign reserved_va to a variable
+   of type abi_ulong and expect it to fit.  Avoid the last page.  */
+#   define MAX_RESERVED_VA(CPU)  (0xfffffffful & TARGET_PAGE_MASK)
 #  else
-#   define MAX_RESERVED_VA(CPU)  ((1ul << TARGET_VIRT_ADDR_SPACE_BITS) - 1)
+#   define MAX_RESERVED_VA(CPU)  (1ul << TARGET_VIRT_ADDR_SPACE_BITS)
 #  endif
 # else
 #  define MAX_RESERVED_VA(CPU)  0
@@ -125,14 +108,17 @@ static void usage(int exitcode);
 static const char *interp_prefix = CONFIG_QEMU_INTERP_PREFIX;
 const char *qemu_uname_release;
 
-#if !defined(TARGET_DEFAULT_STACK_SIZE)
 /* XXX: on x86 MAP_GROWSDOWN only works if ESP <= address + 32, so
    we allocate a bigger stack. Need a better solution, for example
    by remapping the process stack directly at the right place */
-#define TARGET_DEFAULT_STACK_SIZE	8 * 1024 * 1024UL
-#endif
+unsigned long guest_stack_size = 8 * 1024 * 1024UL;
 
-unsigned long guest_stack_size = TARGET_DEFAULT_STACK_SIZE;
+#if defined(TARGET_I386)
+int cpu_get_pic_interrupt(CPUX86State *env)
+{
+    return -1;
+}
+#endif
 
 /***********************************************************/
 /* Helper routines for implementing atomic operations.  */
@@ -143,12 +129,10 @@ void fork_start(void)
     start_exclusive();
     mmap_fork_start();
     cpu_list_lock();
-    qemu_plugin_user_prefork_lock();
 }
 
 void fork_end(int child)
 {
-    qemu_plugin_user_postfork(child);
     mmap_fork_end(child);
     if (child) {
         CPUState *cpu, *next_cpu;
@@ -156,20 +140,18 @@ void fork_end(int child)
            Discard information about the parent threads.  */
         CPU_FOREACH_SAFE(cpu, next_cpu) {
             if (cpu != thread_cpu) {
-                QTAILQ_REMOVE_RCU(&cpus_queue, cpu, node);
+                QTAILQ_REMOVE_RCU(&cpus, cpu, node);
             }
         }
         qemu_init_cpu_list();
         gdbserver_fork(thread_cpu);
+        /* qemu_init_cpu_list() takes care of reinitializing the
+         * exclusive state, so we don't need to end_exclusive() here.
+         */
     } else {
         cpu_list_unlock();
+        end_exclusive();
     }
-    /*
-     * qemu_init_cpu_list() reinitialized the child exclusive state, but we
-     * also need to keep current_cpu consistent, so call end_exclusive() for
-     * both child and parent.
-     */
-    end_exclusive();
 }
 
 __thread CPUState *thread_cpu;
@@ -203,55 +185,37 @@ void stop_all_tasks(void)
 /* Assumes contents are already zeroed.  */
 void init_task_state(TaskState *ts)
 {
-    long ticks_per_sec;
-    struct timespec bt;
-
     ts->used = 1;
     ts->sigaltstack_used = (struct target_sigaltstack) {
         .ss_sp = 0,
         .ss_size = 0,
         .ss_flags = TARGET_SS_DISABLE,
     };
-
-    /* Capture task start time relative to system boot */
-
-    ticks_per_sec = sysconf(_SC_CLK_TCK);
-
-    if ((ticks_per_sec > 0) && !clock_gettime(CLOCK_BOOTTIME, &bt)) {
-        /* start_boottime is expressed in clock ticks */
-        ts->start_boottime = bt.tv_sec * (uint64_t) ticks_per_sec;
-        ts->start_boottime += bt.tv_nsec * (uint64_t) ticks_per_sec /
-                              NANOSECONDS_PER_SECOND;
-    }
 }
 
 CPUArchState *cpu_copy(CPUArchState *env)
 {
     CPUState *cpu = env_cpu(env);
     CPUState *new_cpu = cpu_create(cpu_type);
-    CPUArchState *new_env = cpu_env(new_cpu);
+    CPUArchState *new_env = new_cpu->env_ptr;
     CPUBreakpoint *bp;
+    CPUWatchpoint *wp;
 
     /* Reset non arch specific state */
     cpu_reset(new_cpu);
 
-    new_cpu->tcg_cflags = cpu->tcg_cflags;
     memcpy(new_env, env, sizeof(CPUArchState));
-#if defined(TARGET_I386) || defined(TARGET_X86_64)
-    new_env->gdt.base = target_mmap(0, sizeof(uint64_t) * TARGET_GDT_ENTRIES,
-                                    PROT_READ | PROT_WRITE,
-                                    MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
-    memcpy(g2h_untagged(new_env->gdt.base), g2h_untagged(env->gdt.base),
-           sizeof(uint64_t) * TARGET_GDT_ENTRIES);
-    OBJECT(new_cpu)->free = OBJECT(cpu)->free;
-#endif
 
     /* Clone all break/watchpoints.
        Note: Once we support ptrace with hw-debug register access, make sure
        BP_CPU break/watchpoints are handled correctly on clone. */
     QTAILQ_INIT(&new_cpu->breakpoints);
+    QTAILQ_INIT(&new_cpu->watchpoints);
     QTAILQ_FOREACH(bp, &cpu->breakpoints, entry) {
         cpu_breakpoint_insert(new_cpu, bp->pc, bp->flags, NULL);
+    }
+    QTAILQ_FOREACH(wp, &cpu->watchpoints, entry) {
+        cpu_watchpoint_insert(new_cpu, wp->vaddr, wp->len, wp->flags, NULL);
     }
 
     return new_env;
@@ -278,7 +242,7 @@ static void handle_arg_dfilter(const char *arg)
 
 static void handle_arg_log_filename(const char *arg)
 {
-    last_log_filename = arg;
+    qemu_set_log_filename(arg, &error_fatal);
 }
 
 static void handle_arg_set_env(const char *arg)
@@ -359,7 +323,10 @@ static void handle_arg_cpu(const char *arg)
 {
     cpu_model = strdup(arg);
     if (cpu_model == NULL || is_help_option(cpu_model)) {
-        list_cpus();
+        /* XXX: implement xxx_cpu_list for targets that still miss it */
+#if defined(cpu_list)
+        cpu_list();
+#endif
         exit(EXIT_FAILURE);
     }
 }
@@ -374,9 +341,7 @@ static void handle_arg_reserved_va(const char *arg)
 {
     char *p;
     int shift = 0;
-    unsigned long val;
-
-    val = strtoul(arg, &p, 0);
+    reserved_va = strtoul(arg, &p, 0);
     switch (*p) {
     case 'k':
     case 'K':
@@ -390,10 +355,10 @@ static void handle_arg_reserved_va(const char *arg)
         break;
     }
     if (shift) {
-        unsigned long unshifted = val;
+        unsigned long unshifted = reserved_va;
         p++;
-        val <<= shift;
-        if (val >> shift != unshifted) {
+        reserved_va <<= shift;
+        if (reserved_va >> shift != unshifted) {
             fprintf(stderr, "Reserved virtual address too big\n");
             exit(EXIT_FAILURE);
         }
@@ -402,13 +367,11 @@ static void handle_arg_reserved_va(const char *arg)
         fprintf(stderr, "Unrecognised -R size suffix '%s'\n", p);
         exit(EXIT_FAILURE);
     }
-    /* The representation is size - 1, with 0 remaining "default". */
-    reserved_va = val ? val - 1 : 0;
 }
 
-static void handle_arg_one_insn_per_tb(const char *arg)
+static void handle_arg_singlestep(const char *arg)
 {
-    opt_one_insn_per_tb = true;
+    singlestep = 1;
 }
 
 static void handle_arg_strace(const char *arg)
@@ -434,16 +397,6 @@ static void handle_arg_abi_call0(const char *arg)
     xtensa_set_abi_call0();
 }
 #endif
-
-static void handle_arg_perfmap(const char *arg)
-{
-    perf_enable_perfmap();
-}
-
-static void handle_arg_jitdump(const char *arg)
-{
-    perf_enable_jitdump();
-}
 
 static QemuPluginList plugins = QTAILQ_HEAD_INITIALIZER(plugins);
 
@@ -497,11 +450,8 @@ static const struct qemu_argument arg_table[] = {
      "logfile",     "write logs to 'logfile' (default stderr)"},
     {"p",          "QEMU_PAGESIZE",    true,  handle_arg_pagesize,
      "pagesize",   "set the host page size to 'pagesize'"},
-    {"one-insn-per-tb",
-                   "QEMU_ONE_INSN_PER_TB",  false, handle_arg_one_insn_per_tb,
-     "",           "run with one guest instruction per emulated TB"},
-    {"singlestep", "QEMU_SINGLESTEP",  false, handle_arg_one_insn_per_tb,
-     "",           "deprecated synonym for -one-insn-per-tb"},
+    {"singlestep", "QEMU_SINGLESTEP",  false, handle_arg_singlestep,
+     "",           "run in singlestep mode"},
     {"strace",     "QEMU_STRACE",      false, handle_arg_strace,
      "",           "log system calls"},
     {"seed",       "QEMU_RAND_SEED",   true,  handle_arg_seed,
@@ -510,7 +460,7 @@ static const struct qemu_argument arg_table[] = {
      "",           "[[enable=]<pattern>][,events=<file>][,file=<file>]"},
 #ifdef CONFIG_PLUGIN
     {"plugin",     "QEMU_PLUGIN",      true,  handle_arg_plugin,
-     "",           "[file=]<file>[,<argname>=<argvalue>]"},
+     "",           "[file=]<file>[,arg=<string>]"},
 #endif
     {"version",    "QEMU_VERSION",     false, handle_arg_version,
      "",           "display version information and exit"},
@@ -518,10 +468,6 @@ static const struct qemu_argument arg_table[] = {
     {"xtensa-abi-call0", "QEMU_XTENSA_ABI_CALL0", false, handle_arg_abi_call0,
      "",           "assume CALL0 Xtensa ABI"},
 #endif
-    {"perfmap",    "QEMU_PERFMAP",     false, handle_arg_perfmap,
-     "",           "Generate a /tmp/perf-${pid}.map file for perf"},
-    {"jitdump",    "QEMU_JITDUMP",     false, handle_arg_jitdump,
-     "",           "Generate a jit-${pid}.dump file for perf"},
     {NULL, NULL, false, NULL, NULL, NULL}
 };
 
@@ -682,8 +628,8 @@ int main(int argc, char **argv, char **envp)
     int i;
     int ret;
     int execfd;
+    int log_mask;
     unsigned long max_reserved_va;
-    bool preserve_argv0;
 
     error_init(argv[0]);
     module_call_init(MODULE_INIT_TRACE);
@@ -692,16 +638,8 @@ int main(int argc, char **argv, char **envp)
 
     envlist = envlist_create();
 
-    /*
-     * add current environment into the list
-     * envlist_setenv adds to the front of the list; to preserve environ
-     * order add from back to front
-     */
+    /* add current environment into the list */
     for (wrk = environ; *wrk != NULL; wrk++) {
-        continue;
-    }
-    while (wrk != environ) {
-        wrk--;
         (void) envlist_setenv(envlist, *wrk);
     }
 
@@ -711,8 +649,7 @@ int main(int argc, char **argv, char **envp)
         struct rlimit lim;
         if (getrlimit(RLIMIT_STACK, &lim) == 0
             && lim.rlim_cur != RLIM_INFINITY
-            && lim.rlim_cur == (target_long)lim.rlim_cur
-            && lim.rlim_cur > guest_stack_size) {
+            && lim.rlim_cur == (target_long)lim.rlim_cur) {
             guest_stack_size = lim.rlim_cur;
         }
     }
@@ -724,15 +661,19 @@ int main(int argc, char **argv, char **envp)
 
     optind = parse_args(argc, argv);
 
-    qemu_set_log_filename_flags(last_log_filename,
-                                last_log_mask | (enable_strace * LOG_STRACE),
-                                &error_fatal);
+    log_mask = last_log_mask | (enable_strace ? LOG_STRACE : 0);
+    if (log_mask) {
+        qemu_log_needs_buffers();
+        qemu_set_log(log_mask);
+    }
 
     if (!trace_init_backends()) {
         exit(1);
     }
     trace_init_file();
-    qemu_plugin_load_list(&plugins, &error_fatal);
+    if (qemu_plugin_load_list(&plugins)) {
+        exit(1);
+    }
 
     /* Zero out regs */
     memset(regs, 0, sizeof(struct target_pt_regs));
@@ -747,9 +688,6 @@ int main(int argc, char **argv, char **envp)
 
     init_qemu_uname_release();
 
-    /*
-     * Manage binfmt-misc open-binary flag
-     */
     execfd = qemu_getauxval(AT_EXECFD);
     if (execfd == 0) {
         execfd = open(exec_path, O_RDONLY);
@@ -759,42 +697,16 @@ int main(int argc, char **argv, char **envp)
         }
     }
 
-    /* Resolve executable file name to full path name */
-    if (realpath(exec_path, real_exec_path)) {
-        exec_path = real_exec_path;
-    }
-
-    /*
-     * get binfmt_misc flags
-     */
-    preserve_argv0 = !!(qemu_getauxval(AT_FLAGS) & AT_FLAGS_PRESERVE_ARGV0);
-
-    /*
-     * Manage binfmt-misc preserve-arg[0] flag
-     *    argv[optind]     full path to the binary
-     *    argv[optind + 1] original argv[0]
-     */
-    if (optind + 1 < argc && preserve_argv0) {
-        optind++;
-    }
-
     if (cpu_model == NULL) {
         cpu_model = cpu_get_model(get_elf_eflags(execfd));
     }
     cpu_type = parse_cpu_option(cpu_model);
 
     /* init tcg before creating CPUs and to get qemu_host_page_size */
-    {
-        AccelState *accel = current_accel();
-        AccelClass *ac = ACCEL_GET_CLASS(accel);
+    tcg_exec_init(0);
 
-        accel_init_interfaces(ac);
-        object_property_set_bool(OBJECT(accel), "one-insn-per-tb",
-                                 opt_one_insn_per_tb, &error_abort);
-        ac->init_machine(NULL);
-    }
     cpu = cpu_create(cpu_type);
-    env = cpu_env(cpu);
+    env = cpu->env_ptr;
     cpu_reset(cpu);
     thread_cpu = cpu;
 
@@ -806,63 +718,17 @@ int main(int argc, char **argv, char **envp)
      */
     max_reserved_va = MAX_RESERVED_VA(cpu);
     if (reserved_va != 0) {
-        if ((reserved_va + 1) % qemu_host_page_size) {
-            char *s = size_to_str(qemu_host_page_size);
-            fprintf(stderr, "Reserved virtual address not aligned mod %s\n", s);
-            g_free(s);
-            exit(EXIT_FAILURE);
-        }
         if (max_reserved_va && reserved_va > max_reserved_va) {
             fprintf(stderr, "Reserved virtual address too big\n");
             exit(EXIT_FAILURE);
         }
     } else if (HOST_LONG_BITS == 64 && TARGET_VIRT_ADDR_SPACE_BITS <= 32) {
-        /* MAX_RESERVED_VA + 1 is a large power of 2, so is aligned. */
-        reserved_va = max_reserved_va;
+        /*
+         * reserved_va must be aligned with the host page size
+         * as it is used with mmap()
+         */
+        reserved_va = max_reserved_va & qemu_host_page_mask;
     }
-
-    /*
-     * Temporarily disable
-     *   "comparison is always false due to limited range of data type"
-     * due to comparison between (possible) uint64_t and uintptr_t.
-     */
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wtype-limits"
-
-    /*
-     * Select an initial value for task_unmapped_base that is in range.
-     */
-    if (reserved_va) {
-        if (TASK_UNMAPPED_BASE < reserved_va) {
-            task_unmapped_base = TASK_UNMAPPED_BASE;
-        } else {
-            /* The most common default formula is TASK_SIZE / 3. */
-            task_unmapped_base = TARGET_PAGE_ALIGN(reserved_va / 3);
-        }
-    } else if (TASK_UNMAPPED_BASE < UINTPTR_MAX) {
-        task_unmapped_base = TASK_UNMAPPED_BASE;
-    } else {
-        /* 32-bit host: pick something medium size. */
-        task_unmapped_base = 0x10000000;
-    }
-    mmap_next_start = task_unmapped_base;
-
-    /* Similarly for elf_et_dyn_base. */
-    if (reserved_va) {
-        if (ELF_ET_DYN_BASE < reserved_va) {
-            elf_et_dyn_base = ELF_ET_DYN_BASE;
-        } else {
-            /* The most common default formula is TASK_SIZE / 3 * 2. */
-            elf_et_dyn_base = TARGET_PAGE_ALIGN(reserved_va / 3) * 2;
-        }
-    } else if (ELF_ET_DYN_BASE < UINTPTR_MAX) {
-        elf_et_dyn_base = ELF_ET_DYN_BASE;
-    } else {
-        /* 32-bit host: pick something medium size. */
-        elf_et_dyn_base = 0x18000000;
-    }
-
-#pragma GCC diagnostic pop
 
     {
         Error *err = NULL;
@@ -941,8 +807,6 @@ int main(int argc, char **argv, char **envp)
     cpu->opaque = ts;
     task_settid(ts);
 
-    fd_trans_init();
-
     ret = loader_exec(execfd, exec_path, target_argv, target_environ, regs,
         info, &bprm);
     if (ret != 0) {
@@ -957,34 +821,21 @@ int main(int argc, char **argv, char **envp)
     g_free(target_environ);
 
     if (qemu_loglevel_mask(CPU_LOG_PAGE)) {
-        FILE *f = qemu_log_trylock();
-        if (f) {
-            fprintf(f, "guest_base  %p\n", (void *)guest_base);
-            fprintf(f, "page layout changed following binary load\n");
-            page_dump(f);
+        qemu_log("guest_base  0x%lx\n", guest_base);
+        log_page_dump("binary load");
 
-            fprintf(f, "end_code    0x" TARGET_ABI_FMT_lx "\n",
-                    info->end_code);
-            fprintf(f, "start_code  0x" TARGET_ABI_FMT_lx "\n",
-                    info->start_code);
-            fprintf(f, "start_data  0x" TARGET_ABI_FMT_lx "\n",
-                    info->start_data);
-            fprintf(f, "end_data    0x" TARGET_ABI_FMT_lx "\n",
-                    info->end_data);
-            fprintf(f, "start_stack 0x" TARGET_ABI_FMT_lx "\n",
-                    info->start_stack);
-            fprintf(f, "brk         0x" TARGET_ABI_FMT_lx "\n",
-                    info->brk);
-            fprintf(f, "entry       0x" TARGET_ABI_FMT_lx "\n",
-                    info->entry);
-            fprintf(f, "argv_start  0x" TARGET_ABI_FMT_lx "\n",
-                    info->argv);
-            fprintf(f, "env_start   0x" TARGET_ABI_FMT_lx "\n",
-                    info->envp);
-            fprintf(f, "auxv_start  0x" TARGET_ABI_FMT_lx "\n",
-                    info->saved_auxv);
-            qemu_log_unlock(f);
-        }
+        qemu_log("start_brk   0x" TARGET_ABI_FMT_lx "\n", info->start_brk);
+        qemu_log("end_code    0x" TARGET_ABI_FMT_lx "\n", info->end_code);
+        qemu_log("start_code  0x" TARGET_ABI_FMT_lx "\n", info->start_code);
+        qemu_log("start_data  0x" TARGET_ABI_FMT_lx "\n", info->start_data);
+        qemu_log("end_data    0x" TARGET_ABI_FMT_lx "\n", info->end_data);
+        qemu_log("start_stack 0x" TARGET_ABI_FMT_lx "\n", info->start_stack);
+        qemu_log("brk         0x" TARGET_ABI_FMT_lx "\n", info->brk);
+        qemu_log("entry       0x" TARGET_ABI_FMT_lx "\n", info->entry);
+        qemu_log("argv_start  0x" TARGET_ABI_FMT_lx "\n", info->arg_start);
+        qemu_log("env_start   0x" TARGET_ABI_FMT_lx "\n",
+                 info->arg_end + (abi_ulong)sizeof(abi_ulong));
+        qemu_log("auxv_start  0x" TARGET_ABI_FMT_lx "\n", info->saved_auxv);
     }
 
     target_set_brk(info->brk);
@@ -994,7 +845,8 @@ int main(int argc, char **argv, char **envp)
     /* Now that we've loaded the binary, GUEST_BASE is fixed.  Delay
        generating the prologue until now so that the prologue can take
        the real value of GUEST_BASE into account.  */
-    tcg_prologue_init();
+    tcg_prologue_init(tcg_ctx);
+    tcg_region_init();
 
     target_cpu_copy_regs(env, regs);
 
@@ -1006,11 +858,6 @@ int main(int argc, char **argv, char **envp)
         }
         gdb_handlesig(cpu, 0);
     }
-
-#ifdef CONFIG_SEMIHOSTING
-    qemu_semihosting_guestfd_init();
-#endif
-
     cpu_loop(env);
     /* never exits */
     return 0;

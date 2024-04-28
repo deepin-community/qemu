@@ -11,8 +11,8 @@
  * top-level directory.
  */
 
-#ifndef QEMU_VHOST_USER_FS_H
-#define QEMU_VHOST_USER_FS_H
+#ifndef _QEMU_VHOST_USER_FS_H
+#define _QEMU_VHOST_USER_FS_H
 
 #include "hw/virtio/virtio.h"
 #include "hw/virtio/vhost.h"
@@ -39,9 +39,8 @@ struct VHostUserFS {
     VhostUserState vhost_user;
     VirtQueue **req_vqs;
     VirtQueue *hiprio_vq;
-    int32_t bootindex;
 
     /*< public >*/
 };
 
-#endif /* QEMU_VHOST_USER_FS_H */
+#endif /* _QEMU_VHOST_USER_FS_H */

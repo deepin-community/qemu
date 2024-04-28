@@ -49,8 +49,6 @@ static char *opt_render_node;
 static gboolean opt_virgl;
 
 static void vg_handle_ctrl(VuDev *dev, int qidx);
-static void vg_cleanup_mapping(VuGpu *g,
-                               struct virtio_gpu_simple_resource *res);
 
 static const char *
 vg_cmd_to_string(int cmd)
@@ -126,7 +124,7 @@ source_wait_cb(gint fd, GIOCondition condition, gpointer user_data)
     }
 
     /* resume */
-    g->wait_in = 0;
+    g->wait_ok = 0;
     vg_handle_ctrl(&g->dev.parent, 0);
 
     return G_SOURCE_REMOVE;
@@ -135,8 +133,8 @@ source_wait_cb(gint fd, GIOCondition condition, gpointer user_data)
 void
 vg_wait_ok(VuGpu *g)
 {
-    assert(g->wait_in == 0);
-    g->wait_in = g_unix_fd_add(g->sock_fd, G_IO_IN | G_IO_HUP,
+    assert(g->wait_ok == 0);
+    g->wait_ok = g_unix_fd_add(g->sock_fd, G_IO_IN | G_IO_HUP,
                                source_wait_cb, g);
 }
 
@@ -248,7 +246,7 @@ vg_ctrl_response(VuGpu *g,
     }
     vu_queue_push(&g->dev.parent, cmd->vq, &cmd->elem, s);
     vu_queue_notify(&g->dev.parent, cmd->vq);
-    cmd->state = VG_CMD_STATE_FINISHED;
+    cmd->finished = true;
 }
 
 void
@@ -263,91 +261,23 @@ vg_ctrl_response_nodata(VuGpu *g,
     vg_ctrl_response(g, cmd, &resp, sizeof(resp));
 }
 
-
-static gboolean
-get_display_info_cb(gint fd, GIOCondition condition, gpointer user_data)
-{
-    struct virtio_gpu_resp_display_info dpy_info = { {} };
-    VuGpu *vg = user_data;
-    struct virtio_gpu_ctrl_command *cmd = QTAILQ_LAST(&vg->fenceq);
-
-    g_debug("disp info cb");
-    assert(cmd->cmd_hdr.type == VIRTIO_GPU_CMD_GET_DISPLAY_INFO);
-    if (!vg_recv_msg(vg, VHOST_USER_GPU_GET_DISPLAY_INFO,
-                     sizeof(dpy_info), &dpy_info)) {
-        return G_SOURCE_CONTINUE;
-    }
-
-    QTAILQ_REMOVE(&vg->fenceq, cmd, next);
-    vg_ctrl_response(vg, cmd, &dpy_info.hdr, sizeof(dpy_info));
-
-    vg->wait_in = 0;
-    vg_handle_ctrl(&vg->dev.parent, 0);
-
-    return G_SOURCE_REMOVE;
-}
-
 void
 vg_get_display_info(VuGpu *vg, struct virtio_gpu_ctrl_command *cmd)
 {
+    struct virtio_gpu_resp_display_info dpy_info = { {} };
     VhostUserGpuMsg msg = {
         .request = VHOST_USER_GPU_GET_DISPLAY_INFO,
         .size = 0,
     };
 
-    assert(vg->wait_in == 0);
+    assert(vg->wait_ok == 0);
 
     vg_send_msg(vg, &msg, -1);
-    vg->wait_in = g_unix_fd_add(vg->sock_fd, G_IO_IN | G_IO_HUP,
-                               get_display_info_cb, vg);
-    cmd->state = VG_CMD_STATE_PENDING;
-}
-
-static gboolean
-get_edid_cb(gint fd, GIOCondition condition, gpointer user_data)
-{
-    struct virtio_gpu_resp_edid resp_edid;
-    VuGpu *vg = user_data;
-    struct virtio_gpu_ctrl_command *cmd = QTAILQ_LAST(&vg->fenceq);
-
-    g_debug("get edid cb");
-    assert(cmd->cmd_hdr.type == VIRTIO_GPU_CMD_GET_EDID);
-    if (!vg_recv_msg(vg, VHOST_USER_GPU_GET_EDID,
-                     sizeof(resp_edid), &resp_edid)) {
-        return G_SOURCE_CONTINUE;
+    if (!vg_recv_msg(vg, msg.request, sizeof(dpy_info), &dpy_info)) {
+        return;
     }
 
-    QTAILQ_REMOVE(&vg->fenceq, cmd, next);
-    vg_ctrl_response(vg, cmd, &resp_edid.hdr, sizeof(resp_edid));
-
-    vg->wait_in = 0;
-    vg_handle_ctrl(&vg->dev.parent, 0);
-
-    return G_SOURCE_REMOVE;
-}
-
-void
-vg_get_edid(VuGpu *vg, struct virtio_gpu_ctrl_command *cmd)
-{
-    struct virtio_gpu_cmd_get_edid get_edid;
-
-    VUGPU_FILL_CMD(get_edid);
-    virtio_gpu_bswap_32(&get_edid, sizeof(get_edid));
-
-    VhostUserGpuMsg msg = {
-        .request = VHOST_USER_GPU_GET_EDID,
-        .size = sizeof(VhostUserGpuEdidRequest),
-        .payload.edid_req = {
-                .scanout_id = get_edid.scanout,
-        },
-    };
-
-    assert(vg->wait_in == 0);
-
-    vg_send_msg(vg, &msg, -1);
-    vg->wait_in = g_unix_fd_add(vg->sock_fd, G_IO_IN | G_IO_HUP,
-                               get_edid_cb, vg);
-    cmd->state = VG_CMD_STATE_PENDING;
+    vg_ctrl_response(vg, cmd, &dpy_info.hdr, sizeof(dpy_info));
 }
 
 static void
@@ -397,7 +327,6 @@ vg_resource_create_2d(VuGpu *g,
     if (!res->image) {
         g_critical("%s: resource creation failed %d %d %d",
                    __func__, c2d.resource_id, c2d.width, c2d.height);
-        vugbm_buffer_destroy(&res->buffer);
         g_free(res);
         cmd->error = VIRTIO_GPU_RESP_ERR_OUT_OF_MEMORY;
         return;
@@ -449,7 +378,6 @@ vg_resource_destroy(VuGpu *g,
     }
 
     vugbm_buffer_destroy(&res->buffer);
-    vg_cleanup_mapping(g, res);
     pixman_image_unref(res->image);
     QTAILQ_REMOVE(&g->reslist, res, next);
     g_free(res);
@@ -502,7 +430,7 @@ vg_create_mapping_iov(VuGpu *g,
         return -1;
     }
 
-    *iov = g_new0(struct iovec, ab->nr_entries);
+    *iov = g_malloc0(sizeof(struct iovec) * ab->nr_entries);
     for (i = 0; i < ab->nr_entries; i++) {
         uint64_t len = ents[i].length;
         (*iov)[i].iov_len = ents[i].length;
@@ -539,11 +467,6 @@ vg_resource_attach_backing(VuGpu *g,
         return;
     }
 
-    if (res->iov) {
-        cmd->error = VIRTIO_GPU_RESP_ERR_UNSPEC;
-        return;
-    }
-
     ret = vg_create_mapping_iov(g, &ab, cmd, &res->iov);
     if (ret != 0) {
         cmd->error = VIRTIO_GPU_RESP_ERR_UNSPEC;
@@ -551,22 +474,6 @@ vg_resource_attach_backing(VuGpu *g,
     }
 
     res->iov_cnt = ab.nr_entries;
-}
-
-/* Though currently only free iov, maybe later will do more work. */
-void vg_cleanup_mapping_iov(VuGpu *g,
-                            struct iovec *iov, uint32_t count)
-{
-    g_free(iov);
-}
-
-static void
-vg_cleanup_mapping(VuGpu *g,
-                   struct virtio_gpu_simple_resource *res)
-{
-    vg_cleanup_mapping_iov(g, res->iov, res->iov_cnt);
-    res->iov = NULL;
-    res->iov_cnt = 0;
 }
 
 static void
@@ -587,7 +494,9 @@ vg_resource_detach_backing(VuGpu *g,
         return;
     }
 
-    vg_cleanup_mapping(g, res);
+    g_free(res->iov);
+    res->iov = NULL;
+    res->iov_cnt = 0;
 }
 
 static void
@@ -834,7 +743,7 @@ vg_resource_flush(VuGpu *g,
                 .width = width,
                 .height = height,
             };
-            pixman_image_t *img =
+            pixman_image_t *i =
                 pixman_image_create_bits(pixman_image_get_format(res->image),
                                          msg->payload.update.width,
                                          msg->payload.update.height,
@@ -842,11 +751,11 @@ vg_resource_flush(VuGpu *g,
                                                       payload.update.data),
                                          width * bpp);
             pixman_image_composite(PIXMAN_OP_SRC,
-                                   res->image, NULL, img,
+                                   res->image, NULL, i,
                                    extents->x1, extents->y1,
                                    0, 0, 0, 0,
                                    width, height);
-            pixman_image_unref(img);
+            pixman_image_unref(i);
             vg_send_msg(g, msg, -1);
             g_free(msg);
         }
@@ -884,15 +793,14 @@ vg_process_cmd(VuGpu *vg, struct virtio_gpu_ctrl_command *cmd)
     case VIRTIO_GPU_CMD_RESOURCE_DETACH_BACKING:
         vg_resource_detach_backing(vg, cmd);
         break;
-    case VIRTIO_GPU_CMD_GET_EDID:
-        vg_get_edid(vg, cmd);
-        break;
+    /* case VIRTIO_GPU_CMD_GET_EDID: */
+    /*     break */
     default:
         g_warning("TODO handle ctrl %x\n", cmd->cmd_hdr.type);
         cmd->error = VIRTIO_GPU_RESP_ERR_UNSPEC;
         break;
     }
-    if (cmd->state == VG_CMD_STATE_NEW) {
+    if (!cmd->finished) {
         vg_ctrl_response_nodata(vg, cmd, cmd->error ? cmd->error :
                                 VIRTIO_GPU_RESP_OK_NODATA);
     }
@@ -907,7 +815,7 @@ vg_handle_ctrl(VuDev *dev, int qidx)
     size_t len;
 
     for (;;) {
-        if (vg->wait_in != 0) {
+        if (vg->wait_ok != 0) {
             return;
         }
 
@@ -917,7 +825,7 @@ vg_handle_ctrl(VuDev *dev, int qidx)
         }
         cmd->vq = vq;
         cmd->error = 0;
-        cmd->state = VG_CMD_STATE_NEW;
+        cmd->finished = false;
 
         len = iov_to_buf(cmd->elem.out_sg, cmd->elem.out_num,
                          0, &cmd->cmd_hdr, sizeof(cmd->cmd_hdr));
@@ -936,7 +844,7 @@ vg_handle_ctrl(VuDev *dev, int qidx)
             vg_process_cmd(vg, cmd);
         }
 
-        if (cmd->state != VG_CMD_STATE_FINISHED) {
+        if (!cmd->finished) {
             QTAILQ_INSERT_TAIL(&vg->fenceq, cmd, next);
             vg->inflight++;
         } else {
@@ -963,8 +871,11 @@ update_cursor_data_simple(VuGpu *g, uint32_t resource_id, gpointer data)
 static void
 vg_process_cursor_cmd(VuGpu *g, struct virtio_gpu_update_cursor *cursor)
 {
-    switch (cursor->hdr.type) {
-    case VIRTIO_GPU_CMD_MOVE_CURSOR: {
+    bool move = cursor->hdr.type != VIRTIO_GPU_CMD_MOVE_CURSOR;
+
+    g_debug("%s move:%d\n", G_STRFUNC, move);
+
+    if (move) {
         VhostUserGpuMsg msg = {
             .request = cursor->resource_id ?
                 VHOST_USER_GPU_CURSOR_POS : VHOST_USER_GPU_CURSOR_POS_HIDE,
@@ -975,11 +886,8 @@ vg_process_cursor_cmd(VuGpu *g, struct virtio_gpu_update_cursor *cursor)
                 .y = cursor->pos.y,
             }
         };
-        g_debug("%s: move", G_STRFUNC);
         vg_send_msg(g, &msg, -1);
-        break;
-    }
-    case VIRTIO_GPU_CMD_UPDATE_CURSOR: {
+    } else {
         VhostUserGpuMsg msg = {
             .request = VHOST_USER_GPU_CURSOR_UPDATE,
             .size = sizeof(VhostUserGpuCursorUpdate),
@@ -993,7 +901,6 @@ vg_process_cursor_cmd(VuGpu *g, struct virtio_gpu_update_cursor *cursor)
                 .hot_y = cursor->hot_y,
             }
         };
-        g_debug("%s: update", G_STRFUNC);
         if (g->virgl) {
             vg_virgl_update_cursor_data(g, cursor->resource_id,
                                         msg.payload.cursor_update.data);
@@ -1002,11 +909,6 @@ vg_process_cursor_cmd(VuGpu *g, struct virtio_gpu_update_cursor *cursor)
                                       msg.payload.cursor_update.data);
         }
         vg_send_msg(g, &msg, -1);
-        break;
-    }
-    default:
-        g_debug("%s: unknown cmd %d", G_STRFUNC, cursor->hdr.type);
-        break;
     }
 }
 
@@ -1067,56 +969,26 @@ vg_queue_set_started(VuDev *dev, int qidx, bool started)
     }
 }
 
-static gboolean
-protocol_features_cb(gint fd, GIOCondition condition, gpointer user_data)
+static void
+set_gpu_protocol_features(VuGpu *g)
 {
-    const uint64_t protocol_edid = (1 << VHOST_USER_GPU_PROTOCOL_F_EDID);
-    const uint64_t protocol_dmabuf2 = (1 << VHOST_USER_GPU_PROTOCOL_F_DMABUF2);
-    VuGpu *g = user_data;
-    uint64_t protocol_features;
+    uint64_t u64;
     VhostUserGpuMsg msg = {
         .request = VHOST_USER_GPU_GET_PROTOCOL_FEATURES
     };
 
-    if (!vg_recv_msg(g, msg.request,
-                     sizeof(protocol_features), &protocol_features)) {
-        return G_SOURCE_CONTINUE;
+    assert(g->wait_ok == 0);
+    vg_send_msg(g, &msg, -1);
+    if (!vg_recv_msg(g, msg.request, sizeof(u64), &u64)) {
+        return;
     }
-
-    protocol_features &= (protocol_edid | protocol_dmabuf2);
 
     msg = (VhostUserGpuMsg) {
         .request = VHOST_USER_GPU_SET_PROTOCOL_FEATURES,
         .size = sizeof(uint64_t),
-        .payload.u64 = protocol_features,
+        .payload.u64 = 0
     };
     vg_send_msg(g, &msg, -1);
-
-    g->wait_in = 0;
-    vg_handle_ctrl(&g->dev.parent, 0);
-
-    if (g->edid_inited && !(protocol_features & protocol_edid)) {
-        g_printerr("EDID feature set by the frontend but it does not support "
-                   "the EDID vhost-user-gpu protocol.\n");
-        exit(EXIT_FAILURE);
-    }
-
-    g->use_modifiers = !!(protocol_features & protocol_dmabuf2);
-
-    return G_SOURCE_REMOVE;
-}
-
-static void
-set_gpu_protocol_features(VuGpu *g)
-{
-    VhostUserGpuMsg msg = {
-        .request = VHOST_USER_GPU_GET_PROTOCOL_FEATURES,
-    };
-
-    vg_send_msg(g, &msg, -1);
-    assert(g->wait_in == 0);
-    g->wait_in = g_unix_fd_add(g->sock_fd, G_IO_IN | G_IO_HUP,
-                               protocol_features_cb, g);
 }
 
 static int
@@ -1147,7 +1019,6 @@ vg_get_features(VuDev *dev)
     if (opt_virgl) {
         features |= 1 << VIRTIO_GPU_F_VIRGL;
     }
-    features |= 1 << VIRTIO_GPU_F_EDID;
 
     return features;
 }
@@ -1165,8 +1036,6 @@ vg_set_features(VuDev *dev, uint64_t features)
         g->virgl_inited = true;
     }
 
-    g->edid_inited = !!(features & (1 << VIRTIO_GPU_F_EDID));
-
     g->virgl = virgl;
 }
 
@@ -1175,9 +1044,7 @@ vg_get_config(VuDev *dev, uint8_t *config, uint32_t len)
 {
     VuGpu *g = container_of(dev, VuGpu, dev.parent);
 
-    if (len > sizeof(struct virtio_gpu_config)) {
-        return -1;
-    }
+    g_return_val_if_fail(len <= sizeof(struct virtio_gpu_config), -1);
 
     if (opt_virgl) {
         g->virtio_config.num_capsets = vg_virgl_get_num_capsets();
@@ -1279,7 +1146,11 @@ main(int argc, char *argv[])
         exit(EXIT_FAILURE);
     }
 
-    vugbm_device_init(&g.gdev, g.drm_rnode_fd);
+    if (g.drm_rnode_fd >= 0) {
+        if (!vugbm_device_init(&g.gdev, g.drm_rnode_fd)) {
+            g_warning("Failed to init DRM device, using fallback path");
+        }
+    }
 
     if ((!!opt_socket_path + (opt_fdnum != -1)) != 1) {
         g_printerr("Please specify either --fd or --socket-path\n");

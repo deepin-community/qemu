@@ -10,7 +10,9 @@
  */
 
 #include "qemu/osdep.h"
+#include "cpu.h"
 #include "exec/hwaddr.h"
+#include "exec/address-spaces.h"
 #include "sysemu/sysemu.h"
 #include "sysemu/qtest.h"
 #include "hw/irq.h"
@@ -24,10 +26,8 @@
 #include "hw/block/fdc.h"
 #include "hw/qdev-properties.h"
 #include "qapi/error.h"
-#include "qemu/error-report.h"
 #include "ui/console.h"
 #include "target/m68k/cpu.h"
-#include "migration/vmstate.h"
 
 /* #define DEBUG_NEXT */
 #ifdef DEBUG_NEXT
@@ -73,30 +73,19 @@ typedef struct NextRtc {
 struct NeXTState {
     MachineState parent;
 
+    uint32_t int_mask;
+    uint32_t int_status;
+
+    uint8_t scsi_csr_1;
+    uint8_t scsi_csr_2;
     next_dma dma[10];
-};
-
-#define TYPE_NEXT_PC "next-pc"
-OBJECT_DECLARE_SIMPLE_TYPE(NeXTPC, NEXT_PC)
-
-/* NeXT Peripheral Controller */
-struct NeXTPC {
-    SysBusDevice parent_obj;
-
-    M68kCPU *cpu;
-
-    MemoryRegion mmiomem;
-    MemoryRegion scrmem;
+    qemu_irq *scsi_irq;
+    qemu_irq scsi_dma;
+    qemu_irq scsi_reset;
+    qemu_irq *fd_irq;
 
     uint32_t scr1;
     uint32_t scr2;
-    uint32_t int_mask;
-    uint32_t int_status;
-    uint8_t scsi_csr_1;
-    uint8_t scsi_csr_2;
-
-    qemu_irq scsi_reset;
-    qemu_irq scsi_dma;
 
     NextRtc rtc;
 };
@@ -121,7 +110,7 @@ static const uint8_t rtc_ram2[32] = {
 #define SCR2_RTDATA 0x4
 #define SCR2_TOBCD(x) (((x / 10) << 4) + (x % 10))
 
-static void nextscr2_write(NeXTPC *s, uint32_t val, int size)
+static void nextscr2_write(NeXTState *s, uint32_t val, int size)
 {
     static int led;
     static int phase;
@@ -255,7 +244,7 @@ static void nextscr2_write(NeXTPC *s, uint32_t val, int size)
     old_scr2 = scr2_2;
 }
 
-static uint32_t mmio_readb(NeXTPC *s, hwaddr addr)
+static uint32_t mmio_readb(NeXTState *s, hwaddr addr)
 {
     switch (addr) {
     case 0xc000:
@@ -285,7 +274,7 @@ static uint32_t mmio_readb(NeXTPC *s, hwaddr addr)
     }
 }
 
-static uint32_t mmio_readw(NeXTPC *s, hwaddr addr)
+static uint32_t mmio_readw(NeXTState *s, hwaddr addr)
 {
     switch (addr) {
     default:
@@ -294,7 +283,7 @@ static uint32_t mmio_readw(NeXTPC *s, hwaddr addr)
     }
 }
 
-static uint32_t mmio_readl(NeXTPC *s, hwaddr addr)
+static uint32_t mmio_readl(NeXTState *s, hwaddr addr)
 {
     switch (addr) {
     case 0x7000:
@@ -317,7 +306,7 @@ static uint32_t mmio_readl(NeXTPC *s, hwaddr addr)
     }
 }
 
-static void mmio_writeb(NeXTPC *s, hwaddr addr, uint32_t val)
+static void mmio_writeb(NeXTState *s, hwaddr addr, uint32_t val)
 {
     switch (addr) {
     case 0xd003:
@@ -329,12 +318,12 @@ static void mmio_writeb(NeXTPC *s, hwaddr addr, uint32_t val)
 
 }
 
-static void mmio_writew(NeXTPC *s, hwaddr addr, uint32_t val)
+static void mmio_writew(NeXTState *s, hwaddr addr, uint32_t val)
 {
     DPRINTF("MMIO Write W\n");
 }
 
-static void mmio_writel(NeXTPC *s, hwaddr addr, uint32_t val)
+static void mmio_writel(NeXTState *s, hwaddr addr, uint32_t val)
 {
     switch (addr) {
     case 0x7000:
@@ -359,15 +348,15 @@ static void mmio_writel(NeXTPC *s, hwaddr addr, uint32_t val)
 
 static uint64_t mmio_readfn(void *opaque, hwaddr addr, unsigned size)
 {
-    NeXTPC *s = NEXT_PC(opaque);
+    NeXTState *ns = NEXT_MACHINE(opaque);
 
     switch (size) {
     case 1:
-        return mmio_readb(s, addr);
+        return mmio_readb(ns, addr);
     case 2:
-        return mmio_readw(s, addr);
+        return mmio_readw(ns, addr);
     case 4:
-        return mmio_readl(s, addr);
+        return mmio_readl(ns, addr);
     default:
         g_assert_not_reached();
     }
@@ -376,17 +365,17 @@ static uint64_t mmio_readfn(void *opaque, hwaddr addr, unsigned size)
 static void mmio_writefn(void *opaque, hwaddr addr, uint64_t value,
                          unsigned size)
 {
-    NeXTPC *s = NEXT_PC(opaque);
+    NeXTState *ns = NEXT_MACHINE(opaque);
 
     switch (size) {
     case 1:
-        mmio_writeb(s, addr, value);
+        mmio_writeb(ns, addr, value);
         break;
     case 2:
-        mmio_writew(s, addr, value);
+        mmio_writew(ns, addr, value);
         break;
     case 4:
-        mmio_writel(s, addr, value);
+        mmio_writel(ns, addr, value);
         break;
     default:
         g_assert_not_reached();
@@ -401,7 +390,7 @@ static const MemoryRegionOps mmio_ops = {
     .endianness = DEVICE_NATIVE_ENDIAN,
 };
 
-static uint32_t scr_readb(NeXTPC *s, hwaddr addr)
+static uint32_t scr_readb(NeXTState *s, hwaddr addr)
 {
     switch (addr) {
     case 0x14108:
@@ -435,13 +424,13 @@ static uint32_t scr_readb(NeXTPC *s, hwaddr addr)
     }
 }
 
-static uint32_t scr_readw(NeXTPC *s, hwaddr addr)
+static uint32_t scr_readw(NeXTState *s, hwaddr addr)
 {
     DPRINTF("BMAP Read W @ %x\n", (unsigned int)addr);
     return 0;
 }
 
-static uint32_t scr_readl(NeXTPC *s, hwaddr addr)
+static uint32_t scr_readl(NeXTState *s, hwaddr addr)
 {
     DPRINTF("BMAP Read L @ %x\n", (unsigned int)addr);
     return 0;
@@ -454,7 +443,7 @@ static uint32_t scr_readl(NeXTPC *s, hwaddr addr)
 #define SCSICSR_CPUDMA  0x10  /* if set, dma enabled */
 #define SCSICSR_INTMASK 0x20  /* if set, interrupt enabled */
 
-static void scr_writeb(NeXTPC *s, hwaddr addr, uint32_t value)
+static void scr_writeb(NeXTState *s, hwaddr addr, uint32_t value)
 {
     switch (addr) {
     case 0x14108:
@@ -469,7 +458,7 @@ static void scr_writeb(NeXTPC *s, hwaddr addr, uint32_t value)
             DPRINTF("SCSICSR FIFO Flush\n");
             /* will have to add another irq to the esp if this is needed */
             /* esp_puflush_fifo(esp_g); */
-            qemu_irq_pulse(s->scsi_dma);
+            /* qemu_irq_pulse(s->scsi_dma); */
         }
 
         if (value & SCSICSR_ENABLE) {
@@ -489,9 +478,9 @@ static void scr_writeb(NeXTPC *s, hwaddr addr, uint32_t value)
         if (value & SCSICSR_RESET) {
             DPRINTF("SCSICSR Reset\n");
             /* I think this should set DMADIR. CPUDMA and INTMASK to 0 */
-            qemu_irq_raise(s->scsi_reset);
-            s->scsi_csr_1 &= ~(SCSICSR_INTMASK | 0x80 | 0x1);
-            qemu_irq_lower(s->scsi_reset);
+            /* qemu_irq_raise(s->scsi_reset); */
+            /* s->scsi_csr_1 &= ~(SCSICSR_INTMASK |0x80|0x1); */
+
         }
         if (value & SCSICSR_DMADIR) {
             DPRINTF("SCSICSR DMAdir\n");
@@ -499,11 +488,10 @@ static void scr_writeb(NeXTPC *s, hwaddr addr, uint32_t value)
         if (value & SCSICSR_CPUDMA) {
             DPRINTF("SCSICSR CPUDMA\n");
             /* qemu_irq_raise(s->scsi_dma); */
+
             s->int_status |= 0x4000000;
         } else {
-            /* fprintf(stderr,"SCSICSR CPUDMA disabled\n"); */
             s->int_status &= ~(0x4000000);
-            /* qemu_irq_lower(s->scsi_dma); */
         }
         if (value & SCSICSR_INTMASK) {
             DPRINTF("SCSICSR INTMASK\n");
@@ -533,27 +521,27 @@ static void scr_writeb(NeXTPC *s, hwaddr addr, uint32_t value)
     }
 }
 
-static void scr_writew(NeXTPC *s, hwaddr addr, uint32_t value)
+static void scr_writew(NeXTState *s, hwaddr addr, uint32_t value)
 {
     DPRINTF("BMAP Write W @ %x with %x\n", (unsigned int)addr, value);
 }
 
-static void scr_writel(NeXTPC *s, hwaddr addr, uint32_t value)
+static void scr_writel(NeXTState *s, hwaddr addr, uint32_t value)
 {
     DPRINTF("BMAP Write L @ %x with %x\n", (unsigned int)addr, value);
 }
 
 static uint64_t scr_readfn(void *opaque, hwaddr addr, unsigned size)
 {
-    NeXTPC *s = NEXT_PC(opaque);
+    NeXTState *ns = NEXT_MACHINE(opaque);
 
     switch (size) {
     case 1:
-        return scr_readb(s, addr);
+        return scr_readb(ns, addr);
     case 2:
-        return scr_readw(s, addr);
+        return scr_readw(ns, addr);
     case 4:
-        return scr_readl(s, addr);
+        return scr_readl(ns, addr);
     default:
         g_assert_not_reached();
     }
@@ -562,17 +550,17 @@ static uint64_t scr_readfn(void *opaque, hwaddr addr, unsigned size)
 static void scr_writefn(void *opaque, hwaddr addr, uint64_t value,
                         unsigned size)
 {
-    NeXTPC *s = NEXT_PC(opaque);
+    NeXTState *ns = NEXT_MACHINE(opaque);
 
     switch (size) {
     case 1:
-        scr_writeb(s, addr, value);
+        scr_writeb(ns, addr, value);
         break;
     case 2:
-        scr_writew(s, addr, value);
+        scr_writew(ns, addr, value);
         break;
     case 4:
-        scr_writel(s, addr, value);
+        scr_writel(ns, addr, value);
         break;
     default:
         g_assert_not_reached();
@@ -732,13 +720,17 @@ static const MemoryRegionOps dma_ops = {
     .endianness = DEVICE_NATIVE_ENDIAN,
 };
 
-static void next_irq(void *opaque, int number, int level)
+/*
+ * TODO: set the shift numbers as values in the enum, so the first switch
+ * will not be needed
+ */
+void next_irq(void *opaque, int number, int level)
 {
-    NeXTPC *s = NEXT_PC(opaque);
-    M68kCPU *cpu = s->cpu;
+    M68kCPU *cpu = opaque;
     int shift = 0;
+    NeXTState *ns = NEXT_MACHINE(qdev_get_machine());
 
-    /* first switch sets interrupt status */
+    /* first switch sets interupt status */
     /* DPRINTF("IRQ %i\n",number); */
     switch (number) {
     /* level 3 - floppy, kbd/mouse, power, ether rx/tx, scsi, clock */
@@ -791,14 +783,14 @@ static void next_irq(void *opaque, int number, int level)
      * this HAS to be wrong, the interrupt handlers in mach and together
      * int_status and int_mask and return if there is a hit
      */
-    if (s->int_mask & (1 << shift)) {
+    if (ns->int_mask & (1 << shift)) {
         DPRINTF("%x interrupt masked @ %x\n", 1 << shift, cpu->env.pc);
         /* return; */
     }
 
     /* second switch triggers the correct interrupt */
     if (level) {
-        s->int_status |= 1 << shift;
+        ns->int_status |= 1 << shift;
 
         switch (number) {
         /* level 3 - floppy, kbd/mouse, power, ether rx/tx, scsi, clock */
@@ -827,110 +819,24 @@ static void next_irq(void *opaque, int number, int level)
             break;
         }
     } else {
-        s->int_status &= ~(1 << shift);
+        ns->int_status &= ~(1 << shift);
         cpu_reset_interrupt(CPU(cpu), CPU_INTERRUPT_HARD);
     }
 }
 
-static void nextdma_write(void *opaque, uint8_t *buf, int size, int type)
+static void next_serial_irq(void *opaque, int n, int level)
 {
-    uint32_t base_addr;
-    int irq = 0;
-    uint8_t align = 16;
-    NeXTState *next_state = NEXT_MACHINE(qdev_get_machine());
-
-    if (type == NEXTDMA_ENRX || type == NEXTDMA_ENTX) {
-        align = 32;
-    }
-    /* Most DMA is supposedly 16 byte aligned */
-    if ((size % align) != 0) {
-        size -= size % align;
-        size += align;
-    }
-
-    /*
-     * prom sets the dma start using initbuf while the bootloader uses next
-     * so we check to see if initbuf is 0
-     */
-    if (next_state->dma[type].next_initbuf == 0) {
-        base_addr = next_state->dma[type].next;
+    /* DPRINTF("SCC IRQ NUM %i\n",n); */
+    if (n) {
+        next_irq(opaque, NEXT_SCC_DMA_I, level);
     } else {
-        base_addr = next_state->dma[type].next_initbuf;
+        next_irq(opaque, NEXT_SCC_I, level);
     }
-
-    cpu_physical_memory_write(base_addr, buf, size);
-
-    next_state->dma[type].next_initbuf = 0;
-
-    /* saved limit is checked to calculate packet size by both, rom and netbsd */
-    next_state->dma[type].saved_limit = (next_state->dma[type].next + size);
-    next_state->dma[type].saved_next  = (next_state->dma[type].next);
-
-    /*
-     * 32 bytes under savedbase seems to be some kind of register
-     * of which the purpose is unknown as of yet
-     */
-    /* stl_phys(s->rx_dma.base-32,0xFFFFFFFF); */
-
-    if (!(next_state->dma[type].csr & DMA_SUPDATE)) {
-        next_state->dma[type].next  = next_state->dma[type].start;
-        next_state->dma[type].limit = next_state->dma[type].stop;
-    }
-
-    /* Set dma registers and raise an irq */
-    next_state->dma[type].csr |= DMA_COMPLETE; /* DON'T CHANGE THIS! */
-
-    switch (type) {
-    case NEXTDMA_SCSI:
-        irq = NEXT_SCSI_DMA_I;
-        break;
-    }
-
-    next_irq(opaque, irq, 1);
-    next_irq(opaque, irq, 0);
 }
 
-static void nextscsi_read(void *opaque, uint8_t *buf, int len)
+static void next_escc_init(M68kCPU *cpu)
 {
-    DPRINTF("SCSI READ: %x\n", len);
-    abort();
-}
-
-static void nextscsi_write(void *opaque, uint8_t *buf, int size)
-{
-    DPRINTF("SCSI WRITE: %i\n", size);
-    nextdma_write(opaque, buf, size, NEXTDMA_SCSI);
-}
-
-static void next_scsi_init(DeviceState *pcdev, M68kCPU *cpu)
-{
-    struct NeXTPC *next_pc = NEXT_PC(pcdev);
-    DeviceState *dev;
-    SysBusDevice *sysbusdev;
-    SysBusESPState *sysbus_esp;
-    ESPState *esp;
-
-    dev = qdev_new(TYPE_SYSBUS_ESP);
-    sysbus_esp = SYSBUS_ESP(dev);
-    esp = &sysbus_esp->esp;
-    esp->dma_memory_read = nextscsi_read;
-    esp->dma_memory_write = nextscsi_write;
-    esp->dma_opaque = pcdev;
-    sysbus_esp->it_shift = 0;
-    esp->dma_enabled = 1;
-    sysbusdev = SYS_BUS_DEVICE(dev);
-    sysbus_realize_and_unref(sysbusdev, &error_fatal);
-    sysbus_connect_irq(sysbusdev, 0, qdev_get_gpio_in(pcdev, NEXT_SCSI_I));
-    sysbus_mmio_map(sysbusdev, 0, 0x2114000);
-
-    next_pc->scsi_reset = qdev_get_gpio_in(dev, 0);
-    next_pc->scsi_dma = qdev_get_gpio_in(dev, 1);
-
-    scsi_bus_legacy_handle_cmdline(&esp->bus);
-}
-
-static void next_escc_init(DeviceState *pcdev)
-{
+    qemu_irq *ser_irq = qemu_allocate_irqs(next_serial_irq, cpu, 2);
     DeviceState *dev;
     SysBusDevice *s;
 
@@ -946,113 +852,24 @@ static void next_escc_init(DeviceState *pcdev)
 
     s = SYS_BUS_DEVICE(dev);
     sysbus_realize_and_unref(s, &error_fatal);
-    sysbus_connect_irq(s, 0, qdev_get_gpio_in(pcdev, NEXT_SCC_I));
-    sysbus_connect_irq(s, 1, qdev_get_gpio_in(pcdev, NEXT_SCC_DMA_I));
+    sysbus_connect_irq(s, 0, ser_irq[0]);
+    sysbus_connect_irq(s, 1,  ser_irq[1]);
     sysbus_mmio_map(s, 0, 0x2118000);
 }
-
-static void next_pc_reset(DeviceState *dev)
-{
-    NeXTPC *s = NEXT_PC(dev);
-
-    /* Set internal registers to initial values */
-    /*     0x0000XX00 << vital bits */
-    s->scr1 = 0x00011102;
-    s->scr2 = 0x00ff0c80;
-
-    s->rtc.status = 0x90;
-
-    /* Load RTC RAM - TODO: provide possibility to load contents from file */
-    memcpy(s->rtc.ram, rtc_ram2, 32);
-}
-
-static void next_pc_realize(DeviceState *dev, Error **errp)
-{
-    NeXTPC *s = NEXT_PC(dev);
-    SysBusDevice *sbd = SYS_BUS_DEVICE(dev);
-
-    qdev_init_gpio_in(dev, next_irq, NEXT_NUM_IRQS);
-
-    memory_region_init_io(&s->mmiomem, OBJECT(s), &mmio_ops, s,
-                          "next.mmio", 0xD0000);
-    memory_region_init_io(&s->scrmem, OBJECT(s), &scr_ops, s,
-                          "next.scr", 0x20000);
-    sysbus_init_mmio(sbd, &s->mmiomem);
-    sysbus_init_mmio(sbd, &s->scrmem);
-}
-
-/*
- * If the m68k CPU implemented its inbound irq lines as GPIO lines
- * rather than via the m68k_set_irq_level() function we would not need
- * this cpu link property and could instead provide outbound IRQ lines
- * that the board could wire up to the CPU.
- */
-static Property next_pc_properties[] = {
-    DEFINE_PROP_LINK("cpu", NeXTPC, cpu, TYPE_M68K_CPU, M68kCPU *),
-    DEFINE_PROP_END_OF_LIST(),
-};
-
-static const VMStateDescription next_rtc_vmstate = {
-    .name = "next-rtc",
-    .version_id = 1,
-    .minimum_version_id = 1,
-    .fields = (VMStateField[]) {
-        VMSTATE_UINT8_ARRAY(ram, NextRtc, 32),
-        VMSTATE_UINT8(command, NextRtc),
-        VMSTATE_UINT8(value, NextRtc),
-        VMSTATE_UINT8(status, NextRtc),
-        VMSTATE_UINT8(control, NextRtc),
-        VMSTATE_UINT8(retval, NextRtc),
-        VMSTATE_END_OF_LIST()
-    },
-};
-
-static const VMStateDescription next_pc_vmstate = {
-    .name = "next-pc",
-    .version_id = 1,
-    .minimum_version_id = 1,
-    .fields = (VMStateField[]) {
-        VMSTATE_UINT32(scr1, NeXTPC),
-        VMSTATE_UINT32(scr2, NeXTPC),
-        VMSTATE_UINT32(int_mask, NeXTPC),
-        VMSTATE_UINT32(int_status, NeXTPC),
-        VMSTATE_UINT8(scsi_csr_1, NeXTPC),
-        VMSTATE_UINT8(scsi_csr_2, NeXTPC),
-        VMSTATE_STRUCT(rtc, NeXTPC, 0, next_rtc_vmstate, NextRtc),
-        VMSTATE_END_OF_LIST()
-    },
-};
-
-static void next_pc_class_init(ObjectClass *klass, void *data)
-{
-    DeviceClass *dc = DEVICE_CLASS(klass);
-
-    dc->desc = "NeXT Peripheral Controller";
-    dc->realize = next_pc_realize;
-    dc->reset = next_pc_reset;
-    device_class_set_props(dc, next_pc_properties);
-    dc->vmsd = &next_pc_vmstate;
-}
-
-static const TypeInfo next_pc_info = {
-    .name = TYPE_NEXT_PC,
-    .parent = TYPE_SYS_BUS_DEVICE,
-    .instance_size = sizeof(NeXTPC),
-    .class_init = next_pc_class_init,
-};
 
 static void next_cube_init(MachineState *machine)
 {
     M68kCPU *cpu;
     CPUM68KState *env;
     MemoryRegion *rom = g_new(MemoryRegion, 1);
-    MemoryRegion *rom2 = g_new(MemoryRegion, 1);
+    MemoryRegion *mmiomem = g_new(MemoryRegion, 1);
+    MemoryRegion *scrmem = g_new(MemoryRegion, 1);
     MemoryRegion *dmamem = g_new(MemoryRegion, 1);
     MemoryRegion *bmapm1 = g_new(MemoryRegion, 1);
     MemoryRegion *bmapm2 = g_new(MemoryRegion, 1);
     MemoryRegion *sysmem = get_system_memory();
-    const char *bios_name = machine->firmware ?: ROM_FILE;
-    DeviceState *pcdev;
+    NeXTState *ns = NEXT_MACHINE(machine);
+    DeviceState *dev;
 
     /* Initialize the cpu core */
     cpu = M68K_CPU(cpu_create(machine->cpu_type));
@@ -1066,39 +883,53 @@ static void next_cube_init(MachineState *machine)
     env->vbr = 0;
     env->sr  = 0x2700;
 
-    /* Peripheral Controller */
-    pcdev = qdev_new(TYPE_NEXT_PC);
-    object_property_set_link(OBJECT(pcdev), "cpu", OBJECT(cpu), &error_abort);
-    sysbus_realize_and_unref(SYS_BUS_DEVICE(pcdev), &error_fatal);
+    /* Set internal registers to initial values */
+    /*     0x0000XX00 << vital bits */
+    ns->scr1 = 0x00011102;
+    ns->scr2 = 0x00ff0c80;
+    ns->rtc.status = 0x90;
+
+    /* Load RTC RAM - TODO: provide possibility to load contents from file */
+    memcpy(ns->rtc.ram, rtc_ram2, 32);
 
     /* 64MB RAM starting at 0x04000000  */
     memory_region_add_subregion(sysmem, 0x04000000, machine->ram);
 
     /* Framebuffer */
-    sysbus_create_simple(TYPE_NEXTFB, 0x0B000000, NULL);
+    dev = qdev_new(TYPE_NEXTFB);
+    sysbus_realize_and_unref(SYS_BUS_DEVICE(dev), &error_fatal);
+    sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, 0x0B000000);
 
     /* MMIO */
-    sysbus_mmio_map(SYS_BUS_DEVICE(pcdev), 0, 0x02000000);
-
-    /* BMAP IO - acts as a catch-all for now */
-    sysbus_mmio_map(SYS_BUS_DEVICE(pcdev), 1, 0x02100000);
+    memory_region_init_io(mmiomem, NULL, &mmio_ops, machine, "next.mmio",
+                          0xD0000);
+    memory_region_add_subregion(sysmem, 0x02000000, mmiomem);
 
     /* BMAP memory */
-    memory_region_init_ram_flags_nomigrate(bmapm1, NULL, "next.bmapmem", 64,
-                                           RAM_SHARED, &error_fatal);
+    memory_region_init_ram_shared_nomigrate(bmapm1, NULL, "next.bmapmem", 64,
+                                            true, &error_fatal);
     memory_region_add_subregion(sysmem, 0x020c0000, bmapm1);
     /* The Rev_2.5_v66.bin firmware accesses it at 0x820c0020, too */
     memory_region_init_alias(bmapm2, NULL, "next.bmapmem2", bmapm1, 0x0, 64);
     memory_region_add_subregion(sysmem, 0x820c0000, bmapm2);
 
+    /* BMAP IO - acts as a catch-all for now */
+    memory_region_init_io(scrmem, NULL, &scr_ops, machine, "next.scr",
+                          0x20000);
+    memory_region_add_subregion(sysmem, 0x02100000, scrmem);
+
     /* KBD */
-    sysbus_create_simple(TYPE_NEXTKBD, 0x0200e000, NULL);
+    dev = qdev_new(TYPE_NEXTKBD);
+    sysbus_realize_and_unref(SYS_BUS_DEVICE(dev), &error_fatal);
+    sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, 0x0200e000);
 
     /* Load ROM here */
+    if (bios_name == NULL) {
+        bios_name = ROM_FILE;
+    }
+    /* still not sure if the rom should also be mapped at 0x0*/
     memory_region_init_rom(rom, NULL, "next.rom", 0x20000, &error_fatal);
     memory_region_add_subregion(sysmem, 0x01000000, rom);
-    memory_region_init_alias(rom2, NULL, "next.rom2", rom, 0x0, 0x20000);
-    memory_region_add_subregion(sysmem, 0x0, rom2);
     if (load_image_targphys(bios_name, 0x01000000, 0x20000) < 8) {
         if (!qtest_enabled()) {
             error_report("Failed to load firmware '%s'.", bios_name);
@@ -1117,12 +948,11 @@ static void next_cube_init(MachineState *machine)
     }
 
     /* Serial */
-    next_escc_init(pcdev);
+    next_escc_init(cpu);
 
     /* TODO: */
     /* Network */
     /* SCSI */
-    next_scsi_init(pcdev, cpu);
 
     /* DMA */
     memory_region_init_io(dmamem, NULL, &dma_ops, machine, "next.dma", 0x5000);
@@ -1135,7 +965,6 @@ static void next_machine_class_init(ObjectClass *oc, void *data)
 
     mc->desc = "NeXT Cube";
     mc->init = next_cube_init;
-    mc->block_default_type = IF_SCSI;
     mc->default_ram_size = RAM_SIZE;
     mc->default_ram_id = "next.ram";
     mc->default_cpu_type = M68K_CPU_TYPE_NAME("m68040");
@@ -1151,7 +980,6 @@ static const TypeInfo next_typeinfo = {
 static void next_register_type(void)
 {
     type_register_static(&next_typeinfo);
-    type_register_static(&next_pc_info);
 }
 
 type_init(next_register_type)

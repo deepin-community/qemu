@@ -7,8 +7,6 @@
 #include "qemu/osdep.h"
 #include "qemu/atomic.h"
 #include "qemu/thread.h"
-#include "qemu/cacheinfo.h"
-#include "qemu/memalign.h"
 
 #ifdef CONFIG_ATOMIC64
 #error This file must only be compiled if !CONFIG_ATOMIC64

@@ -24,6 +24,7 @@
 
 #include "hw/sysbus.h"
 #include "chardev/char-fe.h"
+#include "hw/hw.h"
 #include "qom/object.h"
 
 /* Offsets of registers. */
@@ -34,7 +35,7 @@
 #define USART_BRRH 0x05
 #define USART_BRRL 0x04
 
-/* Relevant bits in registers. */
+/* Relevant bits in regiters. */
 #define USART_CSRA_RXC    (1 << 7)
 #define USART_CSRA_TXC    (1 << 6)
 #define USART_CSRA_DRE    (1 << 5)

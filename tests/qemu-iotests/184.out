@@ -54,7 +54,8 @@ Testing:
                 "direct": false,
                 "writeback": true
             },
-            "file": "json:{\"throttle-group\": \"group0\", \"driver\": \"throttle\", \"file\": {\"driver\": \"null-co\"}}"
+            "file": "json:{\"throttle-group\": \"group0\", \"driver\": \"throttle\", \"file\": {\"driver\": \"null-co\"}}",
+            "encryption_key_missing": false
         },
         {
             "iops_rd": 0,
@@ -81,13 +82,18 @@ Testing:
                 "direct": false,
                 "writeback": true
             },
-            "file": "null-co://"
+            "file": "null-co://",
+            "encryption_key_missing": false
         }
     ]
 }
 {
     "return": [
     ]
+}
+{
+    "return": {
+    }
 }
 {
     "timestamp": {
@@ -98,10 +104,6 @@ Testing:
     "data": {
         "guest": false,
         "reason": "host-qmp-quit"
-    }
-}
-{
-    "return": {
     }
 }
 
@@ -170,6 +172,10 @@ Testing:
     }
 }
 {
+    "return": {
+    }
+}
+{
     "timestamp": {
         "seconds":  TIMESTAMP,
         "microseconds":  TIMESTAMP
@@ -178,10 +184,6 @@ Testing:
     "data": {
         "guest": false,
         "reason": "host-qmp-quit"
-    }
-}
-{
-    "return": {
     }
 }
 
@@ -212,6 +214,10 @@ Testing:
     }
 }
 {
+    "return": {
+    }
+}
+{
     "timestamp": {
         "seconds":  TIMESTAMP,
         "microseconds":  TIMESTAMP
@@ -220,10 +226,6 @@ Testing:
     "data": {
         "guest": false,
         "reason": "host-qmp-quit"
-    }
-}
-{
-    "return": {
     }
 }
 
@@ -248,6 +250,10 @@ Testing:
     }
 }
 {
+    "return": {
+    }
+}
+{
     "timestamp": {
         "seconds":  TIMESTAMP,
         "microseconds":  TIMESTAMP
@@ -256,10 +262,6 @@ Testing:
     "data": {
         "guest": false,
         "reason": "host-qmp-quit"
-    }
-}
-{
-    "return": {
     }
 }
 

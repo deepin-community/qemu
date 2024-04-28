@@ -34,7 +34,7 @@
 #include "qemu/ctype.h"
 #include "qemu/iov.h"
 #include "standard-headers/linux/virtio_net.h"
-#include "libvhost-user.h"
+#include "contrib/libvhost-user/libvhost-user.h"
 
 #define VHOST_USER_BRIDGE_DEBUG 1
 
@@ -331,7 +331,9 @@ vubr_backend_recv_cb(int sock, void *ctx)
             .msg_iovlen = num,
             .msg_flags = MSG_DONTWAIT,
         };
-        ret = RETRY_ON_EINTR(recvmsg(vubr->backend_udp_sock, &msg, 0));
+        do {
+            ret = recvmsg(vubr->backend_udp_sock, &msg, 0);
+        } while (ret == -1 && (errno == EINTR));
 
         if (i == 0) {
             iov_restore_front(elem->in_sg, sg, hdrlen);
@@ -466,8 +468,8 @@ vubr_queue_set_started(VuDev *dev, int qidx, bool started)
 
     if (started && vubr->notifier.fd >= 0) {
         vu_set_queue_host_notifier(dev, vq, vubr->notifier.fd,
-                                   qemu_real_host_page_size(),
-                                   qidx * qemu_real_host_page_size());
+                                   qemu_real_host_page_size,
+                                   qidx * qemu_real_host_page_size);
     }
 
     if (qidx % 2 == 1) {
@@ -538,11 +540,6 @@ vubr_new(const char *path, bool client)
     CallbackFunc cb;
     size_t len;
 
-    if (strlen(path) >= sizeof(un.sun_path)) {
-        fprintf(stderr, "unix domain socket path '%s' is too long\n", path);
-        exit(1);
-    }
-
     /* Get a UNIX socket. */
     dev->sock = socket(AF_UNIX, SOCK_STREAM, 0);
     if (dev->sock == -1) {
@@ -599,7 +596,7 @@ static void *notifier_thread(void *arg)
 {
     VuDev *dev = (VuDev *)arg;
     VubrDev *vubr = container_of(dev, VubrDev, vudev);
-    int pagesize = qemu_real_host_page_size();
+    int pagesize = qemu_real_host_page_size;
     int qidx;
 
     while (true) {
@@ -629,14 +626,15 @@ static void *notifier_thread(void *arg)
 static void
 vubr_host_notifier_setup(VubrDev *dev)
 {
+    char template[] = "/tmp/vubr-XXXXXX";
     pthread_t thread;
     size_t length;
     void *addr;
     int fd;
 
-    length = qemu_real_host_page_size() * VHOST_USER_BRIDGE_MAX_QUEUES;
+    length = qemu_real_host_page_size * VHOST_USER_BRIDGE_MAX_QUEUES;
 
-    fd = g_file_open_tmp("vubr-XXXXXX", NULL, NULL);
+    fd = mkstemp(template);
     if (fd < 0) {
         vubr_die("mkstemp()");
     }
@@ -828,7 +826,7 @@ main(int argc, char *argv[])
 out:
     fprintf(stderr, "Usage: %s ", argv[0]);
     fprintf(stderr, "[-c] [-H] [-u ud_socket_path] [-l lhost:lport] [-r rhost:rport]\n");
-    fprintf(stderr, "\t-u path to unix domain socket. default: %s\n",
+    fprintf(stderr, "\t-u path to unix doman socket. default: %s\n",
             DEFAULT_UD_SOCKET);
     fprintf(stderr, "\t-l local host and port. default: %s:%s\n",
             DEFAULT_LHOST, DEFAULT_LPORT);

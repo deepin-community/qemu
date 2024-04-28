@@ -67,7 +67,7 @@ static const struct usb_device_id usbredir_raw_serial_ids[] = {
     { USB_DEVICE(0x10C4, 0x800A) }, /* SPORTident BSM7-D-USB main station */
     { USB_DEVICE(0x10C4, 0x803B) }, /* Pololu USB-serial converter */
     { USB_DEVICE(0x10C4, 0x8044) }, /* Cygnal Debug Adapter */
-    { USB_DEVICE(0x10C4, 0x804E) }, /* Software Bisque Paramount ME built-in converter */
+    { USB_DEVICE(0x10C4, 0x804E) }, /* Software Bisque Paramount ME build-in converter */
     { USB_DEVICE(0x10C4, 0x8053) }, /* Enfora EDG1228 */
     { USB_DEVICE(0x10C4, 0x8054) }, /* Enfora GSM2228 */
     { USB_DEVICE(0x10C4, 0x8066) }, /* Argussoft In-System Programmer */
@@ -904,6 +904,7 @@ static const struct usb_device_id usbredir_ftdi_serial_ids[] = {
     { USB_DEVICE(FTDI_VID, FTDI_SCIENCESCOPE_HS_LOGBOOK_PID) },
     { USB_DEVICE(FTDI_VID, FTDI_CINTERION_MC55I_PID) },
     { USB_DEVICE(FTDI_VID, FTDI_DOTEC_PID) },
+    { USB_DEVICE(QIHARDWARE_VID, MILKYMISTONE_JTAGSERIAL_PID) },
     { USB_DEVICE(ST_VID, ST_STMCLT1030_PID) },
     { USB_DEVICE(FTDI_VID, FTDI_RF_R106) },
     { USB_DEVICE(FTDI_VID, FTDI_DISTORTEC_JTAG_LOCK_PICK_PID) },
