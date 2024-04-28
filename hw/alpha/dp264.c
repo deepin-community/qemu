@@ -7,17 +7,23 @@
  */
 
 #include "qemu/osdep.h"
+#include "qemu-common.h"
 #include "cpu.h"
 #include "elf.h"
 #include "hw/loader.h"
 #include "alpha_sys.h"
 #include "qemu/error-report.h"
+#include "sysemu/sysemu.h"
 #include "hw/rtc/mc146818rtc.h"
 #include "hw/ide/pci.h"
+#include "hw/timer/i8254.h"
 #include "hw/isa/superio.h"
+#include "hw/dma/i8257.h"
 #include "net/net.h"
 #include "qemu/cutils.h"
-#include "qemu/datadir.h"
+#include "net/net.h"
+
+#define MAX_IDE_BUS 2
 
 static uint64_t cpu_alpha_superpage_to_phys(void *opaque, uint64_t addr)
 {
@@ -49,14 +55,11 @@ static void clipper_init(MachineState *machine)
     const char *kernel_filename = machine->kernel_filename;
     const char *kernel_cmdline = machine->kernel_cmdline;
     const char *initrd_filename = machine->initrd_filename;
-    MachineClass *mc = MACHINE_GET_CLASS(machine);
     AlphaCPU *cpus[4];
     PCIBus *pci_bus;
     PCIDevice *pci_dev;
-    DeviceState *i82378_dev;
     ISABus *isa_bus;
     qemu_irq rtc_irq;
-    qemu_irq isa_irq;
     long size, i;
     char *palcode_filename;
     uint64_t palcode_entry;
@@ -69,64 +72,29 @@ static void clipper_init(MachineState *machine)
         cpus[i] = ALPHA_CPU(cpu_create(machine->cpu_type));
     }
 
-    /*
-     * arg0 -> memory size
-     * arg1 -> kernel entry point
-     * arg2 -> config word
-     *
-     * Config word: bits 0-5 -> ncpus
-     *              bit  6   -> nographics option (for HWRPB CTB)
-     *
-     * See init_hwrpb() in the PALcode.
-     */
     cpus[0]->env.trap_arg0 = ram_size;
     cpus[0]->env.trap_arg1 = 0;
-    cpus[0]->env.trap_arg2 = smp_cpus | (!machine->enable_graphics << 6);
+    cpus[0]->env.trap_arg2 = smp_cpus;
 
-    /*
-     * Init the chipset.  Because we're using CLIPPER IRQ mappings,
-     * the minimum PCI device IdSel is 1.
-     */
-    pci_bus = typhoon_init(machine->ram, &isa_irq, &rtc_irq, cpus,
-                           clipper_pci_map_irq, PCI_DEVFN(1, 0));
-
-    /*
-     * Init the PCI -> ISA bridge.
-     *
-     * Technically, PCI-based Alphas shipped with one of three different
-     * PCI-ISA bridges:
-     *
-     * - Intel i82378 SIO
-     * - Cypress CY82c693UB
-     * - ALI M1533
-     *
-     * (An Intel i82375 PCI-EISA bridge was also used on some models.)
-     *
-     * For simplicity, we model an i82378 here, even though it wouldn't
-     * have been on any Tsunami/Typhoon systems; it's close enough, and
-     * we don't want to deal with modelling the CY82c693UB (which has
-     * incompatible edge/level control registers, plus other peripherals
-     * like IDE and USB) or the M1533 (which also has IDE and USB).
-     *
-     * Importantly, we need to provide a PCI device node for it, otherwise
-     * some operating systems won't notice there's an ISA bus to configure.
-     */
-    i82378_dev = DEVICE(pci_create_simple(pci_bus, PCI_DEVFN(7, 0), "i82378"));
-    isa_bus = ISA_BUS(qdev_get_child_bus(i82378_dev, "isa.0"));
-
-    /* Connect the ISA PIC to the Typhoon IRQ used for ISA interrupts. */
-    qdev_connect_gpio_out(i82378_dev, 0, isa_irq);
+    /* Init the chipset.  */
+    pci_bus = typhoon_init(machine->ram, &isa_bus, &rtc_irq, cpus,
+                           clipper_pci_map_irq);
 
     /* Since we have an SRM-compatible PALcode, use the SRM epoch.  */
     mc146818_rtc_init(isa_bus, 1900, rtc_irq);
+
+    i8254_pit_init(isa_bus, 0x40, 0, NULL);
 
     /* VGA setup.  Don't bother loading the bios.  */
     pci_vga_init(pci_bus);
 
     /* Network setup.  e1000 is good enough, failing Tulip support.  */
     for (i = 0; i < nb_nics; i++) {
-        pci_nic_init_nofail(&nd_table[i], pci_bus, mc->default_nic, NULL);
+        pci_nic_init_nofail(&nd_table[i], pci_bus, "e1000", NULL);
     }
+
+    /* 2 82C37 (dma) */
+    isa_create_simple(isa_bus, "i82374");
 
     /* Super I/O */
     isa_create_simple(isa_bus, TYPE_SMC37C669_SUPERIO);
@@ -139,7 +107,7 @@ static void clipper_init(MachineState *machine)
        but one explicitly written for the emulation, we might as
        well load it directly from and ELF image.  */
     palcode_filename = qemu_find_file(QEMU_FILE_TYPE_BIOS,
-                                      machine->firmware ?: "palcode-clipper");
+                                bios_name ? bios_name : "palcode-clipper");
     if (palcode_filename == NULL) {
         error_report("no palcode provided");
         exit(1);
@@ -214,7 +182,6 @@ static void clipper_machine_init(MachineClass *mc)
     mc->is_default = true;
     mc->default_cpu_type = ALPHA_CPU_TYPE_NAME("ev67");
     mc->default_ram_id = "ram";
-    mc->default_nic = "e1000";
 }
 
 DEFINE_MACHINE("clipper", clipper_machine_init)

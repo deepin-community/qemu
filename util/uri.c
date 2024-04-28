@@ -43,7 +43,8 @@
  * Lesser General Public License for more details.
  *
  * You should have received a copy of the GNU Lesser General Public
- * License along with this library. If not, see <https://www.gnu.org/licenses/>.
+ * License along with this library; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307  USA
  *
  * Authors:
  *    Richard W.M. Jones <rjones@redhat.com>
@@ -1339,7 +1340,7 @@ static void uri_clean(URI *uri)
 
 /**
  * uri_free:
- * @uri:  pointer to an URI, NULL is ignored
+ * @uri:  pointer to an URI
  *
  * Free up the URI struct
  */
@@ -1938,9 +1939,15 @@ step_7:
     val = uri_to_string(res);
 
 done:
-    uri_free(ref);
-    uri_free(bas);
-    uri_free(res);
+    if (ref != NULL) {
+        uri_free(ref);
+    }
+    if (bas != NULL) {
+        uri_free(bas);
+    }
+    if (res != NULL) {
+        uri_free(res);
+    }
     return val;
 }
 
@@ -2183,8 +2190,12 @@ done:
     if (remove_path != 0) {
         ref->path = NULL;
     }
-    uri_free(ref);
-    uri_free(bas);
+    if (ref != NULL) {
+        uri_free(ref);
+    }
+    if (bas != NULL) {
+        uri_free(bas);
+    }
 
     return val;
 }

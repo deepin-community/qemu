@@ -53,7 +53,7 @@
 #include "qemu/osdep.h"
 #include <zlib.h>
 
-#include "hw/pci/pci_device.h"
+#include "hw/pci/pci.h"
 #include "hw/qdev-properties.h"
 #include "migration/vmstate.h"
 #include "sysemu/dma.h"
@@ -77,6 +77,7 @@
     ( ( input ) & ( size - 1 )  )
 
 #define ETHER_TYPE_LEN 2
+#define ETH_MTU     1500
 
 #define VLAN_TCI_LEN 2
 #define VLAN_HLEN (ETHER_TYPE_LEN + VLAN_TCI_LEN)
@@ -85,7 +86,7 @@
 #  define DPRINTF(fmt, ...) \
     do { fprintf(stderr, "RTL8139: " fmt, ## __VA_ARGS__); } while (0)
 #else
-static inline G_GNUC_PRINTF(1, 2) int DPRINTF(const char *fmt, ...)
+static inline GCC_FMT_ATTR(1, 2) int DPRINTF(const char *fmt, ...)
 {
     return 0;
 }
@@ -100,7 +101,7 @@ enum RTL8139_registers {
     MAC0 = 0,        /* Ethernet hardware address. */
     MAR0 = 8,        /* Multicast filter. */
     TxStatus0 = 0x10,/* Transmit status (Four 32bit registers). C mode only */
-                     /* Dump Tally Counter control register(64bit). C+ mode only */
+                     /* Dump Tally Conter control register(64bit). C+ mode only */
     TxAddr0 = 0x20,  /* Tx descriptors (also four 32bit). */
     RxBuf = 0x30,
     ChipCmd = 0x37,
@@ -826,6 +827,7 @@ static ssize_t rtl8139_do_receive(NetClientState *nc, const uint8_t *buf, size_t
 
     uint32_t packet_header = 0;
 
+    uint8_t buf1[MIN_BUF_SIZE + VLAN_HLEN];
     static const uint8_t broadcast_macaddr[6] =
         { 0xff, 0xff, 0xff, 0xff, 0xff, 0xff };
 
@@ -934,6 +936,17 @@ static ssize_t rtl8139_do_receive(NetClientState *nc, const uint8_t *buf, size_t
             ++s->tally_counters.RxERR;
 
             return size;
+        }
+    }
+
+    /* if too small buffer, then expand it
+     * Include some tailroom in case a vlan tag is later removed. */
+    if (size < MIN_BUF_SIZE + VLAN_HLEN) {
+        memcpy(buf1, buf, size);
+        memset(buf1 + size, 0, MIN_BUF_SIZE + VLAN_HLEN - size);
+        buf = buf1;
+        if (size < MIN_BUF_SIZE) {
+            size = MIN_BUF_SIZE;
         }
     }
 
@@ -1782,7 +1795,7 @@ static void rtl8139_transfer_frame(RTL8139State *s, uint8_t *buf, int size,
         }
 
         DPRINTF("+++ transmit loopback mode\n");
-        qemu_receive_packet(qemu_get_queue(s->nic), buf, size);
+        rtl8139_do_receive(qemu_get_queue(s->nic), buf, size, do_interrupt);
 
         if (iov) {
             g_free(buf2);
@@ -1921,9 +1934,8 @@ static int rtl8139_cplus_transmit_one(RTL8139State *s)
 #define CP_TX_LS (1<<28)
 /* large send packet flag */
 #define CP_TX_LGSEN (1<<27)
-/* large send MSS mask, bits 16...26 */
-#define CP_TC_LGSEN_MSS_SHIFT 16
-#define CP_TC_LGSEN_MSS_MASK ((1 << 11) - 1)
+/* large send MSS mask, bits 16...25 */
+#define CP_TC_LGSEN_MSS_MASK ((1 << 12) - 1)
 
 /* IP checksum offload flag */
 #define CP_TX_IPCS (1<<18)
@@ -2015,21 +2027,18 @@ static int rtl8139_cplus_transmit_one(RTL8139State *s)
             s->currCPlusTxDesc = 0;
     }
 
-    /* Build the Tx Status Descriptor */
-    uint32_t tx_status = txdw0;
-
     /* transfer ownership to target */
-    tx_status &= ~CP_TX_OWN;
+    txdw0 &= ~CP_TX_OWN;
 
     /* reset error indicator bits */
-    tx_status &= ~CP_TX_STATUS_UNF;
-    tx_status &= ~CP_TX_STATUS_TES;
-    tx_status &= ~CP_TX_STATUS_OWC;
-    tx_status &= ~CP_TX_STATUS_LNKF;
-    tx_status &= ~CP_TX_STATUS_EXC;
+    txdw0 &= ~CP_TX_STATUS_UNF;
+    txdw0 &= ~CP_TX_STATUS_TES;
+    txdw0 &= ~CP_TX_STATUS_OWC;
+    txdw0 &= ~CP_TX_STATUS_LNKF;
+    txdw0 &= ~CP_TX_STATUS_EXC;
 
     /* update ring data */
-    val = cpu_to_le32(tx_status);
+    val = cpu_to_le32(txdw0);
     pci_dma_write(d, cplus_tx_ring_desc, (uint8_t *)&val, 4);
 
     /* Now decide if descriptor being processed is holding the last segment of packet */
@@ -2123,7 +2132,7 @@ static int rtl8139_cplus_transmit_one(RTL8139State *s)
             }
             ip_data_len -= hlen;
 
-            if (!(txdw0 & CP_TX_LGSEN) && (txdw0 & CP_TX_IPCS))
+            if (txdw0 & CP_TX_IPCS)
             {
                 DPRINTF("+++ C+ mode need IP checksum\n");
 
@@ -2140,17 +2149,14 @@ static int rtl8139_cplus_transmit_one(RTL8139State *s)
                     goto skip_offload;
                 }
 
-                int large_send_mss = (txdw0 >> CP_TC_LGSEN_MSS_SHIFT) &
-                                     CP_TC_LGSEN_MSS_MASK;
-                if (large_send_mss == 0) {
-                    goto skip_offload;
-                }
+                int large_send_mss = (txdw0 >> 16) & CP_TC_LGSEN_MSS_MASK;
 
-                DPRINTF("+++ C+ mode offloaded task TSO IP data %d "
-                    "frame data %d specified MSS=%d\n",
+                DPRINTF("+++ C+ mode offloaded task TSO MTU=%d IP data %d "
+                    "frame data %d specified MSS=%d\n", ETH_MTU,
                     ip_data_len, saved_size - ETH_HLEN, large_send_mss);
 
                 int tcp_send_offset = 0;
+                int send_count = 0;
 
                 /* maximum IP header length is 60 bytes */
                 uint8_t saved_ip_header[60];
@@ -2172,22 +2178,25 @@ static int rtl8139_cplus_transmit_one(RTL8139State *s)
                     goto skip_offload;
                 }
 
+                /* ETH_MTU = ip header len + tcp header len + payload */
                 int tcp_data_len = ip_data_len - tcp_hlen;
+                int tcp_chunk_size = ETH_MTU - hlen - tcp_hlen;
 
                 DPRINTF("+++ C+ mode TSO IP data len %d TCP hlen %d TCP "
-                    "data len %d\n", ip_data_len, tcp_hlen, tcp_data_len);
+                    "data len %d TCP chunk size %d\n", ip_data_len,
+                    tcp_hlen, tcp_data_len, tcp_chunk_size);
 
                 /* note the cycle below overwrites IP header data,
                    but restores it from saved_ip_header before sending packet */
 
                 int is_last_frame = 0;
 
-                for (tcp_send_offset = 0; tcp_send_offset < tcp_data_len; tcp_send_offset += large_send_mss)
+                for (tcp_send_offset = 0; tcp_send_offset < tcp_data_len; tcp_send_offset += tcp_chunk_size)
                 {
-                    uint16_t chunk_size = large_send_mss;
+                    uint16_t chunk_size = tcp_chunk_size;
 
                     /* check if this is the last frame */
-                    if (tcp_send_offset + large_send_mss >= tcp_data_len)
+                    if (tcp_send_offset + tcp_chunk_size >= tcp_data_len)
                     {
                         is_last_frame = 1;
                         chunk_size = tcp_data_len - tcp_send_offset;
@@ -2236,7 +2245,7 @@ static int rtl8139_cplus_transmit_one(RTL8139State *s)
                     ip->ip_len = cpu_to_be16(hlen + tcp_hlen + chunk_size);
 
                     /* increment IP id for subsequent frames */
-                    ip->ip_id = cpu_to_be16(tcp_send_offset/large_send_mss + be16_to_cpu(ip->ip_id));
+                    ip->ip_id = cpu_to_be16(tcp_send_offset/tcp_chunk_size + be16_to_cpu(ip->ip_id));
 
                     ip->ip_sum = 0;
                     ip->ip_sum = ip_checksum(eth_payload_data, hlen);
@@ -2252,12 +2261,13 @@ static int rtl8139_cplus_transmit_one(RTL8139State *s)
                     /* add transferred count to TCP sequence number */
                     stl_be_p(&p_tcp_hdr->th_seq,
                              chunk_size + ldl_be_p(&p_tcp_hdr->th_seq));
+                    ++send_count;
                 }
 
                 /* Stop sending this frame */
                 saved_size = 0;
             }
-            else if (!(txdw0 & CP_TX_LGSEN) && (txdw0 & (CP_TX_TCPCS|CP_TX_UDPCS)))
+            else if (txdw0 & (CP_TX_TCPCS|CP_TX_UDPCS))
             {
                 DPRINTF("+++ C+ mode need TCP or UDP checksum\n");
 
@@ -3328,6 +3338,7 @@ static void pci_rtl8139_uninit(PCIDevice *dev)
 
     g_free(s->cplus_txbuffer);
     s->cplus_txbuffer = NULL;
+    timer_del(s->timer);
     timer_free(s->timer);
     qemu_del_nic(s->nic);
 }
@@ -3388,8 +3399,7 @@ static void pci_rtl8139_realize(PCIDevice *dev, Error **errp)
     s->eeprom.contents[9] = s->conf.macaddr.a[4] | s->conf.macaddr.a[5] << 8;
 
     s->nic = qemu_new_nic(&net_rtl8139_info, &s->conf,
-                          object_get_typename(OBJECT(dev)), d->id,
-                          &d->mem_reentrancy_guard, s);
+                          object_get_typename(OBJECT(dev)), d->id, s);
     qemu_format_nic_info_str(qemu_get_queue(s->nic), s->conf.macaddr.a);
 
     s->cplus_txbuffer = NULL;

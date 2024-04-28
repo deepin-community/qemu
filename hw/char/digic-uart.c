@@ -35,7 +35,6 @@
 
 #include "hw/char/digic-uart.h"
 #include "hw/qdev-properties.h"
-#include "hw/qdev-properties-system.h"
 
 enum {
     ST_RX_RDY = (1 << 0),
@@ -63,7 +62,7 @@ static uint64_t digic_uart_read(void *opaque, hwaddr addr,
     default:
         qemu_log_mask(LOG_UNIMP,
                       "digic-uart: read access to unknown register 0x"
-                      HWADDR_FMT_plx "\n", addr << 2);
+                      TARGET_FMT_plx "\n", addr << 2);
     }
 
     return ret;
@@ -101,7 +100,7 @@ static void digic_uart_write(void *opaque, hwaddr addr, uint64_t value,
     default:
         qemu_log_mask(LOG_UNIMP,
                       "digic-uart: write access to unknown register 0x"
-                      HWADDR_FMT_plx "\n", addr << 2);
+                      TARGET_FMT_plx "\n", addr << 2);
     }
 }
 

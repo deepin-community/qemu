@@ -21,7 +21,6 @@
 
 #include "qemu/osdep.h"
 #include "qemu/timer.h"
-#include "qemu/log.h"
 #include "qemu/module.h"
 #include "qemu/queue.h"
 #include "migration/vmstate.h"
@@ -217,10 +216,10 @@ enum {
     (((data) >> field##_SHIFT) & field##_MASK)
 
 #define set_field(data, newval, field) do {                     \
-        uint32_t val_ = *data;                                  \
-        val_ &= ~(field##_MASK << field##_SHIFT);               \
-        val_ |= ((newval) & field##_MASK) << field##_SHIFT;     \
-        *data = val_;                                           \
+        uint32_t val = *data;                                   \
+        val &= ~(field##_MASK << field##_SHIFT);                \
+        val |= ((newval) & field##_MASK) << field##_SHIFT;      \
+        *data = val;                                            \
     } while (0)
 
 typedef enum EPType {
@@ -463,12 +462,6 @@ static void xhci_mfwrap_timer(void *opaque)
     xhci_mfwrap_update(xhci);
 }
 
-static void xhci_die(XHCIState *xhci)
-{
-    xhci->usbsts |= USBSTS_HCE;
-    DPRINTF("xhci: asserted controller error\n");
-}
-
 static inline dma_addr_t xhci_addr64(uint32_t low, uint32_t high)
 {
     if (sizeof(dma_addr_t) == 4) {
@@ -494,14 +487,7 @@ static inline void xhci_dma_read_u32s(XHCIState *xhci, dma_addr_t addr,
 
     assert((len % sizeof(uint32_t)) == 0);
 
-    if (dma_memory_read(xhci->as, addr, buf, len,
-                        MEMTXATTRS_UNSPECIFIED) != MEMTX_OK) {
-        qemu_log_mask(LOG_GUEST_ERROR, "%s: DMA memory access failed!\n",
-                      __func__);
-        memset(buf, 0xff, len);
-        xhci_die(xhci);
-        return;
-    }
+    dma_memory_read(xhci->as, addr, buf, len);
 
     for (i = 0; i < (len / sizeof(uint32_t)); i++) {
         buf[i] = le32_to_cpu(buf[i]);
@@ -509,7 +495,7 @@ static inline void xhci_dma_read_u32s(XHCIState *xhci, dma_addr_t addr,
 }
 
 static inline void xhci_dma_write_u32s(XHCIState *xhci, dma_addr_t addr,
-                                       const uint32_t *buf, size_t len)
+                                       uint32_t *buf, size_t len)
 {
     int i;
     uint32_t tmp[5];
@@ -521,13 +507,7 @@ static inline void xhci_dma_write_u32s(XHCIState *xhci, dma_addr_t addr,
     for (i = 0; i < n; i++) {
         tmp[i] = cpu_to_le32(buf[i]);
     }
-    if (dma_memory_write(xhci->as, addr, tmp, len,
-                         MEMTXATTRS_UNSPECIFIED) != MEMTX_OK) {
-        qemu_log_mask(LOG_GUEST_ERROR, "%s: DMA memory access failed!\n",
-                      __func__);
-        xhci_die(xhci);
-        return;
-    }
+    dma_memory_write(xhci->as, addr, tmp, len);
 }
 
 static XHCIPort *xhci_lookup_port(XHCIState *xhci, struct USBPort *uport)
@@ -571,9 +551,7 @@ static void xhci_intr_update(XHCIState *xhci, int v)
             level = 1;
         }
         if (xhci->intr_raise) {
-            if (xhci->intr_raise(xhci, 0, level)) {
-                xhci->intr[0].iman &= ~IMAN_IP;
-            }
+            xhci->intr_raise(xhci, 0, level);
         }
     }
     if (xhci->intr_update) {
@@ -601,15 +579,19 @@ static void xhci_intr_raise(XHCIState *xhci, int v)
         return;
     }
     if (xhci->intr_raise) {
-        if (xhci->intr_raise(xhci, v, true)) {
-            xhci->intr[v].iman &= ~IMAN_IP;
-        }
+        xhci->intr_raise(xhci, v, true);
     }
 }
 
 static inline int xhci_running(XHCIState *xhci)
 {
     return !(xhci->usbsts & USBSTS_HCH);
+}
+
+static void xhci_die(XHCIState *xhci)
+{
+    xhci->usbsts |= USBSTS_HCE;
+    DPRINTF("xhci: asserted controller error\n");
 }
 
 static void xhci_write_event(XHCIState *xhci, XHCIEvent *event, int v)
@@ -632,12 +614,7 @@ static void xhci_write_event(XHCIState *xhci, XHCIEvent *event, int v)
                                ev_trb.status, ev_trb.control);
 
     addr = intr->er_start + TRB_SIZE*intr->er_ep_idx;
-    if (dma_memory_write(xhci->as, addr, &ev_trb, TRB_SIZE,
-                         MEMTXATTRS_UNSPECIFIED) != MEMTX_OK) {
-        qemu_log_mask(LOG_GUEST_ERROR, "%s: DMA memory access failed!\n",
-                      __func__);
-        xhci_die(xhci);
-    }
+    dma_memory_write(xhci->as, addr, &ev_trb, TRB_SIZE);
 
     intr->er_ep_idx++;
     if (intr->er_ep_idx >= intr->er_size) {
@@ -698,12 +675,7 @@ static TRBType xhci_ring_fetch(XHCIState *xhci, XHCIRing *ring, XHCITRB *trb,
 
     while (1) {
         TRBType type;
-        if (dma_memory_read(xhci->as, ring->dequeue, trb, TRB_SIZE,
-                            MEMTXATTRS_UNSPECIFIED) != MEMTX_OK) {
-            qemu_log_mask(LOG_GUEST_ERROR, "%s: DMA memory access failed!\n",
-                          __func__);
-            return 0;
-        }
+        dma_memory_read(xhci->as, ring->dequeue, trb, TRB_SIZE);
         trb->addr = ring->dequeue;
         trb->ccs = ring->ccs;
         le64_to_cpus(&trb->parameter);
@@ -748,14 +720,9 @@ static int xhci_ring_chain_length(XHCIState *xhci, const XHCIRing *ring)
     bool control_td_set = 0;
     uint32_t link_cnt = 0;
 
-    do {
+    while (1) {
         TRBType type;
-        if (dma_memory_read(xhci->as, dequeue, &trb, TRB_SIZE,
-                        MEMTXATTRS_UNSPECIFIED) != MEMTX_OK) {
-            qemu_log_mask(LOG_GUEST_ERROR, "%s: DMA memory access failed!\n",
-                          __func__);
-            return -1;
-        }
+        dma_memory_read(xhci->as, dequeue, &trb, TRB_SIZE);
         le64_to_cpus(&trb.parameter);
         le32_to_cpus(&trb.status);
         le32_to_cpus(&trb.control);
@@ -789,17 +756,7 @@ static int xhci_ring_chain_length(XHCIState *xhci, const XHCIRing *ring)
         if (!control_td_set && !(trb.control & TRB_TR_CH)) {
             return length;
         }
-
-        /*
-         * According to the xHCI spec, Transfer Ring segments should have
-         * a maximum size of 64 kB (see chapter "6 Data Structures")
-         */
-    } while (length < TRB_LINK_LIMIT * 65536 / TRB_SIZE);
-
-    qemu_log_mask(LOG_GUEST_ERROR, "%s: exceeded maximum transfer ring size!\n",
-                          __func__);
-
-    return -1;
+    }
 }
 
 static void xhci_er_reset(XHCIState *xhci, int v)
@@ -820,14 +777,7 @@ static void xhci_er_reset(XHCIState *xhci, int v)
         xhci_die(xhci);
         return;
     }
-    if (dma_memory_read(xhci->as, erstba, &seg, sizeof(seg),
-                    MEMTXATTRS_UNSPECIFIED) != MEMTX_OK) {
-        qemu_log_mask(LOG_GUEST_ERROR, "%s: DMA memory access failed!\n",
-                      __func__);
-        xhci_die(xhci);
-        return;
-    }
-
+    dma_memory_read(xhci->as, erstba, &seg, sizeof(seg));
     le32_to_cpus(&seg.addr_low);
     le32_to_cpus(&seg.addr_high);
     le32_to_cpus(&seg.size);
@@ -1020,9 +970,7 @@ static XHCIStreamContext *xhci_find_stream(XHCIEPContext *epctx,
         }
         sctx = epctx->pstreams + streamid;
     } else {
-        fprintf(stderr, "xhci: FIXME: secondary streams not implemented yet");
-        *cc_error = CC_INVALID_STREAM_TYPE_ERROR;
-        return NULL;
+        FIXME("secondary streams not implemented yet");
     }
 
     if (sctx->sct == -1) {
@@ -1894,7 +1842,7 @@ static void xhci_kick_epctx(XHCIEPContext *epctx, unsigned int streamid)
     }
 
     if (epctx->retry) {
-        xfer = epctx->retry;
+        XHCITransfer *xfer = epctx->retry;
 
         trace_usb_xhci_xfer_retry(xfer);
         assert(xfer->running_retry);
@@ -2107,7 +2055,7 @@ static TRBCCode xhci_address_slot(XHCIState *xhci, unsigned int slotid,
     assert(slotid >= 1 && slotid <= xhci->numslots);
 
     dcbaap = xhci_addr64(xhci->dcbaap_low, xhci->dcbaap_high);
-    ldq_le_dma(xhci->as, dcbaap + 8 * slotid, &poctx, MEMTXATTRS_UNSPECIFIED);
+    poctx = ldq_le_dma(xhci->as, dcbaap + 8 * slotid);
     ictx = xhci_mask64(pictx);
     octx = xhci_mask64(poctx);
 
@@ -2434,6 +2382,7 @@ static void xhci_detach_slot(XHCIState *xhci, USBPort *uport)
 static TRBCCode xhci_get_port_bandwidth(XHCIState *xhci, uint64_t pctx)
 {
     dma_addr_t ctx;
+    uint8_t bw_ctx[xhci->numports+1];
 
     DPRINTF("xhci_get_port_bandwidth()\n");
 
@@ -2441,14 +2390,10 @@ static TRBCCode xhci_get_port_bandwidth(XHCIState *xhci, uint64_t pctx)
 
     DPRINTF("xhci: bandwidth context at "DMA_ADDR_FMT"\n", ctx);
 
-    /* TODO: actually implement real values here. This is 80% for all ports. */
-    if (stb_dma(xhci->as, ctx, 0, MEMTXATTRS_UNSPECIFIED) != MEMTX_OK ||
-        dma_memory_set(xhci->as, ctx + 1, 80, xhci->numports,
-                       MEMTXATTRS_UNSPECIFIED) != MEMTX_OK) {
-        qemu_log_mask(LOG_GUEST_ERROR, "%s: DMA memory write failed!\n",
-                      __func__);
-        return CC_TRB_ERROR;
-    }
+    /* TODO: actually implement real values here */
+    bw_ctx[0] = 0;
+    memset(&bw_ctx[1], 80, xhci->numports); /* 80% */
+    dma_memory_write(xhci->as, ctx, bw_ctx, sizeof(bw_ctx));
 
     return CC_SUCCESS;
 }
@@ -2570,7 +2515,7 @@ static void xhci_process_commands(XHCIState *xhci)
         case CR_VENDOR_NEC_FIRMWARE_REVISION:
             if (xhci->nec_quirks) {
                 event.type = 48; /* NEC reply */
-                event.length = 0x3034;
+                event.length = 0x3025;
             } else {
                 event.ccode = CC_TRB_ERROR;
             }
@@ -3316,8 +3261,7 @@ static void xhci_wakeup_endpoint(USBBus *bus, USBEndpoint *ep,
 
     DPRINTF("%s\n", __func__);
     slotid = ep->dev->addr;
-    if (slotid == 0 || slotid > xhci->numslots ||
-        !xhci->slots[slotid - 1].enabled) {
+    if (slotid == 0 || !xhci->slots[slotid-1].enabled) {
         DPRINTF("%s: oops, no slot for dev %d\n", __func__, ep->dev->addr);
         return;
     }
@@ -3451,6 +3395,7 @@ static void usb_xhci_unrealize(DeviceState *dev)
     }
 
     if (xhci->mfwrap_timer) {
+        timer_del(xhci->mfwrap_timer);
         timer_free(xhci->mfwrap_timer);
         xhci->mfwrap_timer = NULL;
     }
@@ -3477,7 +3422,6 @@ static int usb_xhci_post_load(void *opaque, int version_id)
     uint32_t slot_ctx[4];
     uint32_t ep_ctx[5];
     int slotid, epid, state;
-    uint64_t addr;
 
     dcbaap = xhci_addr64(xhci->dcbaap_low, xhci->dcbaap_high);
 
@@ -3486,9 +3430,8 @@ static int usb_xhci_post_load(void *opaque, int version_id)
         if (!slot->addressed) {
             continue;
         }
-        ldq_le_dma(xhci->as, dcbaap + 8 * slotid, &addr, MEMTXATTRS_UNSPECIFIED);
-        slot->ctx = xhci_mask64(addr);
-
+        slot->ctx =
+            xhci_mask64(ldq_le_dma(xhci->as, dcbaap + 8 * slotid));
         xhci_dma_read_u32s(xhci, slot->ctx, slot_ctx, sizeof(slot_ctx));
         slot->uport = xhci_lookup_uport(xhci, slot_ctx);
         if (!slot->uport) {

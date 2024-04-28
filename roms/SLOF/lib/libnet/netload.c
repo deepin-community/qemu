@@ -54,7 +54,7 @@ typedef struct {
 } obp_tftp_args_t;
 
 /**
- * Print error with preceding error code
+ * Print error with preceeding error code
  */
 static void netload_error(int errcode, const char *format, ...)
 {
@@ -528,7 +528,7 @@ static void encode_response(char *pkt_buffer, size_t size, int ip_init)
 	}
 }
 
-int netload(char *buffer, int len, char *args_fs, unsigned alen)
+int netload(char *buffer, int len, char *args_fs, int alen)
 {
 	int rc, filename_len;
 	filename_ip_t fn_ip;
@@ -556,7 +556,7 @@ int netload(char *buffer, int len, char *args_fs, unsigned alen)
 
 	/***********************************************************
 	 *
-	 * Initialize network stuff and retrieve boot information
+	 * Initialize network stuff and retrieve boot informations
 	 *
 	 ***********************************************************/
 
@@ -566,7 +566,7 @@ int netload(char *buffer, int len, char *args_fs, unsigned alen)
 			set_timer(TICKS_SEC);
 			while (get_timer() > 0);
 		}
-		fd_device = socket(AF_INET, SOCK_DGRAM, 0, (char*) own_mac);
+		fd_device = socket(0, 0, 0, (char*) own_mac);
 		if(fd_device != -2)
 			break;
 		if(getchar() == 27) {

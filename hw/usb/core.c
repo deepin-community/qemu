@@ -97,7 +97,7 @@ void usb_wakeup(USBEndpoint *ep, unsigned int stream)
     USBDevice *dev = ep->dev;
     USBBus *bus = usb_bus_from_device(dev);
 
-    if (!phase_check(PHASE_MACHINE_READY)) {
+    if (!qdev_hotplug) {
         /*
          * This is machine init cold plug.  No need to wakeup anyone,
          * all devices will be reset anyway.  And trying to wakeup can
@@ -142,7 +142,7 @@ static void do_token_setup(USBDevice *s, USBPacket *p)
     setup_len = (s->setup_buf[7] << 8) | s->setup_buf[6];
     if (setup_len > sizeof(s->data_buf)) {
         fprintf(stderr,
-                "usb_generic_handle_packet: ctrl buffer too small (%u > %zu)\n",
+                "usb_generic_handle_packet: ctrl buffer too small (%d > %zu)\n",
                 setup_len, sizeof(s->data_buf));
         p->status = USB_RET_STALL;
         return;
@@ -154,7 +154,6 @@ static void do_token_setup(USBDevice *s, USBPacket *p)
     index   = (s->setup_buf[5] << 8) | s->setup_buf[4];
 
     if (s->setup_buf[0] & USB_DIR_IN) {
-        usb_pcap_ctrl(p, true);
         usb_device_handle_control(s, p, request, value, index,
                                   s->setup_len, s->data_buf);
         if (p->status == USB_RET_ASYNC) {
@@ -191,7 +190,6 @@ static void do_token_in(USBDevice *s, USBPacket *p)
     switch(s->setup_state) {
     case SETUP_STATE_ACK:
         if (!(s->setup_buf[0] & USB_DIR_IN)) {
-            usb_pcap_ctrl(p, true);
             usb_device_handle_control(s, p, request, value, index,
                                       s->setup_len, s->data_buf);
             if (p->status == USB_RET_ASYNC) {
@@ -199,7 +197,6 @@ static void do_token_in(USBDevice *s, USBPacket *p)
             }
             s->setup_state = SETUP_STATE_IDLE;
             p->actual_length = 0;
-            usb_pcap_ctrl(p, false);
         }
         break;
 
@@ -218,7 +215,6 @@ static void do_token_in(USBDevice *s, USBPacket *p)
         }
         s->setup_state = SETUP_STATE_IDLE;
         p->status = USB_RET_STALL;
-        usb_pcap_ctrl(p, false);
         break;
 
     default:
@@ -234,7 +230,6 @@ static void do_token_out(USBDevice *s, USBPacket *p)
     case SETUP_STATE_ACK:
         if (s->setup_buf[0] & USB_DIR_IN) {
             s->setup_state = SETUP_STATE_IDLE;
-            usb_pcap_ctrl(p, false);
             /* transfer OK */
         } else {
             /* ignore additional output */
@@ -256,7 +251,6 @@ static void do_token_out(USBDevice *s, USBPacket *p)
         }
         s->setup_state = SETUP_STATE_IDLE;
         p->status = USB_RET_STALL;
-        usb_pcap_ctrl(p, false);
         break;
 
     default:
@@ -283,7 +277,7 @@ static void do_parameter(USBDevice *s, USBPacket *p)
     setup_len = (s->setup_buf[7] << 8) | s->setup_buf[6];
     if (setup_len > sizeof(s->data_buf)) {
         fprintf(stderr,
-                "usb_generic_handle_packet: ctrl buffer too small (%u > %zu)\n",
+                "usb_generic_handle_packet: ctrl buffer too small (%d > %zu)\n",
                 setup_len, sizeof(s->data_buf));
         p->status = USB_RET_STALL;
         return;
@@ -294,7 +288,6 @@ static void do_parameter(USBDevice *s, USBPacket *p)
         usb_packet_copy(p, s->data_buf, s->setup_len);
     }
 
-    usb_pcap_ctrl(p, true);
     usb_device_handle_control(s, p, request, value, index,
                               s->setup_len, s->data_buf);
     if (p->status == USB_RET_ASYNC) {
@@ -308,7 +301,6 @@ static void do_parameter(USBDevice *s, USBPacket *p)
         p->actual_length = 0;
         usb_packet_copy(p, s->data_buf, s->setup_len);
     }
-    usb_pcap_ctrl(p, false);
 }
 
 /* ctrl complete function for devices which use usb_generic_handle_packet and
@@ -319,7 +311,6 @@ void usb_generic_async_ctrl_complete(USBDevice *s, USBPacket *p)
 {
     if (p->status < 0) {
         s->setup_state = SETUP_STATE_IDLE;
-        usb_pcap_ctrl(p, false);
     }
 
     switch (s->setup_state) {
@@ -334,7 +325,6 @@ void usb_generic_async_ctrl_complete(USBDevice *s, USBPacket *p)
     case SETUP_STATE_ACK:
         s->setup_state = SETUP_STATE_IDLE;
         p->actual_length = 0;
-        usb_pcap_ctrl(p, false);
         break;
 
     case SETUP_STATE_PARAM:
@@ -369,14 +359,12 @@ USBDevice *usb_find_device(USBPort *port, uint8_t addr)
 static void usb_process_one(USBPacket *p)
 {
     USBDevice *dev = p->ep->dev;
-    bool nak;
 
     /*
      * Handlers expect status to be initialized to USB_RET_SUCCESS, but it
      * can be USB_RET_NAK here from a previous usb_process_one() call,
      * or USB_RET_ASYNC from going through usb_queue_one().
      */
-    nak = (p->status == USB_RET_NAK);
     p->status = USB_RET_SUCCESS;
 
     if (p->ep->nr == 0) {
@@ -400,9 +388,6 @@ static void usb_process_one(USBPacket *p)
         }
     } else {
         /* data pipe */
-        if (!nak) {
-            usb_pcap_data(p, true);
-        }
         usb_device_handle_data(dev, p);
     }
 }
@@ -454,7 +439,6 @@ void usb_handle_packet(USBDevice *dev, USBPacket *p)
             assert(p->stream || !p->ep->pipeline ||
                    QTAILQ_EMPTY(&p->ep->queue));
             if (p->status != USB_RET_NAK) {
-                usb_pcap_data(p, false);
                 usb_packet_set_state(p, USB_PACKET_COMPLETE);
             }
         }
@@ -474,7 +458,6 @@ void usb_packet_complete_one(USBDevice *dev, USBPacket *p)
             (p->short_not_ok && (p->actual_length < p->iov.size))) {
         ep->halted = true;
     }
-    usb_pcap_data(p, false);
     usb_packet_set_state(p, USB_PACKET_COMPLETE);
     QTAILQ_REMOVE(&ep->queue, p, queue);
     dev->port->ops->complete(dev->port, p);

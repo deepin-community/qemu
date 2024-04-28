@@ -48,8 +48,8 @@ this code that are retained.
 ===============================================================================
 */
 
-#ifndef SOFTFLOAT_HELPERS_H
-#define SOFTFLOAT_HELPERS_H
+#ifndef _SOFTFLOAT_HELPERS_H_
+#define _SOFTFLOAT_HELPERS_H_
 
 #include "fpu/softfloat-types.h"
 
@@ -69,7 +69,7 @@ static inline void set_float_exception_flags(int val, float_status *status)
     status->float_exception_flags = val;
 }
 
-static inline void set_floatx80_rounding_precision(FloatX80RoundPrec val,
+static inline void set_floatx80_rounding_precision(int val,
                                                    float_status *status)
 {
     status->floatx80_rounding_precision = val;
@@ -120,8 +120,7 @@ static inline int get_float_exception_flags(float_status *status)
     return status->float_exception_flags;
 }
 
-static inline FloatX80RoundPrec
-get_floatx80_rounding_precision(float_status *status)
+static inline int get_floatx80_rounding_precision(float_status *status)
 {
     return status->floatx80_rounding_precision;
 }
@@ -141,4 +140,4 @@ static inline bool get_default_nan_mode(float_status *status)
     return status->default_nan_mode;
 }
 
-#endif /* SOFTFLOAT_HELPERS_H */
+#endif /* _SOFTFLOAT_HELPERS_H_ */

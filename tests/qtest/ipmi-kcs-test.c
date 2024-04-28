@@ -73,8 +73,7 @@ static void kcs_wait_ibf(void)
 {
     unsigned int count = 1000;
     while (IPMI_KCS_CMDREG_GET_IBF() != 0) {
-        --count;
-        g_assert(count != 0);
+        g_assert(--count != 0);
     }
 }
 

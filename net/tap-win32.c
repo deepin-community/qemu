@@ -29,8 +29,8 @@
 #include "qemu/osdep.h"
 #include "tap_int.h"
 
+#include "qemu-common.h"
 #include "clients.h"            /* net_init_tap */
-#include "net/eth.h"
 #include "net/net.h"
 #include "net/tap.h"            /* tap_has_ufo, ... */
 #include "qemu/error-report.h"
@@ -685,25 +685,14 @@ static ssize_t tap_receive(NetClientState *nc, const uint8_t *buf, size_t size)
 static void tap_win32_send(void *opaque)
 {
     TAPState *s = opaque;
-    uint8_t *buf, *orig_buf;
+    uint8_t *buf;
     int max_size = 4096;
     int size;
-    uint8_t min_pkt[ETH_ZLEN];
-    size_t min_pktsz = sizeof(min_pkt);
 
     size = tap_win32_read(s->handle, &buf, max_size);
     if (size > 0) {
-        orig_buf = buf;
-
-        if (net_peer_needs_padding(&s->nc)) {
-            if (eth_pad_short_frame(min_pkt, &min_pktsz, buf, size)) {
-                buf = min_pkt;
-                size = min_pktsz;
-            }
-        }
-
         qemu_send_packet(&s->nc, buf, size);
-        tap_win32_free_buffer(s->handle, orig_buf);
+        tap_win32_free_buffer(s->handle, buf);
     }
 }
 
@@ -741,7 +730,7 @@ static void tap_using_vnet_hdr(NetClientState *nc, bool using_vnet_hdr)
 }
 
 static void tap_set_offload(NetClientState *nc, int csum, int tso4,
-                     int tso6, int ecn, int ufo, int uso4, int uso6)
+                     int tso6, int ecn, int ufo)
 {
 }
 
@@ -789,7 +778,8 @@ static int tap_win32_init(NetClientState *peer, const char *model,
 
     s = DO_UPCAST(TAPState, nc, nc);
 
-    qemu_set_info_str(&s->nc, "tap: ifname=%s", ifname);
+    snprintf(s->nc.info_str, sizeof(s->nc.info_str),
+             "tap: ifname=%s", ifname);
 
     s->handle = handle;
 
@@ -807,7 +797,7 @@ int net_init_tap(const Netdev *netdev, const char *name,
     assert(netdev->type == NET_CLIENT_DRIVER_TAP);
     tap = &netdev->u.tap;
 
-    if (!tap->ifname) {
+    if (!tap->has_ifname) {
         error_report("tap: no interface name");
         return -1;
     }

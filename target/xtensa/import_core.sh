@@ -35,13 +35,13 @@ tar -xf "$OVERLAY" -O binutils/xtensa-modules.c | \
         -e '/^#include "ansidecl.h"/d' \
         -e '/^Slot_[a-zA-Z0-9_]\+_decode (const xtensa_insnbuf insn)/,/^}/s/^  return 0;$/  return XTENSA_UNDEFINED;/' \
         -e 's/#include <xtensa-isa.h>/#include "xtensa-isa.h"/' \
-        -e 's/^\(xtensa_isa_internal xtensa_modules\)/static \1/' \
     > "$TARGET"/xtensa-modules.c.inc
 
 cat <<EOF > "${TARGET}.c"
 #include "qemu/osdep.h"
 #include "cpu.h"
-#include "gdbstub/helpers.h"
+#include "exec/gdbstub.h"
+#include "qemu-common.h"
 #include "qemu/host-utils.h"
 
 #include "core-$NAME/core-isa.h"
@@ -66,5 +66,5 @@ static XtensaConfig $NAME __attribute__((unused)) = {
 REGISTER_CORE($NAME)
 EOF
 
-grep -qxf core-${NAME}.c "$BASE"/cores.list || \
-    echo core-${NAME}.c >> "$BASE"/cores.list
+grep -q core-${NAME}.o "$BASE"/Makefile.objs || \
+    echo "obj-y += core-${NAME}.o" >> "$BASE"/Makefile.objs

@@ -480,14 +480,11 @@ static int32_t exynos4210_gcomp_find(Exynos4210MCTState *s)
         res = min_comp_i;
     }
 
-    if (res >= 0) {
-        DPRINTF("found comparator %d: "
-                "comp 0x%llx distance 0x%llx, gfrc 0x%llx\n",
-                res,
-                s->g_timer.reg.comp[res],
-                distance_min,
-                gfrc);
-    }
+    DPRINTF("found comparator %d: comp 0x%llx distance 0x%llx, gfrc 0x%llx\n",
+            res,
+            s->g_timer.reg.comp[res],
+            distance_min,
+            gfrc);
 
     return res;
 }
@@ -1448,7 +1445,7 @@ static void exynos4210_mct_write(void *opaque, hwaddr offset,
     case L0_ICNTO: case L1_ICNTO:
     case L0_FRCNTO: case L1_FRCNTO:
         qemu_log_mask(LOG_GUEST_ERROR,
-                      "exynos4210.mct: write to RO register " HWADDR_FMT_plx,
+                      "exynos4210.mct: write to RO register " TARGET_FMT_plx,
                       offset);
         break;
 
@@ -1506,17 +1503,17 @@ static void exynos4210_mct_init(Object *obj)
 
     /* Global timer */
     s->g_timer.ptimer_frc = ptimer_init(exynos4210_gfrc_event, s,
-                                        PTIMER_POLICY_LEGACY);
+                                        PTIMER_POLICY_DEFAULT);
     memset(&s->g_timer.reg, 0, sizeof(struct gregs));
 
     /* Local timers */
     for (i = 0; i < 2; i++) {
         s->l_timer[i].tick_timer.ptimer_tick =
             ptimer_init(exynos4210_ltick_event, &s->l_timer[i],
-                        PTIMER_POLICY_LEGACY);
+                        PTIMER_POLICY_DEFAULT);
         s->l_timer[i].ptimer_frc =
             ptimer_init(exynos4210_lfrc_event, &s->l_timer[i],
-                        PTIMER_POLICY_LEGACY);
+                        PTIMER_POLICY_DEFAULT);
         s->l_timer[i].id = i;
     }
 
@@ -1533,19 +1530,6 @@ static void exynos4210_mct_init(Object *obj)
     sysbus_init_mmio(dev, &s->iomem);
 }
 
-static void exynos4210_mct_finalize(Object *obj)
-{
-    int i;
-    Exynos4210MCTState *s = EXYNOS4210_MCT(obj);
-
-    ptimer_free(s->g_timer.ptimer_frc);
-
-    for (i = 0; i < 2; i++) {
-        ptimer_free(s->l_timer[i].tick_timer.ptimer_tick);
-        ptimer_free(s->l_timer[i].ptimer_frc);
-    }
-}
-
 static void exynos4210_mct_class_init(ObjectClass *klass, void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(klass);
@@ -1559,7 +1543,6 @@ static const TypeInfo exynos4210_mct_info = {
     .parent        = TYPE_SYS_BUS_DEVICE,
     .instance_size = sizeof(Exynos4210MCTState),
     .instance_init = exynos4210_mct_init,
-    .instance_finalize = exynos4210_mct_finalize,
     .class_init    = exynos4210_mct_class_init,
 };
 

@@ -26,7 +26,6 @@
 #include "hw/isa/isa.h"
 #include "hw/qdev-properties.h"
 #include "hw/ppc/pnv.h"
-#include "hw/ppc/pnv_chip.h"
 #include "hw/ppc/pnv_lpc.h"
 #include "hw/ppc/pnv_xscom.h"
 #include "hw/ppc/fdt.h"
@@ -423,6 +422,7 @@ static const MemoryRegionOps pnv_lpc_mmio_ops = {
 static void pnv_lpc_eval_irqs(PnvLpcController *lpc)
 {
     bool lpc_to_opb_irq = false;
+    PnvLpcClass *plc = PNV_LPC_GET_CLASS(lpc);
 
     /* Update LPC controller to OPB line */
     if (lpc->lpc_hc_irqser_ctrl & LPC_HC_IRQSER_EN) {
@@ -445,7 +445,7 @@ static void pnv_lpc_eval_irqs(PnvLpcController *lpc)
     lpc->opb_irq_stat |= lpc->opb_irq_input & lpc->opb_irq_mask;
 
     /* Reflect the interrupt */
-    qemu_set_irq(lpc->psi_irq, lpc->opb_irq_stat != 0);
+    pnv_psi_irq_set(lpc->psi, plc->psi_irq, lpc->opb_irq_stat != 0);
 }
 
 static uint64_t lpc_hc_read(void *opaque, hwaddr addr, unsigned size)
@@ -637,6 +637,8 @@ static void pnv_lpc_power8_class_init(ObjectClass *klass, void *data)
 
     xdc->dt_xscom = pnv_lpc_dt_xscom;
 
+    plc->psi_irq = PSIHB_IRQ_LPC_I2C;
+
     device_class_set_parent_realize(dc, pnv_lpc_power8_realize,
                                     &plc->parent_realize);
 }
@@ -675,6 +677,8 @@ static void pnv_lpc_power9_class_init(ObjectClass *klass, void *data)
 
     dc->desc = "PowerNV LPC Controller POWER9";
 
+    plc->psi_irq = PSIHB9_IRQ_LPCHC;
+
     device_class_set_parent_realize(dc, pnv_lpc_power9_realize,
                                     &plc->parent_realize);
 }
@@ -701,6 +705,8 @@ static const TypeInfo pnv_lpc_power10_info = {
 static void pnv_lpc_realize(DeviceState *dev, Error **errp)
 {
     PnvLpcController *lpc = PNV_LPC(dev);
+
+    assert(lpc->psi);
 
     /* Reg inits */
     lpc->lpc_hc_fw_rd_acc_size = LPC_HC_FW_RD_4B;
@@ -734,18 +740,18 @@ static void pnv_lpc_realize(DeviceState *dev, Error **errp)
     /* Create MMIO regions for LPC HC and OPB registers */
     memory_region_init_io(&lpc->opb_master_regs, OBJECT(dev), &opb_master_ops,
                           lpc, "lpc-opb-master", LPC_OPB_REGS_OPB_SIZE);
-    lpc->opb_master_regs.disable_reentrancy_guard = true;
     memory_region_add_subregion(&lpc->opb_mr, LPC_OPB_REGS_OPB_ADDR,
                                 &lpc->opb_master_regs);
     memory_region_init_io(&lpc->lpc_hc_regs, OBJECT(dev), &lpc_hc_ops, lpc,
                           "lpc-hc", LPC_HC_REGS_OPB_SIZE);
-    /* xscom writes to lpc-hc. As such mark lpc-hc re-entrancy safe */
-    lpc->lpc_hc_regs.disable_reentrancy_guard = true;
     memory_region_add_subregion(&lpc->opb_mr, LPC_HC_REGS_OPB_ADDR,
                                 &lpc->lpc_hc_regs);
-
-    qdev_init_gpio_out(dev, &lpc->psi_irq, 1);
 }
+
+static Property pnv_lpc_properties[] = {
+    DEFINE_PROP_LINK("psi", PnvLpcController, psi, TYPE_PNV_PSI, PnvPsi *),
+    DEFINE_PROP_END_OF_LIST(),
+};
 
 static void pnv_lpc_class_init(ObjectClass *klass, void *data)
 {
@@ -753,6 +759,7 @@ static void pnv_lpc_class_init(ObjectClass *klass, void *data)
 
     dc->realize = pnv_lpc_realize;
     dc->desc = "PowerNV LPC Controller";
+    device_class_set_props(dc, pnv_lpc_properties);
     dc->user_creatable = false;
 }
 
@@ -796,7 +803,7 @@ static void pnv_lpc_isa_irq_handler_cpld(void *opaque, int n, int level)
     }
 
     if (pnv->cpld_irqstate != old_state) {
-        qemu_set_irq(lpc->psi_irq, pnv->cpld_irqstate != 0);
+        pnv_psi_irq_set(lpc->psi, PSIHB_IRQ_EXTERNAL, pnv->cpld_irqstate != 0);
     }
 }
 
@@ -817,6 +824,8 @@ ISABus *pnv_lpc_isa_create(PnvLpcController *lpc, bool use_cpld, Error **errp)
     ISABus *isa_bus;
     qemu_irq *irqs;
     qemu_irq_handler handler;
+    PnvMachineState *pnv = PNV_MACHINE(qdev_get_machine());
+    bool hostboot_mode = !!pnv->fw_load_addr;
 
     /* let isa_bus_new() create its own bridge on SysBus otherwise
      * devices specified on the command line won't find the bus and
@@ -840,7 +849,20 @@ ISABus *pnv_lpc_isa_create(PnvLpcController *lpc, bool use_cpld, Error **errp)
 
     irqs = qemu_allocate_irqs(handler, lpc, ISA_NUM_IRQS);
 
-    isa_bus_register_input_irqs(isa_bus, irqs);
+    isa_bus_irqs(isa_bus, irqs);
+
+    /*
+     * TODO: Map PNOR on the LPC FW address space on demand ?
+     */
+    memory_region_add_subregion(&lpc->isa_fw, PNOR_SPI_OFFSET,
+                                &pnv->pnor->mmio);
+    /*
+     * Start disabled. The HIOMAP protocol will activate the mapping
+     * with HIOMAP_C_CREATE_WRITE_WINDOW
+     */
+    if (!hostboot_mode) {
+        memory_region_set_enabled(&pnv->pnor->mmio, false);
+    }
 
     return isa_bus;
 }

@@ -14,6 +14,7 @@
 #include "qemu/cutils.h"
 #include "qapi/string-output-visitor.h"
 #include "qapi/visitor-impl.h"
+#include "qemu/host-utils.h"
 #include <math.h>
 #include "qemu/range.h"
 
@@ -74,27 +75,11 @@ static StringOutputVisitor *to_sov(Visitor *v)
 
 static void string_output_set(StringOutputVisitor *sov, char *string)
 {
-    switch (sov->list_mode) {
-    case LM_STARTED:
-        sov->list_mode = LM_IN_PROGRESS;
-        /* fall through */
-    case LM_NONE:
-        if (sov->string) {
-            g_string_free(sov->string, true);
-        }
-        sov->string = g_string_new(string);
-        g_free(string);
-        break;
-
-    case LM_IN_PROGRESS:
-    case LM_END:
-        g_string_append(sov->string, ", ");
-        g_string_append(sov->string, string);
-        break;
-
-    default:
-        abort();
+    if (sov->string) {
+        g_string_free(sov->string, true);
     }
+    sov->string = g_string_new(string);
+    g_free(string);
 }
 
 static void string_output_append(StringOutputVisitor *sov, int64_t a)
@@ -273,7 +258,7 @@ static bool print_type_number(Visitor *v, const char *name, double *obj,
                               Error **errp)
 {
     StringOutputVisitor *sov = to_sov(v);
-    string_output_set(sov, g_strdup_printf("%.17g", *obj));
+    string_output_set(sov, g_strdup_printf("%f", *obj));
     return true;
 }
 

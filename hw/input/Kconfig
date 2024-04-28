@@ -1,9 +1,6 @@
 config ADB
     bool
 
-config ADS7846
-    bool
-
 config LM832X
     bool
     depends on I2C
@@ -20,7 +17,7 @@ config PL050
 config PS2
     bool
 
-config STELLARIS_GAMEPAD
+config STELLARIS_INPUT
     bool
 
 config TSC2005

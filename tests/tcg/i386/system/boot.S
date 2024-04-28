@@ -71,12 +71,12 @@ _start:
         add $8,%esp
 
         /*
-         * Don't worry about stack frame, assume everything
+         * Don't worry about stack frame, assume everthing
          * is garbage when we return, we won't need it.
          */
         call main
 
-_exit:	/* output any non-zero result in eax to isa-debug-exit device */
+        /* output any non-zero result in eax to isa-debug-exit device */
         test %al, %al
         jz 1f
         out %ax, $0xf4

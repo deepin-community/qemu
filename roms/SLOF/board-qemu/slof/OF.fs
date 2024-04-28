@@ -303,9 +303,10 @@ set-default-console
 : (boot-ram)
     direct-ram-boot-size 0<> IF
         ." Booting from memory..." cr
-        s" direct-ram-boot-base to go-entry" evaluate
+        s" go-args 2@ " evaluate
+        direct-ram-boot-base 0
         s" true state-valid ! " evaluate
-        s" disable-watchdog go-direct" evaluate
+        s" disable-watchdog go-64" evaluate
     THEN
 ;
 
@@ -340,7 +341,7 @@ cr
 #include "copyright-oss.fs"
 cr cr
 
-\ this CATCH is to ensure the code below always executes:  boot may ABORT!
+\ this CATCH is to ensure the code bellow always executes:  boot may ABORT!
 ' start-it CATCH drop
 
 : boot

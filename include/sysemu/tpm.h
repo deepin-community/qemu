@@ -15,9 +15,7 @@
 #include "qapi/qapi-types-tpm.h"
 #include "qom/object.h"
 
-#ifdef CONFIG_TPM
-
-int tpm_config_parse(QemuOptsList *opts_list, const char *optstr);
+int tpm_config_parse(QemuOptsList *opts_list, const char *optarg);
 int tpm_init(void);
 void tpm_cleanup(void);
 
@@ -48,7 +46,6 @@ struct TPMIfClass {
 #define TYPE_TPM_TIS_SYSBUS         "tpm-tis-device"
 #define TYPE_TPM_CRB                "tpm-crb"
 #define TYPE_TPM_SPAPR              "tpm-spapr"
-#define TYPE_TPM_TIS_I2C            "tpm-tis-i2c"
 
 #define TPM_IS_TIS_ISA(chr)                         \
     object_dynamic_cast(OBJECT(chr), TYPE_TPM_TIS_ISA)
@@ -58,8 +55,6 @@ struct TPMIfClass {
     object_dynamic_cast(OBJECT(chr), TYPE_TPM_CRB)
 #define TPM_IS_SPAPR(chr)                           \
     object_dynamic_cast(OBJECT(chr), TYPE_TPM_SPAPR)
-#define TPM_IS_TIS_I2C(chr)                      \
-    object_dynamic_cast(OBJECT(chr), TYPE_TPM_TIS_I2C)
 
 /* returns NULL unless there is exactly one TPM device */
 static inline TPMIf *tpm_find(void)
@@ -77,18 +72,5 @@ static inline TPMVersion tpm_get_version(TPMIf *ti)
 
     return TPM_IF_GET_CLASS(ti)->get_version(ti);
 }
-
-#else /* CONFIG_TPM */
-
-#define tpm_init()  (0)
-#define tpm_cleanup()
-
-/* needed for an alignment check in non-tpm code */
-static inline Object *TPM_IS_CRB(Object *obj)
-{
-     return NULL;
-}
-
-#endif /* CONFIG_TPM */
 
 #endif /* QEMU_TPM_H */

@@ -1,0 +1,48 @@
+Subject: use fixed data dir instead of determining it at runtime
+From: Michael Tokarev <mjt@tls.msk.ru>
+Debian-specific: yes
+
+Since we install to a fixed location, use fixed data directory
+instead of deriving it at runtime from executable path.
+This way it is possible to move qemu binary to another directory
+and it will still work.
+
+diff --git a/softmmu/vl.c b/softmmu/vl.c
+index e6e0ad5a925..de716a8635b 100644
+--- a/softmmu/vl.c
++++ b/softmmu/vl.c
+@@ -2853,12 +2853,14 @@ static void create_default_memdev(MachineState *ms, const char *path)
+  */
+ static char *find_datadir(void)
+ {
++#if 0
+     g_autofree char *dir = NULL;
+ 
+     dir = g_build_filename(qemu_get_exec_dir(), "pc-bios", NULL);
+     if (g_file_test(dir, G_FILE_TEST_IS_DIR)) {
+         return g_steal_pointer(&dir);
+     }
++#endif
+ 
+     return get_relocated_path(CONFIG_QEMU_DATADIR);
+ }
+diff --git a/util/cutils.c b/util/cutils.c
+index 0b5073b3301..8808a1bc85d 100644
+--- a/util/cutils.c
++++ b/util/cutils.c
+@@ -929,6 +929,9 @@ static inline const char *next_component(const char *dir, int *p_len)
+ 
+ char *get_relocated_path(const char *dir)
+ {
++#if 1	/* for Debian we dont need paths to be relocable */
++    return g_strdup(dir);
++#else
+     size_t prefix_len = strlen(CONFIG_PREFIX);
+     const char *bindir = CONFIG_BINDIR;
+     const char *exec_dir = qemu_get_exec_dir();
+@@ -964,4 +967,5 @@ char *get_relocated_path(const char *dir)
+         g_string_append(result, dir - 1);
+     }
+     return result->str;
++#endif
+ }

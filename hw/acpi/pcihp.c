@@ -30,24 +30,21 @@
 #include "hw/pci-host/i440fx.h"
 #include "hw/pci/pci.h"
 #include "hw/pci/pci_bridge.h"
-#include "hw/pci/pci_host.h"
-#include "hw/pci/pcie_port.h"
-#include "hw/pci-bridge/xio3130_downstream.h"
-#include "hw/i386/acpi-build.h"
 #include "hw/acpi/acpi.h"
+#include "exec/address-spaces.h"
 #include "hw/pci/pci_bus.h"
 #include "migration/vmstate.h"
 #include "qapi/error.h"
 #include "qom/qom-qobject.h"
 #include "trace.h"
 
-#define ACPI_PCIHP_SIZE 0x0018
+#define ACPI_PCIHP_ADDR 0xae00
+#define ACPI_PCIHP_SIZE 0x0014
 #define PCI_UP_BASE 0x0000
 #define PCI_DOWN_BASE 0x0004
 #define PCI_EJ_BASE 0x0008
 #define PCI_RMV_BASE 0x000c
 #define PCI_SEL_BASE 0x0010
-#define PCI_AIDX_BASE 0x0014
 
 typedef struct AcpiPciHpFind {
     int bsel;
@@ -70,55 +67,59 @@ static int acpi_pcihp_get_bsel(PCIBus *bus)
     }
 }
 
-typedef struct {
-    unsigned bsel_alloc;
-    bool has_bridge_hotplug;
-} BSELInfo;
-
-/* Assign BSEL property only to buses that support hotplug. */
+/* Assign BSEL property to all buses.  In the future, this can be changed
+ * to only assign to buses that support hotplug.
+ */
 static void *acpi_set_bsel(PCIBus *bus, void *opaque)
 {
-    BSELInfo *info = opaque;
+    unsigned *bsel_alloc = opaque;
     unsigned *bus_bsel;
-    DeviceState *br = bus->qbus.parent;
-    bool is_bridge = IS_PCI_BRIDGE(br);
 
-    /* hotplugged bridges can't be described in ACPI ignore them */
     if (qbus_is_hotpluggable(BUS(bus))) {
-        if (!is_bridge || (!br->hotplugged && info->has_bridge_hotplug)) {
-            bus_bsel = g_malloc(sizeof *bus_bsel);
+        bus_bsel = g_malloc(sizeof *bus_bsel);
 
-            *bus_bsel = info->bsel_alloc++;
-            object_property_add_uint32_ptr(OBJECT(bus), ACPI_PCIHP_PROP_BSEL,
-                                           bus_bsel, OBJ_PROP_FLAG_READ);
-        }
+        *bus_bsel = (*bsel_alloc)++;
+        object_property_add_uint32_ptr(OBJECT(bus), ACPI_PCIHP_PROP_BSEL,
+                                       bus_bsel, OBJ_PROP_FLAG_READ);
     }
 
-    return info;
+    return bsel_alloc;
 }
 
-static void acpi_set_pci_info(bool has_bridge_hotplug)
+static void acpi_set_pci_info(void)
 {
     static bool bsel_is_set;
-    Object *host = acpi_get_i386_pci_host();
     PCIBus *bus;
-    BSELInfo info = { .bsel_alloc = ACPI_PCIHP_BSEL_DEFAULT,
-                      .has_bridge_hotplug = has_bridge_hotplug };
+    unsigned bsel_alloc = ACPI_PCIHP_BSEL_DEFAULT;
 
     if (bsel_is_set) {
         return;
     }
     bsel_is_set = true;
 
-    if (!host) {
+    bus = find_i440fx(); /* TODO: Q35 support */
+    if (bus) {
+        /* Scan all PCI buses. Set property to enable acpi based hotplug. */
+        pci_for_each_bus_depth_first(bus, acpi_set_bsel, NULL, &bsel_alloc);
+    }
+}
+
+static void acpi_pcihp_disable_root_bus(void)
+{
+    static bool root_hp_disabled;
+    PCIBus *bus;
+
+    if (root_hp_disabled) {
         return;
     }
 
-    bus = PCI_HOST_BRIDGE(host)->bus;
+    bus = find_i440fx();
     if (bus) {
-        /* Scan all PCI buses. Set property to enable acpi based hotplug. */
-        pci_for_each_bus_depth_first(bus, acpi_set_bsel, NULL, &info);
+        /* setting the hotplug handler to NULL makes the bus non-hotpluggable */
+        qbus_set_hotplug_handler(BUS(bus), NULL);
     }
+    root_hp_disabled = true;
+    return;
 }
 
 static void acpi_pcihp_test_hotplug_bus(PCIBus *bus, void *opaque)
@@ -166,17 +167,14 @@ static PCIBus *acpi_pcihp_find_hotplug_bus(AcpiPciHpState *s, int bsel)
 
 static bool acpi_pcihp_pc_no_hotplug(AcpiPciHpState *s, PCIDevice *dev)
 {
+    PCIDeviceClass *pc = PCI_DEVICE_GET_CLASS(dev);
     DeviceClass *dc = DEVICE_GET_CLASS(dev);
     /*
      * ACPI doesn't allow hotplug of bridge devices.  Don't allow
      * hot-unplug of bridge devices unless they were added by hotplug
      * (and so, not described by acpi).
-     *
-     * Don't allow hot-unplug of SR-IOV Virtual Functions, as they
-     * will be removed implicitly, when Physical Function is unplugged.
      */
-    return (IS_PCI_BRIDGE(dev) && !dev->qdev.hotplugged) || !dc->hotpluggable ||
-           pci_is_vf(dev);
+    return (pc->is_bridge && !dev->qdev.hotplugged) || !dc->hotpluggable;
 }
 
 static void acpi_pcihp_eject_slot(AcpiPciHpState *s, unsigned bsel, unsigned slots)
@@ -201,27 +199,9 @@ static void acpi_pcihp_eject_slot(AcpiPciHpState *s, unsigned bsel, unsigned slo
         PCIDevice *dev = PCI_DEVICE(qdev);
         if (PCI_SLOT(dev->devfn) == slot) {
             if (!acpi_pcihp_pc_no_hotplug(s, dev)) {
-                /*
-                 * partially_hotplugged is used by virtio-net failover:
-                 * failover has asked the guest OS to unplug the device
-                 * but we need to keep some references to the device
-                 * to be able to plug it back in case of failure so
-                 * we don't execute hotplug_handler_unplug().
-                 */
-                if (dev->partially_hotplugged) {
-                    /*
-                     * pending_deleted_event is set to true when
-                     * virtio-net failover asks to unplug the device,
-                     * and set to false here when the operation is done
-                     * This is used by the migration loop to detect the
-                     * end of the operation and really start the migration.
-                     */
-                    qdev->pending_deleted_event = false;
-                } else {
-                    hotplug_ctrl = qdev_get_hotplug_handler(qdev);
-                    hotplug_handler_unplug(hotplug_ctrl, qdev, &error_abort);
-                    object_unparent(OBJECT(qdev));
-                }
+                hotplug_ctrl = qdev_get_hotplug_handler(qdev);
+                hotplug_handler_unplug(hotplug_ctrl, qdev, &error_abort);
+                object_unparent(OBJECT(qdev));
             }
         }
     }
@@ -262,20 +242,21 @@ static void acpi_pcihp_update(AcpiPciHpState *s)
     }
 }
 
-void acpi_pcihp_reset(AcpiPciHpState *s)
+void acpi_pcihp_reset(AcpiPciHpState *s, bool acpihp_root_off)
 {
-    acpi_set_pci_info(s->use_acpi_hotplug_bridge);
+    if (acpihp_root_off) {
+        acpi_pcihp_disable_root_bus();
+    }
+    acpi_set_pci_info();
     acpi_pcihp_update(s);
 }
 
 void acpi_pcihp_device_pre_plug_cb(HotplugHandler *hotplug_dev,
                                    DeviceState *dev, Error **errp)
 {
-    PCIDevice *pdev = PCI_DEVICE(dev);
-
     /* Only hotplugged devices need the hotplug capability. */
     if (dev->hotplugged &&
-        acpi_pcihp_get_bsel(pci_get_bus(pdev)) < 0) {
+        acpi_pcihp_get_bsel(pci_get_bus(PCI_DEVICE(dev))) < 0) {
         error_setg(errp, "Unsupported bus. Bus doesn't have property '"
                    ACPI_PCIHP_PROP_BSEL "' set");
         return;
@@ -287,8 +268,6 @@ void acpi_pcihp_device_plug_cb(HotplugHandler *hotplug_dev, AcpiPciHpState *s,
 {
     PCIDevice *pdev = PCI_DEVICE(dev);
     int slot = PCI_SLOT(pdev->devfn);
-    PCIDevice *bridge;
-    PCIBus *bus;
     int bsel;
 
     /* Don't send event when device is enabled during qemu machine creation:
@@ -299,7 +278,7 @@ void acpi_pcihp_device_plug_cb(HotplugHandler *hotplug_dev, AcpiPciHpState *s,
          * Overwrite the default hotplug handler with the ACPI PCI one
          * for cold plugged bridges only.
          */
-        if (s->use_acpi_hotplug_bridge &&
+        if (!s->legacy_piix &&
             object_dynamic_cast(OBJECT(dev), TYPE_PCI_BRIDGE)) {
             PCIBus *sec = pci_bridge_get_sec_bus(PCI_BRIDGE(pdev));
 
@@ -311,14 +290,7 @@ void acpi_pcihp_device_plug_cb(HotplugHandler *hotplug_dev, AcpiPciHpState *s,
         return;
     }
 
-    bus = pci_get_bus(pdev);
-    bridge = pci_bridge_get_device(bus);
-    if (object_dynamic_cast(OBJECT(bridge), TYPE_PCIE_ROOT_PORT) ||
-        object_dynamic_cast(OBJECT(bridge), TYPE_XIO3130_DOWNSTREAM)) {
-        pcie_cap_slot_enable_power(bridge);
-    }
-
-    bsel = acpi_pcihp_get_bsel(bus);
+    bsel = acpi_pcihp_get_bsel(pci_get_bus(pdev));
     g_assert(bsel >= 0);
     s->acpi_pcihp_pci_status[bsel].up |= (1U << slot);
     acpi_send_event(DEVICE(hotplug_dev), ACPI_PCI_HOTPLUG_STATUS);
@@ -327,11 +299,8 @@ void acpi_pcihp_device_plug_cb(HotplugHandler *hotplug_dev, AcpiPciHpState *s,
 void acpi_pcihp_device_unplug_cb(HotplugHandler *hotplug_dev, AcpiPciHpState *s,
                                  DeviceState *dev, Error **errp)
 {
-    PCIDevice *pdev = PCI_DEVICE(dev);
-
-    trace_acpi_pci_unplug(PCI_SLOT(pdev->devfn),
-                          acpi_pcihp_get_bsel(pci_get_bus(pdev)));
-
+    trace_acpi_pci_unplug(PCI_SLOT(PCI_DEVICE(dev)->devfn),
+                          acpi_pcihp_get_bsel(pci_get_bus(PCI_DEVICE(dev))));
     qdev_unrealize(dev);
 }
 
@@ -351,42 +320,8 @@ void acpi_pcihp_device_unplug_request_cb(HotplugHandler *hotplug_dev,
         return;
     }
 
-    /*
-     * pending_deleted_event is used by virtio-net failover to detect the
-     * end of the unplug operation, the flag is set to false in
-     * acpi_pcihp_eject_slot() when the operation is completed.
-     */
-    pdev->qdev.pending_deleted_event = true;
-    /* if unplug was requested before OSPM is initialized,
-     * linux kernel will clear GPE0.sts[] bits during boot, which effectively
-     * hides unplug event. And than followup qmp_device_del() calls remain
-     * blocked by above flag permanently.
-     * Unblock qmp_device_del() by setting expire limit, so user can
-     * repeat unplug request later when OSPM has been booted.
-     */
-    pdev->qdev.pending_deleted_expires_ms =
-        qemu_clock_get_ms(QEMU_CLOCK_VIRTUAL); /* 1 msec */
-
     s->acpi_pcihp_pci_status[bsel].down |= (1U << slot);
     acpi_send_event(DEVICE(hotplug_dev), ACPI_PCI_HOTPLUG_STATUS);
-}
-
-bool acpi_pcihp_is_hotpluggbale_bus(AcpiPciHpState *s, BusState *bus)
-{
-    Object *o = OBJECT(bus->parent);
-
-    if (s->use_acpi_hotplug_bridge &&
-        object_dynamic_cast(o, TYPE_PCI_BRIDGE)) {
-        if (object_dynamic_cast(o, TYPE_PCIE_SLOT) && !PCIE_SLOT(o)->hotplug) {
-            return false;
-        }
-        return true;
-    }
-
-    if (s->use_acpi_root_pci_hotplug) {
-        return true;
-    }
-    return false;
 }
 
 static uint64_t pci_read(void *opaque, hwaddr addr, unsigned int size)
@@ -402,7 +337,7 @@ static uint64_t pci_read(void *opaque, hwaddr addr, unsigned int size)
     switch (addr) {
     case PCI_UP_BASE:
         val = s->acpi_pcihp_pci_status[bsel].up;
-        if (s->use_acpi_hotplug_bridge) {
+        if (!s->legacy_piix) {
             s->acpi_pcihp_pci_status[bsel].up = 0;
         }
         trace_acpi_pci_up_read(val);
@@ -412,6 +347,7 @@ static uint64_t pci_read(void *opaque, hwaddr addr, unsigned int size)
         trace_acpi_pci_down_read(val);
         break;
     case PCI_EJ_BASE:
+        /* No feature defined yet */
         trace_acpi_pci_features_read(val);
         break;
     case PCI_RMV_BASE:
@@ -421,12 +357,6 @@ static uint64_t pci_read(void *opaque, hwaddr addr, unsigned int size)
     case PCI_SEL_BASE:
         val = s->hotplug_select;
         trace_acpi_pci_sel_read(val);
-        break;
-    case PCI_AIDX_BASE:
-        val = s->acpi_index;
-        s->acpi_index = 0;
-        trace_acpi_pci_acpi_index_read(val);
-        break;
     default:
         break;
     }
@@ -437,38 +367,8 @@ static uint64_t pci_read(void *opaque, hwaddr addr, unsigned int size)
 static void pci_write(void *opaque, hwaddr addr, uint64_t data,
                       unsigned int size)
 {
-    int slot;
-    PCIBus *bus;
-    BusChild *kid, *next;
     AcpiPciHpState *s = opaque;
-
-    s->acpi_index = 0;
     switch (addr) {
-    case PCI_AIDX_BASE:
-        /*
-         * fetch acpi-index for specified slot so that follow up read from
-         * PCI_AIDX_BASE can return it to guest
-         */
-        slot = ctz32(data);
-
-        if (s->hotplug_select >= ACPI_PCIHP_MAX_HOTPLUG_BUS) {
-            break;
-        }
-
-        bus = acpi_pcihp_find_hotplug_bus(s, s->hotplug_select);
-        if (!bus) {
-            break;
-        }
-        QTAILQ_FOREACH_SAFE(kid, &bus->qbus.children, sibling, next) {
-            Object *o = OBJECT(kid->child);
-            PCIDevice *dev = PCI_DEVICE(o);
-            if (PCI_SLOT(dev->devfn) == slot) {
-                s->acpi_index = object_property_get_uint(o, "acpi-index", NULL);
-                break;
-            }
-        }
-        trace_acpi_pci_acpi_index_write(s->hotplug_select, slot, s->acpi_index);
-        break;
     case PCI_EJ_BASE:
         if (s->hotplug_select >= ACPI_PCIHP_MAX_HOTPLUG_BUS) {
             break;
@@ -477,8 +377,7 @@ static void pci_write(void *opaque, hwaddr addr, uint64_t data,
         trace_acpi_pci_ej_write(addr, data);
         break;
     case PCI_SEL_BASE:
-        s->hotplug_select = s->use_acpi_hotplug_bridge ? data :
-            ACPI_PCIHP_BSEL_DEFAULT;
+        s->hotplug_select = s->legacy_piix ? ACPI_PCIHP_BSEL_DEFAULT : data;
         trace_acpi_pci_sel_write(addr, data);
     default:
         break;
@@ -496,16 +395,17 @@ static const MemoryRegionOps acpi_pcihp_io_ops = {
 };
 
 void acpi_pcihp_init(Object *owner, AcpiPciHpState *s, PCIBus *root_bus,
-                     MemoryRegion *io, uint16_t io_base)
+                     MemoryRegion *address_space_io, bool bridges_enabled)
 {
     s->io_len = ACPI_PCIHP_SIZE;
-    s->io_base = io_base;
+    s->io_base = ACPI_PCIHP_ADDR;
 
     s->root = root_bus;
+    s->legacy_piix = !bridges_enabled;
 
     memory_region_init_io(&s->io, owner, &acpi_pcihp_io_ops, s,
                           "acpi-pci-hotplug", s->io_len);
-    memory_region_add_subregion(io, s->io_base, &s->io);
+    memory_region_add_subregion(address_space_io, s->io_base, &s->io);
 
     object_property_add_uint16_ptr(owner, ACPI_PCIHP_IO_BASE_PROP, &s->io_base,
                                    OBJ_PROP_FLAG_READ);

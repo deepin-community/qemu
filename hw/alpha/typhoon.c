@@ -10,10 +10,12 @@
 #include "qemu/module.h"
 #include "qemu/units.h"
 #include "qapi/error.h"
-#include "hw/pci/pci_host.h"
 #include "cpu.h"
+#include "hw/boards.h"
 #include "hw/irq.h"
 #include "alpha_sys.h"
+#include "exec/address-spaces.h"
+#include "qom/object.h"
 
 
 #define TYPE_TYPHOON_PCI_HOST_BRIDGE "typhoon-pcihost"
@@ -738,10 +740,6 @@ static AddressSpace *typhoon_pci_dma_iommu(PCIBus *bus, void *opaque, int devfn)
     return &s->pchip.iommu_as;
 }
 
-static const PCIIOMMUOps typhoon_iommu_ops = {
-    .get_address_space = typhoon_pci_dma_iommu,
-};
-
 static void typhoon_set_irq(void *opaque, int irq, int level)
 {
     TyphoonState *s = opaque;
@@ -818,9 +816,8 @@ static void typhoon_alarm_timer(void *opaque)
     cpu_interrupt(CPU(s->cchip.cpu[cpu]), CPU_INTERRUPT_TIMER);
 }
 
-PCIBus *typhoon_init(MemoryRegion *ram, qemu_irq *p_isa_irq,
-                     qemu_irq *p_rtc_irq, AlphaCPU *cpus[4],
-                     pci_map_irq_fn sys_map_irq, uint8_t devfn_min)
+PCIBus *typhoon_init(MemoryRegion *ram, ISABus **isa_bus, qemu_irq *p_rtc_irq,
+                     AlphaCPU *cpus[4], pci_map_irq_fn sys_map_irq)
 {
     MemoryRegion *addr_space = get_system_memory();
     DeviceState *dev;
@@ -848,7 +845,6 @@ PCIBus *typhoon_init(MemoryRegion *ram, qemu_irq *p_isa_irq,
         }
     }
 
-    *p_isa_irq = qemu_allocate_irq(typhoon_set_isa_irq, s, 0);
     *p_rtc_irq = qemu_allocate_irq(typhoon_set_timer_irq, s, 0);
 
     /* Main memory region, 0x00.0000.0000.  Real hardware supports 32GB,
@@ -891,7 +887,7 @@ PCIBus *typhoon_init(MemoryRegion *ram, qemu_irq *p_isa_irq,
     b = pci_register_root_bus(dev, "pci",
                               typhoon_set_irq, sys_map_irq, s,
                               &s->pchip.reg_mem, &s->pchip.reg_io,
-                              devfn_min, 64, TYPE_PCI_BUS);
+                              0, 64, TYPE_PCI_BUS);
     phb->bus = b;
     sysbus_realize_and_unref(SYS_BUS_DEVICE(dev), &error_fatal);
 
@@ -901,7 +897,7 @@ PCIBus *typhoon_init(MemoryRegion *ram, qemu_irq *p_isa_irq,
                              "iommu-typhoon", UINT64_MAX);
     address_space_init(&s->pchip.iommu_as, MEMORY_REGION(&s->pchip.iommu),
                        "pchip0-pci");
-    pci_setup_iommu(b, &typhoon_iommu_ops, s);
+    pci_setup_iommu(b, typhoon_pci_dma_iommu, s);
 
     /* Pchip0 PCI special/interrupt acknowledge, 0x801.F800.0000, 64MB.  */
     memory_region_init_io(&s->pchip.reg_iack, OBJECT(s), &alpha_pci_iack_ops,
@@ -923,6 +919,18 @@ PCIBus *typhoon_init(MemoryRegion *ram, qemu_irq *p_isa_irq,
     /* Pchip1 PCI special/interrupt acknowledge, 0x802.F800.0000, 64MB.  */
     /* Pchip1 PCI I/O, 0x802.FC00.0000, 32MB.  */
     /* Pchip1 PCI configuration, 0x802.FE00.0000, 16MB.  */
+
+    /* Init the ISA bus.  */
+    /* ??? Technically there should be a cy82c693ub pci-isa bridge.  */
+    {
+        qemu_irq *isa_irqs;
+
+        *isa_bus = isa_bus_new(NULL, get_system_memory(), &s->pchip.reg_io,
+                               &error_abort);
+        isa_irqs = i8259_init(*isa_bus,
+                              qemu_allocate_irq(typhoon_set_isa_irq, s, 0));
+        isa_bus_irqs(*isa_bus, isa_irqs);
+    }
 
     return b;
 }

@@ -8,11 +8,11 @@ This is the main entry point for generating C code from the QAPI schema.
 """
 
 import argparse
+import re
 import sys
 from typing import Optional
 
 from .commands import gen_commands
-from .common import must_match
 from .error import QAPIError
 from .events import gen_events
 from .introspect import gen_introspect
@@ -22,7 +22,7 @@ from .visit import gen_visit
 
 
 def invalid_prefix_char(prefix: str) -> Optional[str]:
-    match = must_match(r'([A-Za-z_.-][A-Za-z0-9_.-]*)?', prefix)
+    match = re.match(r'([A-Za-z_.-][A-Za-z0-9_.-]*)?', prefix)
     if match.end() != len(prefix):
         return prefix[match.end()]
     return None
@@ -32,8 +32,7 @@ def generate(schema_file: str,
              output_dir: str,
              prefix: str,
              unmask: bool = False,
-             builtins: bool = False,
-             gen_tracing: bool = False) -> None:
+             builtins: bool = False) -> None:
     """
     Generate C code for the given schema into the target directory.
 
@@ -50,7 +49,7 @@ def generate(schema_file: str,
     schema = QAPISchema(schema_file)
     gen_types(schema, output_dir, prefix, builtins)
     gen_visit(schema, output_dir, prefix, builtins)
-    gen_commands(schema, output_dir, prefix, gen_tracing)
+    gen_commands(schema, output_dir, prefix)
     gen_events(schema, output_dir, prefix)
     gen_introspect(schema, output_dir, prefix, unmask)
 
@@ -75,12 +74,6 @@ def main() -> int:
     parser.add_argument('-u', '--unmask-non-abi-names', action='store_true',
                         dest='unmask',
                         help="expose non-ABI names in introspection")
-
-    # Option --suppress-tracing exists so we can avoid solving build system
-    # problems.  TODO Drop it when we no longer need it.
-    parser.add_argument('--suppress-tracing', action='store_true',
-                        help="suppress adding trace events to qmp marshals")
-
     parser.add_argument('schema', action='store')
     args = parser.parse_args()
 
@@ -95,9 +88,8 @@ def main() -> int:
                  output_dir=args.output_dir,
                  prefix=args.prefix,
                  unmask=args.unmask,
-                 builtins=args.builtins,
-                 gen_tracing=not args.suppress_tracing)
+                 builtins=args.builtins)
     except QAPIError as err:
-        print(err, file=sys.stderr)
+        print(f"{sys.argv[0]}: {str(err)}", file=sys.stderr)
         return 1
     return 0

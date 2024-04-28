@@ -140,8 +140,6 @@ static int tcg_out_pool_finalize(TCGContext *s)
 
     for (; p != NULL; p = p->next) {
         size_t size = sizeof(tcg_target_ulong) * p->nlong;
-        uintptr_t value;
-
         if (!l || l->nlong != p->nlong || memcmp(l->data, p->data, size)) {
             if (unlikely(a > s->code_gen_highwater)) {
                 return -1;
@@ -150,9 +148,7 @@ static int tcg_out_pool_finalize(TCGContext *s)
             a += size;
             l = p;
         }
-
-        value = (uintptr_t)tcg_splitwx_to_rx(a) - size;
-        if (!patch_reloc(p->label, p->rtype, value, p->addend)) {
+        if (!patch_reloc(p->label, p->rtype, (intptr_t)a - size, p->addend)) {
             return -2;
         }
     }

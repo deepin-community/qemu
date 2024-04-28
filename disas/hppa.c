@@ -1968,10 +1968,6 @@ print_insn_hppa (bfd_vma memaddr, disassemble_info *info)
 
   insn = bfd_getb32 (buffer);
 
-  info->fprintf_func(info->stream, " %02x %02x %02x %02x   ",
-                (insn >> 24) & 0xff, (insn >> 16) & 0xff,
-                (insn >>  8) & 0xff, insn & 0xff);
-
   for (i = 0; i < NUMOPCODES; ++i)
     {
       const struct pa_opcode *opcode = &pa_opcodes[i];
@@ -2830,6 +2826,6 @@ print_insn_hppa (bfd_vma memaddr, disassemble_info *info)
 	  return sizeof (insn);
 	}
     }
-  info->fprintf_func(info->stream, "<unknown>");
+  (*info->fprintf_func) (info->stream, "#%8x", insn);
   return sizeof (insn);
 }

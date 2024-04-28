@@ -34,35 +34,22 @@ start:             # at 0x7c00 ?
         mov $16,%eax
         mov %eax,%ds
 
-# Start from 1MB
-.set TEST_MEM_START, (1024*1024)
-.set TEST_MEM_END, (100*1024*1024)
-
         mov $65,%ax
         mov $0x3f8,%dx
         outb %al,%dx
 
         # bl keeps a counter so we limit the output speed
         mov $0, %bl
-
-pre_zero:
-        mov $TEST_MEM_START,%eax
-do_zero:
-        movb $0, (%eax)
-        add $4096,%eax
-        cmp $TEST_MEM_END,%eax
-        jl do_zero
-
 mainloop:
-        mov $TEST_MEM_START,%eax
+        # Start from 1MB
+        mov $(1024*1024),%eax
 innerloop:
         incb (%eax)
         add $4096,%eax
-        cmp $TEST_MEM_END,%eax
+        cmp $(100*1024*1024),%eax
         jl innerloop
 
         inc %bl
-        andb $0x3f,%bl
         jnz mainloop
 
         mov $66,%ax

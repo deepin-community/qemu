@@ -31,6 +31,7 @@
 #include "sysemu/device_tree.h"
 #include "kvm_ppc.h"
 #include "migration/vmstate.h"
+#include "sysemu/qtest.h"
 
 #include "hw/ppc/spapr.h"
 #include "hw/ppc/spapr_vio.h"
@@ -310,7 +311,7 @@ int spapr_vio_send_crq(SpaprVioDevice *dev, uint8_t *crq)
 static void spapr_vio_quiesce_one(SpaprVioDevice *dev)
 {
     if (dev->tcet) {
-        device_cold_reset(DEVICE(dev->tcet));
+        device_legacy_reset(DEVICE(dev->tcet));
     }
     free_crq(dev);
 }
@@ -524,10 +525,10 @@ static void spapr_vio_busdev_realize(DeviceState *qdev, Error **errp)
         uint32_t liobn = SPAPR_VIO_LIOBN(dev->reg);
 
         memory_region_init(&dev->mrroot, OBJECT(dev), "iommu-spapr-root",
-                           MACHINE(spapr)->ram_size);
+                           ram_size);
         memory_region_init_alias(&dev->mrbypass, OBJECT(dev),
                                  "iommu-spapr-bypass", get_system_memory(),
-                                 0, MACHINE(spapr)->ram_size);
+                                 0, ram_size);
         memory_region_add_subregion_overlap(&dev->mrroot, 0, &dev->mrbypass, 1);
         address_space_init(&dev->as, &dev->mrroot, qdev->id);
 
@@ -574,13 +575,12 @@ SpaprVioBus *spapr_vio_bus_init(void)
 
     /* Create bridge device */
     dev = qdev_new(TYPE_SPAPR_VIO_BRIDGE);
+    sysbus_realize_and_unref(SYS_BUS_DEVICE(dev), &error_fatal);
 
     /* Create bus on bridge device */
-    qbus = qbus_new(TYPE_SPAPR_VIO_BUS, dev, "spapr-vio");
+    qbus = qbus_create(TYPE_SPAPR_VIO_BUS, dev, "spapr-vio");
     bus = SPAPR_VIO_BUS(qbus);
     bus->next_reg = SPAPR_VIO_REG_BASE;
-
-    sysbus_realize_and_unref(SYS_BUS_DEVICE(dev), &error_fatal);
 
     /* hcall-vio */
     spapr_register_hypercall(H_VIO_SIGNAL, h_vio_signal);
@@ -727,7 +727,7 @@ void spapr_dt_vdevice(SpaprVioBus *bus, void *fdt)
 gchar *spapr_vio_stdout_path(SpaprVioBus *bus)
 {
     SpaprVioDevice *dev;
-    g_autofree char *name = NULL;
+    char *name, *path;
 
     dev = spapr_vty_get_default(bus);
     if (!dev) {
@@ -735,6 +735,8 @@ gchar *spapr_vio_stdout_path(SpaprVioBus *bus)
     }
 
     name = spapr_vio_get_dev_name(DEVICE(dev));
+    path = g_strdup_printf("/vdevice/%s", name);
 
-    return g_strdup_printf("/vdevice/%s", name);
+    g_free(name);
+    return path;
 }

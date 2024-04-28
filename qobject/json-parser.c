@@ -31,7 +31,8 @@ struct JSONToken {
     char str[];
 };
 
-typedef struct JSONParserContext {
+typedef struct JSONParserContext
+{
     Error *err;
     JSONToken *current;
     GQueue *buf;
@@ -54,7 +55,7 @@ static QObject *parse_value(JSONParserContext *ctxt);
 /**
  * Error handler
  */
-static void G_GNUC_PRINTF(3, 4) parse_error(JSONParserContext *ctxt,
+static void GCC_FMT_ATTR(3, 4) parse_error(JSONParserContext *ctxt,
                                            JSONToken *token, const char *msg, ...)
 {
     va_list ap;
@@ -129,7 +130,7 @@ static int cvt4hex(const char *s)
 static QString *parse_string(JSONParserContext *ctxt, JSONToken *token)
 {
     const char *ptr = token->str;
-    GString *str;
+    QString *str;
     char quote;
     const char *beg;
     int cp, trailing;
@@ -139,7 +140,7 @@ static QString *parse_string(JSONParserContext *ctxt, JSONToken *token)
 
     assert(*ptr == '"' || *ptr == '\'');
     quote = *ptr++;
-    str = g_string_new(NULL);
+    str = qstring_new();
 
     while (*ptr != quote) {
         assert(*ptr);
@@ -148,31 +149,31 @@ static QString *parse_string(JSONParserContext *ctxt, JSONToken *token)
             beg = ptr++;
             switch (*ptr++) {
             case '"':
-                g_string_append_c(str, '"');
+                qstring_append_chr(str, '"');
                 break;
             case '\'':
-                g_string_append_c(str, '\'');
+                qstring_append_chr(str, '\'');
                 break;
             case '\\':
-                g_string_append_c(str, '\\');
+                qstring_append_chr(str, '\\');
                 break;
             case '/':
-                g_string_append_c(str, '/');
+                qstring_append_chr(str, '/');
                 break;
             case 'b':
-                g_string_append_c(str, '\b');
+                qstring_append_chr(str, '\b');
                 break;
             case 'f':
-                g_string_append_c(str, '\f');
+                qstring_append_chr(str, '\f');
                 break;
             case 'n':
-                g_string_append_c(str, '\n');
+                qstring_append_chr(str, '\n');
                 break;
             case 'r':
-                g_string_append_c(str, '\r');
+                qstring_append_chr(str, '\r');
                 break;
             case 't':
-                g_string_append_c(str, '\t');
+                qstring_append_chr(str, '\t');
                 break;
             case 'u':
                 cp = cvt4hex(ptr);
@@ -199,7 +200,7 @@ static QString *parse_string(JSONParserContext *ctxt, JSONToken *token)
                                 (int)(ptr - beg), beg);
                     goto out;
                 }
-                g_string_append(str, utf8_buf);
+                qstring_append(str, utf8_buf);
                 break;
             default:
                 parse_error(ctxt, token, "invalid escape sequence in string");
@@ -224,14 +225,14 @@ static QString *parse_string(JSONParserContext *ctxt, JSONToken *token)
             ptr = end;
             len = mod_utf8_encode(utf8_buf, sizeof(utf8_buf), cp);
             assert(len >= 0);
-            g_string_append(str, utf8_buf);
+            qstring_append(str, utf8_buf);
         }
     }
 
-    return qstring_from_gstring(str);
+    return str;
 
 out:
-    g_string_free(str, true);
+    qobject_unref(str);
     return NULL;
 }
 

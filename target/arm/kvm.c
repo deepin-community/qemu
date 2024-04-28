@@ -13,6 +13,7 @@
 
 #include <linux/kvm.h>
 
+#include "qemu-common.h"
 #include "qemu/timer.h"
 #include "qemu/error-report.h"
 #include "qemu/main-loop.h"
@@ -30,7 +31,6 @@
 #include "exec/address-spaces.h"
 #include "hw/boards.h"
 #include "hw/irq.h"
-#include "qapi/visitor.h"
 #include "qemu/log.h"
 
 const KVMCapabilityInfo kvm_arch_required_capabilities[] = {
@@ -70,19 +70,12 @@ bool kvm_arm_create_scratch_host_vcpu(const uint32_t *cpus_to_try,
                                       struct kvm_vcpu_init *init)
 {
     int ret = 0, kvmfd = -1, vmfd = -1, cpufd = -1;
-    int max_vm_pa_size;
 
     kvmfd = qemu_open_old("/dev/kvm", O_RDWR);
     if (kvmfd < 0) {
         goto err;
     }
-    max_vm_pa_size = ioctl(kvmfd, KVM_CHECK_EXTENSION, KVM_CAP_ARM_VM_IPA_SIZE);
-    if (max_vm_pa_size < 0) {
-        max_vm_pa_size = 0;
-    }
-    do {
-        vmfd = ioctl(kvmfd, KVM_CREATE_VM, max_vm_pa_size);
-    } while (vmfd == -1 && errno == EINTR);
+    vmfd = ioctl(kvmfd, KVM_CREATE_VM, 0);
     if (vmfd < 0) {
         goto err;
     }
@@ -237,22 +230,13 @@ bool kvm_arm_pmu_supported(void)
     return kvm_check_extension(kvm_state, KVM_CAP_ARM_PMU_V3);
 }
 
-int kvm_arm_get_max_vm_ipa_size(MachineState *ms, bool *fixed_ipa)
+int kvm_arm_get_max_vm_ipa_size(MachineState *ms)
 {
     KVMState *s = KVM_STATE(ms->accelerator);
     int ret;
 
     ret = kvm_check_extension(s, KVM_CAP_ARM_VM_IPA_SIZE);
-    *fixed_ipa = ret <= 0;
-
     return ret > 0 ? ret : 40;
-}
-
-int kvm_arch_get_default_type(MachineState *ms)
-{
-    bool fixed_ipa;
-    int size = kvm_arm_get_max_vm_ipa_size(ms, &fixed_ipa);
-    return fixed_ipa ? 0 : size;
 }
 
 int kvm_arch_init(MachineState *ms, KVMState *s)
@@ -287,28 +271,6 @@ int kvm_arch_init(MachineState *ms, KVMState *s)
                                     KVM_CAP_ARM_INJECT_EXT_DABT);
         }
     }
-
-    if (s->kvm_eager_split_size) {
-        uint32_t sizes;
-
-        sizes = kvm_vm_check_extension(s, KVM_CAP_ARM_SUPPORTED_BLOCK_SIZES);
-        if (!sizes) {
-            s->kvm_eager_split_size = 0;
-            warn_report("Eager Page Split support not available");
-        } else if (!(s->kvm_eager_split_size & sizes)) {
-            error_report("Eager Page Split requested chunk size not valid");
-            ret = -EINVAL;
-        } else {
-            ret = kvm_vm_enable_cap(s, KVM_CAP_ARM_EAGER_SPLIT_CHUNK_SIZE, 0,
-                                    s->kvm_eager_split_size);
-            if (ret < 0) {
-                error_report("Enabling of Eager Page Split failed: %s",
-                             strerror(-ret));
-            }
-        }
-    }
-
-    kvm_arm_init_debug(s);
 
     return ret;
 }
@@ -366,10 +328,8 @@ static void kvm_arm_devlistener_del(MemoryListener *listener,
 }
 
 static MemoryListener devlistener = {
-    .name = "kvm-arm",
     .region_add = kvm_arm_devlistener_add,
     .region_del = kvm_arm_devlistener_del,
-    .priority = MEMORY_LISTENER_PRIORITY_MIN,
 };
 
 static void kvm_arm_set_device_addr(KVMDevice *kd)
@@ -553,22 +513,27 @@ bool write_kvmstate_to_list(ARMCPU *cpu)
     bool ok = true;
 
     for (i = 0; i < cpu->cpreg_array_len; i++) {
+        struct kvm_one_reg r;
         uint64_t regidx = cpu->cpreg_indexes[i];
         uint32_t v32;
         int ret;
 
+        r.id = regidx;
+
         switch (regidx & KVM_REG_SIZE_MASK) {
         case KVM_REG_SIZE_U32:
-            ret = kvm_get_one_reg(cs, regidx, &v32);
+            r.addr = (uintptr_t)&v32;
+            ret = kvm_vcpu_ioctl(cs, KVM_GET_ONE_REG, &r);
             if (!ret) {
                 cpu->cpreg_values[i] = v32;
             }
             break;
         case KVM_REG_SIZE_U64:
-            ret = kvm_get_one_reg(cs, regidx, cpu->cpreg_values + i);
+            r.addr = (uintptr_t)(cpu->cpreg_values + i);
+            ret = kvm_vcpu_ioctl(cs, KVM_GET_ONE_REG, &r);
             break;
         default:
-            g_assert_not_reached();
+            abort();
         }
         if (ret) {
             ok = false;
@@ -584,6 +549,7 @@ bool write_list_to_kvmstate(ARMCPU *cpu, int level)
     bool ok = true;
 
     for (i = 0; i < cpu->cpreg_array_len; i++) {
+        struct kvm_one_reg r;
         uint64_t regidx = cpu->cpreg_indexes[i];
         uint32_t v32;
         int ret;
@@ -592,17 +558,19 @@ bool write_list_to_kvmstate(ARMCPU *cpu, int level)
             continue;
         }
 
+        r.id = regidx;
         switch (regidx & KVM_REG_SIZE_MASK) {
         case KVM_REG_SIZE_U32:
             v32 = cpu->cpreg_values[i];
-            ret = kvm_set_one_reg(cs, regidx, &v32);
+            r.addr = (uintptr_t)&v32;
             break;
         case KVM_REG_SIZE_U64:
-            ret = kvm_set_one_reg(cs, regidx, cpu->cpreg_values + i);
+            r.addr = (uintptr_t)(cpu->cpreg_values + i);
             break;
         default:
-            g_assert_not_reached();
+            abort();
         }
+        ret = kvm_vcpu_ioctl(cs, KVM_SET_ONE_REG, &r);
         if (ret) {
             /* We might fail for "unknown register" and also for
              * "you tried to set a register which is constant with
@@ -701,13 +669,17 @@ int kvm_arm_sync_mpstate_to_qemu(ARMCPU *cpu)
 void kvm_arm_get_virtual_time(CPUState *cs)
 {
     ARMCPU *cpu = ARM_CPU(cs);
+    struct kvm_one_reg reg = {
+        .id = KVM_REG_ARM_TIMER_CNT,
+        .addr = (uintptr_t)&cpu->kvm_vtime,
+    };
     int ret;
 
     if (cpu->kvm_vtime_dirty) {
         return;
     }
 
-    ret = kvm_get_one_reg(cs, KVM_REG_ARM_TIMER_CNT, &cpu->kvm_vtime);
+    ret = kvm_vcpu_ioctl(cs, KVM_GET_ONE_REG, &reg);
     if (ret) {
         error_report("Failed to get KVM_REG_ARM_TIMER_CNT");
         abort();
@@ -719,13 +691,17 @@ void kvm_arm_get_virtual_time(CPUState *cs)
 void kvm_arm_put_virtual_time(CPUState *cs)
 {
     ARMCPU *cpu = ARM_CPU(cs);
+    struct kvm_one_reg reg = {
+        .id = KVM_REG_ARM_TIMER_CNT,
+        .addr = (uintptr_t)&cpu->kvm_vtime,
+    };
     int ret;
 
     if (!cpu->kvm_vtime_dirty) {
         return;
     }
 
-    ret = kvm_set_one_reg(cs, KVM_REG_ARM_TIMER_CNT, &cpu->kvm_vtime);
+    ret = kvm_vcpu_ioctl(cs, KVM_SET_ONE_REG, &reg);
     if (ret) {
         error_report("Failed to set KVM_REG_ARM_TIMER_CNT");
         abort();
@@ -868,7 +844,7 @@ MemTxAttrs kvm_arch_post_run(CPUState *cs, struct kvm_run *run)
     return MEMTXATTRS_UNSPECIFIED;
 }
 
-void kvm_arm_vm_state_change(void *opaque, bool running, RunState state)
+void kvm_arm_vm_state_change(void *opaque, int running, RunState state)
 {
     CPUState *cs = opaque;
     ARMCPU *cpu = ARM_CPU(cs);
@@ -976,7 +952,7 @@ void kvm_arch_init_irq_routing(KVMState *s)
 int kvm_arch_irqchip_create(KVMState *s)
 {
     if (kvm_kernel_irqchip_split()) {
-        error_report("-machine kernel_irqchip=split is not supported on ARM.");
+        perror("-machine kernel_irqchip=split is not supported on ARM.");
         exit(1);
     }
 
@@ -1020,6 +996,7 @@ int kvm_arch_fixup_msi_route(struct kvm_irq_routing_entry *route,
     hwaddr xlat, len, doorbell_gpa;
     MemoryRegionSection mrs;
     MemoryRegion *mr;
+    int ret = 1;
 
     if (as == &address_space_memory) {
         return 0;
@@ -1027,19 +1004,15 @@ int kvm_arch_fixup_msi_route(struct kvm_irq_routing_entry *route,
 
     /* MSI doorbell address is translated by an IOMMU */
 
-    RCU_READ_LOCK_GUARD();
-
+    rcu_read_lock();
     mr = address_space_translate(as, address, &xlat, &len, true,
                                  MEMTXATTRS_UNSPECIFIED);
-
     if (!mr) {
-        return 1;
+        goto unlock;
     }
-
     mrs = memory_region_find(mr, xlat, 1);
-
     if (!mrs.mr) {
-        return 1;
+        goto unlock;
     }
 
     doorbell_gpa = mrs.offset_within_address_space;
@@ -1050,7 +1023,11 @@ int kvm_arch_fixup_msi_route(struct kvm_irq_routing_entry *route,
 
     trace_kvm_arm_fixup_msi_route(address, doorbell_gpa);
 
-    return 0;
+    ret = 0;
+
+unlock:
+    rcu_read_unlock();
+    return ret;
 }
 
 int kvm_arch_add_msi_route_post(struct kvm_irq_routing_entry *route,
@@ -1067,53 +1044,4 @@ int kvm_arch_release_virq_post(int virq)
 int kvm_arch_msi_data_to_gsi(uint32_t data)
 {
     return (data - 32) & 0xffff;
-}
-
-bool kvm_arch_cpu_check_are_resettable(void)
-{
-    return true;
-}
-
-static void kvm_arch_get_eager_split_size(Object *obj, Visitor *v,
-                                          const char *name, void *opaque,
-                                          Error **errp)
-{
-    KVMState *s = KVM_STATE(obj);
-    uint64_t value = s->kvm_eager_split_size;
-
-    visit_type_size(v, name, &value, errp);
-}
-
-static void kvm_arch_set_eager_split_size(Object *obj, Visitor *v,
-                                          const char *name, void *opaque,
-                                          Error **errp)
-{
-    KVMState *s = KVM_STATE(obj);
-    uint64_t value;
-
-    if (s->fd != -1) {
-        error_setg(errp, "Unable to set early-split-size after KVM has been initialized");
-        return;
-    }
-
-    if (!visit_type_size(v, name, &value, errp)) {
-        return;
-    }
-
-    if (value && !is_power_of_2(value)) {
-        error_setg(errp, "early-split-size must be a power of two");
-        return;
-    }
-
-    s->kvm_eager_split_size = value;
-}
-
-void kvm_arch_accel_class_init(ObjectClass *oc)
-{
-    object_class_property_add(oc, "eager-split-size", "size",
-                              kvm_arch_get_eager_split_size,
-                              kvm_arch_set_eager_split_size, NULL, NULL);
-
-    object_class_property_set_description(oc, "eager-split-size",
-        "Eager Page Split chunk size for hugepages. (default: 0, disabled)");
 }

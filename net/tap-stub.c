@@ -47,11 +47,6 @@ int tap_probe_has_ufo(int fd)
     return 0;
 }
 
-int tap_probe_has_uso(int fd)
-{
-    return 0;
-}
-
 int tap_probe_vnet_hdr_len(int fd, int len)
 {
     return 0;
@@ -72,7 +67,7 @@ int tap_fd_set_vnet_be(int fd, int is_be)
 }
 
 void tap_fd_set_offload(int fd, int csum, int tso4,
-                        int tso6, int ecn, int ufo, int uso4, int uso6)
+                        int tso6, int ecn, int ufo)
 {
 }
 
@@ -87,11 +82,6 @@ int tap_fd_disable(int fd)
 }
 
 int tap_fd_get_ifname(int fd, char *ifname)
-{
-    return -1;
-}
-
-int tap_fd_set_steering_ebpf(int fd, int prog_fd)
 {
     return -1;
 }

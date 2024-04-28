@@ -24,15 +24,13 @@
 #include "exec/exec-all.h"
 #include "tcg/tcg-op.h"
 #include "exec/helper-proto.h"
+#include "exec/cpu_ldst.h"
 #include "exec/helper-gen.h"
 #include "exec/translator.h"
 #include "qemu/qemu-print.h"
 
+#include "trace-tcg.h"
 #include "exec/log.h"
-
-#define HELPER_H "helper.h"
-#include "exec/helper-info.c.inc"
-#undef  HELPER_H
 
 #define EXTRACT_FIELD(src, start, end) \
             (((src) >> start) & ((1 << (end - start + 1)) - 1))
@@ -56,6 +54,8 @@ static TCGv_i32 cpu_btarget;
 static TCGv_i32 cpu_iflags;
 static TCGv cpu_res_addr;
 static TCGv_i32 cpu_res_val;
+
+#include "exec/gen-icount.h"
 
 /* This is the state at translation time.  */
 typedef struct DisasContext {
@@ -102,7 +102,10 @@ static void t_sync_flags(DisasContext *dc)
 
 static void gen_raise_exception(DisasContext *dc, uint32_t index)
 {
-    gen_helper_raise_exception(tcg_env, tcg_constant_i32(index));
+    TCGv_i32 tmp = tcg_const_i32(index);
+
+    gen_helper_raise_exception(cpu_env, tmp);
+    tcg_temp_free_i32(tmp);
     dc->base.is_jmp = DISAS_NORETURN;
 }
 
@@ -115,15 +118,30 @@ static void gen_raise_exception_sync(DisasContext *dc, uint32_t index)
 
 static void gen_raise_hw_excp(DisasContext *dc, uint32_t esr_ec)
 {
-    TCGv_i32 tmp = tcg_constant_i32(esr_ec);
-    tcg_gen_st_i32(tmp, tcg_env, offsetof(CPUMBState, esr));
+    TCGv_i32 tmp = tcg_const_i32(esr_ec);
+    tcg_gen_st_i32(tmp, cpu_env, offsetof(CPUMBState, esr));
+    tcg_temp_free_i32(tmp);
 
     gen_raise_exception_sync(dc, EXCP_HW_EXCP);
 }
 
+static inline bool use_goto_tb(DisasContext *dc, target_ulong dest)
+{
+#ifndef CONFIG_USER_ONLY
+    return (dc->base.pc_first & TARGET_PAGE_MASK) == (dest & TARGET_PAGE_MASK);
+#else
+    return true;
+#endif
+}
+
 static void gen_goto_tb(DisasContext *dc, int n, target_ulong dest)
 {
-    if (translator_use_goto_tb(&dc->base, dest)) {
+    if (dc->base.singlestep_enabled) {
+        TCGv_i32 tmp = tcg_const_i32(EXCP_DEBUG);
+        tcg_gen_movi_i32(cpu_pc, dest);
+        gen_helper_raise_exception(cpu_env, tmp);
+        tcg_temp_free_i32(tmp);
+    } else if (use_goto_tb(dc, dest)) {
         tcg_gen_goto_tb(n);
         tcg_gen_movi_i32(cpu_pc, dest);
         tcg_gen_exit_tb(dc->base.tb, n);
@@ -259,9 +277,11 @@ static bool do_typeb_val(DisasContext *dc, arg_typeb *arg, bool side_effects,
 
     rd = reg_for_write(dc, arg->rd);
     ra = reg_for_read(dc, arg->ra);
-    imm = tcg_constant_i32(arg->imm);
+    imm = tcg_const_i32(arg->imm);
 
     fn(rd, ra, imm);
+
+    tcg_temp_free_i32(imm);
     return true;
 }
 
@@ -295,28 +315,33 @@ static bool do_typeb_val(DisasContext *dc, arg_typeb *arg, bool side_effects,
 
 #define ENV_WRAPPER2(NAME, HELPER) \
     static void NAME(TCGv_i32 out, TCGv_i32 ina) \
-    { HELPER(out, tcg_env, ina); }
+    { HELPER(out, cpu_env, ina); }
 
 #define ENV_WRAPPER3(NAME, HELPER) \
     static void NAME(TCGv_i32 out, TCGv_i32 ina, TCGv_i32 inb) \
-    { HELPER(out, tcg_env, ina, inb); }
+    { HELPER(out, cpu_env, ina, inb); }
 
 /* No input carry, but output carry. */
 static void gen_add(TCGv_i32 out, TCGv_i32 ina, TCGv_i32 inb)
 {
-    TCGv_i32 zero = tcg_constant_i32(0);
+    TCGv_i32 zero = tcg_const_i32(0);
 
     tcg_gen_add2_i32(out, cpu_msr_c, ina, zero, inb, zero);
+
+    tcg_temp_free_i32(zero);
 }
 
 /* Input and output carry. */
 static void gen_addc(TCGv_i32 out, TCGv_i32 ina, TCGv_i32 inb)
 {
-    TCGv_i32 zero = tcg_constant_i32(0);
+    TCGv_i32 zero = tcg_const_i32(0);
     TCGv_i32 tmp = tcg_temp_new_i32();
 
     tcg_gen_add2_i32(tmp, cpu_msr_c, ina, zero, cpu_msr_c, zero);
     tcg_gen_add2_i32(out, cpu_msr_c, tmp, cpu_msr_c, inb, zero);
+
+    tcg_temp_free_i32(tmp);
+    tcg_temp_free_i32(zero);
 }
 
 /* Input carry, but no output carry. */
@@ -351,6 +376,7 @@ static void gen_bsra(TCGv_i32 out, TCGv_i32 ina, TCGv_i32 inb)
     TCGv_i32 tmp = tcg_temp_new_i32();
     tcg_gen_andi_i32(tmp, inb, 31);
     tcg_gen_sar_i32(out, ina, tmp);
+    tcg_temp_free_i32(tmp);
 }
 
 static void gen_bsrl(TCGv_i32 out, TCGv_i32 ina, TCGv_i32 inb)
@@ -358,6 +384,7 @@ static void gen_bsrl(TCGv_i32 out, TCGv_i32 ina, TCGv_i32 inb)
     TCGv_i32 tmp = tcg_temp_new_i32();
     tcg_gen_andi_i32(tmp, inb, 31);
     tcg_gen_shr_i32(out, ina, tmp);
+    tcg_temp_free_i32(tmp);
 }
 
 static void gen_bsll(TCGv_i32 out, TCGv_i32 ina, TCGv_i32 inb)
@@ -365,6 +392,7 @@ static void gen_bsll(TCGv_i32 out, TCGv_i32 ina, TCGv_i32 inb)
     TCGv_i32 tmp = tcg_temp_new_i32();
     tcg_gen_andi_i32(tmp, inb, 31);
     tcg_gen_shl_i32(out, ina, tmp);
+    tcg_temp_free_i32(tmp);
 }
 
 static void gen_bsefi(TCGv_i32 out, TCGv_i32 ina, int32_t imm)
@@ -423,6 +451,7 @@ static void gen_cmp(TCGv_i32 out, TCGv_i32 ina, TCGv_i32 inb)
     tcg_gen_setcond_i32(TCG_COND_LT, lt, inb, ina);
     tcg_gen_sub_i32(out, inb, ina);
     tcg_gen_deposit_i32(out, out, lt, 31, 1);
+    tcg_temp_free_i32(lt);
 }
 
 static void gen_cmpu(TCGv_i32 out, TCGv_i32 ina, TCGv_i32 inb)
@@ -432,6 +461,7 @@ static void gen_cmpu(TCGv_i32 out, TCGv_i32 ina, TCGv_i32 inb)
     tcg_gen_setcond_i32(TCG_COND_LTU, lt, inb, ina);
     tcg_gen_sub_i32(out, inb, ina);
     tcg_gen_deposit_i32(out, out, lt, 31, 1);
+    tcg_temp_free_i32(lt);
 }
 
 DO_TYPEA(cmp, false, gen_cmp)
@@ -472,12 +502,12 @@ DO_TYPEA0_CFG(fsqrt, use_fpu >= 2, true, gen_fsqrt)
 /* Does not use ENV_WRAPPER3, because arguments are swapped as well. */
 static void gen_idiv(TCGv_i32 out, TCGv_i32 ina, TCGv_i32 inb)
 {
-    gen_helper_divs(out, tcg_env, inb, ina);
+    gen_helper_divs(out, cpu_env, inb, ina);
 }
 
 static void gen_idivu(TCGv_i32 out, TCGv_i32 ina, TCGv_i32 inb)
 {
-    gen_helper_divu(out, tcg_env, inb, ina);
+    gen_helper_divu(out, cpu_env, inb, ina);
 }
 
 DO_TYPEA_CFG(idiv, use_div, true, gen_idiv)
@@ -498,18 +528,21 @@ static void gen_mulh(TCGv_i32 out, TCGv_i32 ina, TCGv_i32 inb)
 {
     TCGv_i32 tmp = tcg_temp_new_i32();
     tcg_gen_muls2_i32(tmp, out, ina, inb);
+    tcg_temp_free_i32(tmp);
 }
 
 static void gen_mulhu(TCGv_i32 out, TCGv_i32 ina, TCGv_i32 inb)
 {
     TCGv_i32 tmp = tcg_temp_new_i32();
     tcg_gen_mulu2_i32(tmp, out, ina, inb);
+    tcg_temp_free_i32(tmp);
 }
 
 static void gen_mulhsu(TCGv_i32 out, TCGv_i32 ina, TCGv_i32 inb)
 {
     TCGv_i32 tmp = tcg_temp_new_i32();
     tcg_gen_mulsu2_i32(tmp, out, ina, inb);
+    tcg_temp_free_i32(tmp);
 }
 
 DO_TYPEA_CFG(mul, use_hw_mul, false, tcg_gen_mul_i32)
@@ -545,12 +578,15 @@ static void gen_rsub(TCGv_i32 out, TCGv_i32 ina, TCGv_i32 inb)
 /* Input and output carry. */
 static void gen_rsubc(TCGv_i32 out, TCGv_i32 ina, TCGv_i32 inb)
 {
-    TCGv_i32 zero = tcg_constant_i32(0);
+    TCGv_i32 zero = tcg_const_i32(0);
     TCGv_i32 tmp = tcg_temp_new_i32();
 
     tcg_gen_not_i32(tmp, ina);
     tcg_gen_add2_i32(tmp, cpu_msr_c, tmp, zero, cpu_msr_c, zero);
     tcg_gen_add2_i32(out, cpu_msr_c, tmp, cpu_msr_c, inb, zero);
+
+    tcg_temp_free_i32(zero);
+    tcg_temp_free_i32(tmp);
 }
 
 /* No input or output carry. */
@@ -567,6 +603,8 @@ static void gen_rsubkc(TCGv_i32 out, TCGv_i32 ina, TCGv_i32 inb)
     tcg_gen_not_i32(nota, ina);
     tcg_gen_add_i32(out, inb, nota);
     tcg_gen_add_i32(out, out, cpu_msr_c);
+
+    tcg_temp_free_i32(nota);
 }
 
 DO_TYPEA(rsub, true, gen_rsub)
@@ -595,6 +633,8 @@ static void gen_src(TCGv_i32 out, TCGv_i32 ina)
     tcg_gen_mov_i32(tmp, cpu_msr_c);
     tcg_gen_andi_i32(cpu_msr_c, ina, 1);
     tcg_gen_extract2_i32(out, ina, tmp, 1);
+
+    tcg_temp_free_i32(tmp);
 }
 
 static void gen_srl(TCGv_i32 out, TCGv_i32 ina)
@@ -634,6 +674,7 @@ static TCGv compute_ldst_addr_typea(DisasContext *dc, int ra, int rb)
         TCGv_i32 tmp = tcg_temp_new_i32();
         tcg_gen_add_i32(tmp, cpu_R[ra], cpu_R[rb]);
         tcg_gen_extu_i32_tl(ret, tmp);
+        tcg_temp_free_i32(tmp);
     } else if (ra) {
         tcg_gen_extu_i32_tl(ret, cpu_R[ra]);
     } else if (rb) {
@@ -643,7 +684,7 @@ static TCGv compute_ldst_addr_typea(DisasContext *dc, int ra, int rb)
     }
 
     if ((ra == 1 || rb == 1) && dc->cfg->stackprot) {
-        gen_helper_stackprot(tcg_env, ret);
+        gen_helper_stackprot(cpu_env, ret);
     }
     return ret;
 }
@@ -657,12 +698,13 @@ static TCGv compute_ldst_addr_typeb(DisasContext *dc, int ra, int imm)
         TCGv_i32 tmp = tcg_temp_new_i32();
         tcg_gen_addi_i32(tmp, cpu_R[ra], imm);
         tcg_gen_extu_i32_tl(ret, tmp);
+        tcg_temp_free_i32(tmp);
     } else {
         tcg_gen_movi_tl(ret, (uint32_t)imm);
     }
 
     if (ra == 1 && dc->cfg->stackprot) {
-        gen_helper_stackprot(tcg_env, ret);
+        gen_helper_stackprot(cpu_env, ret);
     }
     return ret;
 }
@@ -695,7 +737,6 @@ static TCGv compute_ldst_addr_ea(DisasContext *dc, int ra, int rb)
 }
 #endif
 
-#ifndef CONFIG_USER_ONLY
 static void record_unaligned_ess(DisasContext *dc, int rd,
                                  MemOp size, bool store)
 {
@@ -708,7 +749,6 @@ static void record_unaligned_ess(DisasContext *dc, int rd,
 
     tcg_set_insn_start_param(dc->insn_start, 1, iflags);
 }
-#endif
 
 static bool do_load(DisasContext *dc, int rd, TCGv addr, MemOp mop,
                     int mem_index, bool rev)
@@ -730,21 +770,16 @@ static bool do_load(DisasContext *dc, int rd, TCGv addr, MemOp mop,
         }
     }
 
-    /*
-     * For system mode, enforce alignment if the cpu configuration
-     * requires it.  For user-mode, the Linux kernel will have fixed up
-     * any unaligned access, so emulate that by *not* setting MO_ALIGN.
-     */
-#ifndef CONFIG_USER_ONLY
     if (size > MO_8 &&
         (dc->tb_flags & MSR_EE) &&
         dc->cfg->unaligned_exceptions) {
         record_unaligned_ess(dc, rd, size, false);
         mop |= MO_ALIGN;
     }
-#endif
 
     tcg_gen_qemu_ld_i32(reg_for_write(dc, rd), addr, mem_index, mop);
+
+    tcg_temp_free(addr);
     return true;
 }
 
@@ -850,6 +885,7 @@ static bool trans_lwx(DisasContext *dc, arg_typea *arg)
 
     tcg_gen_qemu_ld_i32(cpu_res_val, addr, dc->mem_index, MO_TEUL);
     tcg_gen_mov_tl(cpu_res_addr, addr);
+    tcg_temp_free(addr);
 
     if (arg->rd) {
         tcg_gen_mov_i32(cpu_R[arg->rd], cpu_res_val);
@@ -880,21 +916,16 @@ static bool do_store(DisasContext *dc, int rd, TCGv addr, MemOp mop,
         }
     }
 
-    /*
-     * For system mode, enforce alignment if the cpu configuration
-     * requires it.  For user-mode, the Linux kernel will have fixed up
-     * any unaligned access, so emulate that by *not* setting MO_ALIGN.
-     */
-#ifndef CONFIG_USER_ONLY
     if (size > MO_8 &&
         (dc->tb_flags & MSR_EE) &&
         dc->cfg->unaligned_exceptions) {
         record_unaligned_ess(dc, rd, size, true);
         mop |= MO_ALIGN;
     }
-#endif
 
     tcg_gen_qemu_st_i32(reg_for_read(dc, rd), addr, mem_index, mop);
+
+    tcg_temp_free(addr);
     return true;
 }
 
@@ -1008,6 +1039,7 @@ static bool trans_swx(DisasContext *dc, arg_typea *arg)
      * In either case, addr is no longer needed.
      */
     tcg_gen_brcond_tl(TCG_COND_NE, cpu_res_addr, addr, swx_fail);
+    tcg_temp_free(addr);
 
     /*
      * Compare the value loaded during lwx with current contents of
@@ -1020,6 +1052,7 @@ static bool trans_swx(DisasContext *dc, arg_typea *arg)
                                dc->mem_index, MO_TEUL);
 
     tcg_gen_brcond_i32(TCG_COND_NE, cpu_res_val, tval, swx_fail);
+    tcg_temp_free_i32(tval);
 
     /* Success */
     tcg_gen_movi_i32(cpu_msr_c, 0);
@@ -1116,11 +1149,13 @@ static bool do_bcc(DisasContext *dc, int dest_rb, int dest_imm,
     }
 
     /* Compute the final destination into btarget.  */
-    zero = tcg_constant_i32(0);
-    next = tcg_constant_i32(dc->base.pc_next + (delay + 1) * 4);
+    zero = tcg_const_i32(0);
+    next = tcg_const_i32(dc->base.pc_next + (delay + 1) * 4);
     tcg_gen_movcond_i32(dc->jmp_cond, cpu_btarget,
                         reg_for_read(dc, ra), zero,
                         cpu_btarget, next);
+    tcg_temp_free_i32(zero);
+    tcg_temp_free_i32(next);
 
     return true;
 }
@@ -1225,6 +1260,8 @@ static bool trans_mbar(DisasContext *dc, arg_mbar *arg)
 
     /* Sleep. */
     if (mbar_imm & 16) {
+        TCGv_i32 tmp_1;
+
         if (trap_userspace(dc, true)) {
             /* Sleep is a privileged instruction.  */
             return true;
@@ -1232,9 +1269,11 @@ static bool trans_mbar(DisasContext *dc, arg_mbar *arg)
 
         t_sync_flags(dc);
 
-        tcg_gen_st_i32(tcg_constant_i32(1), tcg_env,
+        tmp_1 = tcg_const_i32(1);
+        tcg_gen_st_i32(tmp_1, cpu_env,
                        -offsetof(MicroBlazeCPU, env)
                        +offsetof(CPUState, halted));
+        tcg_temp_free_i32(tmp_1);
 
         tcg_gen_movi_i32(cpu_pc, dc->base.pc_next + 4);
 
@@ -1305,6 +1344,7 @@ static void msr_read(DisasContext *dc, TCGv_i32 d)
     t = tcg_temp_new_i32();
     tcg_gen_muli_i32(t, cpu_msr_c, MSR_C | MSR_CC);
     tcg_gen_or_i32(d, cpu_msr, t);
+    tcg_temp_free_i32(t);
 }
 
 static bool do_msrclrset(DisasContext *dc, arg_type_msr *arg, bool set)
@@ -1381,13 +1421,13 @@ static bool trans_mts(DisasContext *dc, arg_mts *arg)
         tcg_gen_andi_i32(cpu_msr, src, ~(MSR_C | MSR_CC | MSR_PVR));
         break;
     case SR_FSR:
-        tcg_gen_st_i32(src, tcg_env, offsetof(CPUMBState, fsr));
+        tcg_gen_st_i32(src, cpu_env, offsetof(CPUMBState, fsr));
         break;
     case 0x800:
-        tcg_gen_st_i32(src, tcg_env, offsetof(CPUMBState, slr));
+        tcg_gen_st_i32(src, cpu_env, offsetof(CPUMBState, slr));
         break;
     case 0x802:
-        tcg_gen_st_i32(src, tcg_env, offsetof(CPUMBState, shr));
+        tcg_gen_st_i32(src, cpu_env, offsetof(CPUMBState, shr));
         break;
 
     case 0x1000: /* PID */
@@ -1397,10 +1437,12 @@ static bool trans_mts(DisasContext *dc, arg_mts *arg)
     case 0x1004: /* TLBHI */
     case 0x1005: /* TLBSX */
         {
-            TCGv_i32 tmp_ext = tcg_constant_i32(arg->e);
-            TCGv_i32 tmp_reg = tcg_constant_i32(arg->rs & 7);
+            TCGv_i32 tmp_ext = tcg_const_i32(arg->e);
+            TCGv_i32 tmp_reg = tcg_const_i32(arg->rs & 7);
 
-            gen_helper_mmu_write(tcg_env, tmp_ext, tmp_reg, src);
+            gen_helper_mmu_write(cpu_env, tmp_ext, tmp_reg, src);
+            tcg_temp_free_i32(tmp_reg);
+            tcg_temp_free_i32(tmp_ext);
         }
         break;
 
@@ -1422,8 +1464,9 @@ static bool trans_mfs(DisasContext *dc, arg_mfs *arg)
         case SR_EAR:
             {
                 TCGv_i64 t64 = tcg_temp_new_i64();
-                tcg_gen_ld_i64(t64, tcg_env, offsetof(CPUMBState, ear));
+                tcg_gen_ld_i64(t64, cpu_env, offsetof(CPUMBState, ear));
                 tcg_gen_extrh_i64_i32(dest, t64);
+                tcg_temp_free_i64(t64);
             }
             return true;
 #ifndef CONFIG_USER_ONLY
@@ -1452,27 +1495,28 @@ static bool trans_mfs(DisasContext *dc, arg_mfs *arg)
     case SR_EAR:
         {
             TCGv_i64 t64 = tcg_temp_new_i64();
-            tcg_gen_ld_i64(t64, tcg_env, offsetof(CPUMBState, ear));
+            tcg_gen_ld_i64(t64, cpu_env, offsetof(CPUMBState, ear));
             tcg_gen_extrl_i64_i32(dest, t64);
+            tcg_temp_free_i64(t64);
         }
         break;
     case SR_ESR:
-        tcg_gen_ld_i32(dest, tcg_env, offsetof(CPUMBState, esr));
+        tcg_gen_ld_i32(dest, cpu_env, offsetof(CPUMBState, esr));
         break;
     case SR_FSR:
-        tcg_gen_ld_i32(dest, tcg_env, offsetof(CPUMBState, fsr));
+        tcg_gen_ld_i32(dest, cpu_env, offsetof(CPUMBState, fsr));
         break;
     case SR_BTR:
-        tcg_gen_ld_i32(dest, tcg_env, offsetof(CPUMBState, btr));
+        tcg_gen_ld_i32(dest, cpu_env, offsetof(CPUMBState, btr));
         break;
     case SR_EDR:
-        tcg_gen_ld_i32(dest, tcg_env, offsetof(CPUMBState, edr));
+        tcg_gen_ld_i32(dest, cpu_env, offsetof(CPUMBState, edr));
         break;
     case 0x800:
-        tcg_gen_ld_i32(dest, tcg_env, offsetof(CPUMBState, slr));
+        tcg_gen_ld_i32(dest, cpu_env, offsetof(CPUMBState, slr));
         break;
     case 0x802:
-        tcg_gen_ld_i32(dest, tcg_env, offsetof(CPUMBState, shr));
+        tcg_gen_ld_i32(dest, cpu_env, offsetof(CPUMBState, shr));
         break;
 
 #ifndef CONFIG_USER_ONLY
@@ -1483,16 +1527,18 @@ static bool trans_mfs(DisasContext *dc, arg_mfs *arg)
     case 0x1004: /* TLBHI */
     case 0x1005: /* TLBSX */
         {
-            TCGv_i32 tmp_ext = tcg_constant_i32(arg->e);
-            TCGv_i32 tmp_reg = tcg_constant_i32(arg->rs & 7);
+            TCGv_i32 tmp_ext = tcg_const_i32(arg->e);
+            TCGv_i32 tmp_reg = tcg_const_i32(arg->rs & 7);
 
-            gen_helper_mmu_read(dest, tcg_env, tmp_ext, tmp_reg);
+            gen_helper_mmu_read(dest, cpu_env, tmp_ext, tmp_reg);
+            tcg_temp_free_i32(tmp_reg);
+            tcg_temp_free_i32(tmp_ext);
         }
         break;
 #endif
 
     case 0x2000 ... 0x200c:
-        tcg_gen_ld_i32(dest, tcg_env,
+        tcg_gen_ld_i32(dest, cpu_env,
                        offsetof(MicroBlazeCPU, cfg.pvr_regs[arg->rs - 0x2000])
                        - offsetof(MicroBlazeCPU, env));
         break;
@@ -1512,6 +1558,8 @@ static void do_rti(DisasContext *dc)
     tcg_gen_andi_i32(tmp, tmp, MSR_VM | MSR_UM);
     tcg_gen_andi_i32(cpu_msr, cpu_msr, ~(MSR_VM | MSR_UM));
     tcg_gen_or_i32(cpu_msr, cpu_msr, tmp);
+
+    tcg_temp_free_i32(tmp);
 }
 
 static void do_rtb(DisasContext *dc)
@@ -1522,6 +1570,8 @@ static void do_rtb(DisasContext *dc)
     tcg_gen_andi_i32(cpu_msr, cpu_msr, ~(MSR_VM | MSR_UM | MSR_BIP));
     tcg_gen_andi_i32(tmp, tmp, (MSR_VM | MSR_UM));
     tcg_gen_or_i32(cpu_msr, cpu_msr, tmp);
+
+    tcg_temp_free_i32(tmp);
 }
 
 static void do_rte(DisasContext *dc)
@@ -1533,6 +1583,8 @@ static void do_rte(DisasContext *dc)
     tcg_gen_andi_i32(tmp, tmp, (MSR_VM | MSR_UM));
     tcg_gen_andi_i32(cpu_msr, cpu_msr, ~(MSR_VM | MSR_UM | MSR_EIP));
     tcg_gen_or_i32(cpu_msr, cpu_msr, tmp);
+
+    tcg_temp_free_i32(tmp);
 }
 
 /* Insns connected to FSL or AXI stream attached devices.  */
@@ -1551,8 +1603,10 @@ static bool do_get(DisasContext *dc, int rd, int rb, int imm, int ctrl)
         tcg_gen_movi_i32(t_id, imm);
     }
 
-    t_ctrl = tcg_constant_i32(ctrl);
+    t_ctrl = tcg_const_i32(ctrl);
     gen_helper_get(reg_for_write(dc, rd), t_id, t_ctrl);
+    tcg_temp_free_i32(t_id);
+    tcg_temp_free_i32(t_ctrl);
     return true;
 }
 
@@ -1581,8 +1635,10 @@ static bool do_put(DisasContext *dc, int ra, int rb, int imm, int ctrl)
         tcg_gen_movi_i32(t_id, imm);
     }
 
-    t_ctrl = tcg_constant_i32(ctrl);
+    t_ctrl = tcg_const_i32(ctrl);
     gen_helper_put(t_id, t_ctrl, reg_for_read(dc, ra));
+    tcg_temp_free_i32(t_id);
+    tcg_temp_free_i32(t_ctrl);
     return true;
 }
 
@@ -1627,10 +1683,27 @@ static void mb_tr_insn_start(DisasContextBase *dcb, CPUState *cs)
     dc->insn_start = tcg_last_op();
 }
 
+static bool mb_tr_breakpoint_check(DisasContextBase *dcb, CPUState *cs,
+                                   const CPUBreakpoint *bp)
+{
+    DisasContext *dc = container_of(dcb, DisasContext, base);
+
+    gen_raise_exception_sync(dc, EXCP_DEBUG);
+
+    /*
+     * The address covered by the breakpoint must be included in
+     * [tb->pc, tb->pc + tb->size) in order to for it to be
+     * properly cleared -- thus we increment the PC here so that
+     * the logic setting tb->size below does the right thing.
+     */
+    dc->base.pc_next += 4;
+    return true;
+}
+
 static void mb_tr_translate_insn(DisasContextBase *dcb, CPUState *cs)
 {
     DisasContext *dc = container_of(dcb, DisasContext, base);
-    CPUMBState *env = cpu_env(cs);
+    CPUMBState *env = cs->env_ptr;
     uint32_t ir;
 
     /* TODO: This should raise an exception, not terminate qemu. */
@@ -1647,6 +1720,7 @@ static void mb_tr_translate_insn(DisasContextBase *dcb, CPUState *cs)
     }
 
     if (dc->r0) {
+        tcg_temp_free_i32(dc->r0);
         dc->r0 = NULL;
         dc->r0_set = false;
     }
@@ -1732,7 +1806,7 @@ static void mb_tr_tb_stop(DisasContextBase *dcb, CPUState *cs)
         break;
 
     case DISAS_JUMP:
-        if (dc->jmp_dest != -1 && !(tb_cflags(dc->base.tb) & CF_NO_GOTO_TB)) {
+        if (dc->jmp_dest != -1 && !cs->singlestep_enabled) {
             /* Direct jump. */
             tcg_gen_discard_i32(cpu_btarget);
 
@@ -1757,10 +1831,15 @@ static void mb_tr_tb_stop(DisasContextBase *dcb, CPUState *cs)
             return;
         }
 
-        /* Indirect jump (or direct jump w/ goto_tb disabled) */
+        /* Indirect jump (or direct jump w/ singlestep) */
         tcg_gen_mov_i32(cpu_pc, cpu_btarget);
         tcg_gen_discard_i32(cpu_btarget);
-        tcg_gen_lookup_and_goto_ptr();
+
+        if (unlikely(cs->singlestep_enabled)) {
+            gen_raise_exception(dc, EXCP_DEBUG);
+        } else {
+            tcg_gen_lookup_and_goto_ptr();
+        }
         return;
 
     default:
@@ -1775,27 +1854,26 @@ static void mb_tr_tb_stop(DisasContextBase *dcb, CPUState *cs)
     }
 }
 
-static void mb_tr_disas_log(const DisasContextBase *dcb,
-                            CPUState *cs, FILE *logfile)
+static void mb_tr_disas_log(const DisasContextBase *dcb, CPUState *cs)
 {
-    fprintf(logfile, "IN: %s\n", lookup_symbol(dcb->pc_first));
-    target_disas(logfile, cs, dcb->pc_first, dcb->tb->size);
+    qemu_log("IN: %s\n", lookup_symbol(dcb->pc_first));
+    log_target_disas(cs, dcb->pc_first, dcb->tb->size);
 }
 
 static const TranslatorOps mb_tr_ops = {
     .init_disas_context = mb_tr_init_disas_context,
     .tb_start           = mb_tr_tb_start,
     .insn_start         = mb_tr_insn_start,
+    .breakpoint_check   = mb_tr_breakpoint_check,
     .translate_insn     = mb_tr_translate_insn,
     .tb_stop            = mb_tr_tb_stop,
     .disas_log          = mb_tr_disas_log,
 };
 
-void gen_intermediate_code(CPUState *cpu, TranslationBlock *tb, int *max_insns,
-                           target_ulong pc, void *host_pc)
+void gen_intermediate_code(CPUState *cpu, TranslationBlock *tb, int max_insns)
 {
     DisasContext dc;
-    translator_loop(cpu, tb, max_insns, pc, host_pc, &mb_tr_ops, &dc.base);
+    translator_loop(&mb_tr_ops, &dc.base, cpu, tb, max_insns);
 }
 
 void mb_cpu_dump_state(CPUState *cs, FILE *f, int flags)
@@ -1882,9 +1960,16 @@ void mb_tcg_init(void)
 
     for (int i = 0; i < ARRAY_SIZE(i32s); ++i) {
         *i32s[i].var =
-          tcg_global_mem_new_i32(tcg_env, i32s[i].ofs, i32s[i].name);
+          tcg_global_mem_new_i32(cpu_env, i32s[i].ofs, i32s[i].name);
     }
 
     cpu_res_addr =
-        tcg_global_mem_new(tcg_env, offsetof(CPUMBState, res_addr), "res_addr");
+        tcg_global_mem_new(cpu_env, offsetof(CPUMBState, res_addr), "res_addr");
+}
+
+void restore_state_to_opc(CPUMBState *env, TranslationBlock *tb,
+                          target_ulong *data)
+{
+    env->pc = data[0];
+    env->iflags = data[1];
 }

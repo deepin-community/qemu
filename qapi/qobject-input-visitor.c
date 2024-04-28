@@ -14,7 +14,6 @@
 
 #include "qemu/osdep.h"
 #include <math.h>
-#include "qapi/compat-policy.h"
 #include "qapi/error.h"
 #include "qapi/qobject-input-visitor.h"
 #include "qapi/visitor-impl.h"
@@ -28,7 +27,7 @@
 #include "qapi/qmp/qnum.h"
 #include "qapi/qmp/qstring.h"
 #include "qemu/cutils.h"
-#include "qemu/keyval.h"
+#include "qemu/option.h"
 
 typedef struct StackObject {
     const char *name;            /* Name of @obj in its parent, if any */
@@ -663,15 +662,6 @@ static void qobject_input_optional(Visitor *v, const char *name, bool *present)
     *present = true;
 }
 
-static bool qobject_input_policy_reject(Visitor *v, const char *name,
-                                        unsigned special_features,
-                                        Error **errp)
-{
-    return !compat_policy_input_ok(special_features, &v->compat_policy,
-                                   ERROR_CLASS_GENERIC_ERROR,
-                                   "parameter", name, errp);
-}
-
 static void qobject_input_free(Visitor *v)
 {
     QObjectInputVisitor *qiv = to_qiv(v);
@@ -706,7 +696,6 @@ static QObjectInputVisitor *qobject_input_visitor_base_new(QObject *obj)
     v->visitor.end_list = qobject_input_end_list;
     v->visitor.start_alternate = qobject_input_start_alternate;
     v->visitor.optional = qobject_input_optional;
-    v->visitor.policy_reject = qobject_input_policy_reject;
     v->visitor.free = qobject_input_free;
 
     v->root = qobject_ref(obj);

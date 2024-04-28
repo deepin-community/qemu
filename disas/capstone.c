@@ -191,43 +191,37 @@ bool cap_disas_target(disassemble_info *info, uint64_t pc, size_t size)
         size_t tsize = MIN(sizeof(cap_buf) - csize, size);
         const uint8_t *cbuf = cap_buf;
 
-        if (info->read_memory_func(pc + csize, cap_buf + csize, tsize, info) == 0) {
-            csize += tsize;
-            size -= tsize;
+        info->read_memory_func(pc + csize, cap_buf + csize, tsize, info);
+        csize += tsize;
+        size -= tsize;
 
-            while (cs_disasm_iter(handle, &cbuf, &csize, &pc, insn)) {
-                cap_dump_insn(info, insn);
-            }
+        while (cs_disasm_iter(handle, &cbuf, &csize, &pc, insn)) {
+            cap_dump_insn(info, insn);
+        }
 
-            /* If the target memory is not consumed, go back for more... */
-            if (size != 0) {
-                /*
-                 * ... taking care to move any remaining fractional insn
-                 * to the beginning of the buffer.
-                 */
-                if (csize != 0) {
-                    memmove(cap_buf, cbuf, csize);
-                }
-                continue;
-            }
-
+        /* If the target memory is not consumed, go back for more... */
+        if (size != 0) {
             /*
-             * Since the target memory is consumed, we should not have
-             * a remaining fractional insn.
+             * ... taking care to move any remaining fractional insn
+             * to the beginning of the buffer.
              */
             if (csize != 0) {
-                info->fprintf_func(info->stream,
-                                   "Disassembler disagrees with translator "
-                                   "over instruction decoding\n"
-                                   "Please report this to qemu-devel@nongnu.org\n");
+                memmove(cap_buf, cbuf, csize);
             }
-            break;
-
-        } else {
-            info->fprintf_func(info->stream,
-                               "0x%08" PRIx64 ": unable to read memory\n", pc);
-            break;
+            continue;
         }
+
+        /*
+         * Since the target memory is consumed, we should not have
+         * a remaining fractional insn.
+         */
+        if (csize != 0) {
+            info->fprintf_func(info->stream,
+                "Disassembler disagrees with translator "
+                "over instruction decoding\n"
+                "Please report this to qemu-devel@nongnu.org\n");
+        }
+        break;
     }
 
     cs_close(&handle);
@@ -235,7 +229,7 @@ bool cap_disas_target(disassemble_info *info, uint64_t pc, size_t size)
 }
 
 /* Disassemble SIZE bytes at CODE for the host.  */
-bool cap_disas_host(disassemble_info *info, const void *code, size_t size)
+bool cap_disas_host(disassemble_info *info, void *code, size_t size)
 {
     csh handle;
     const uint8_t *cbuf;
@@ -292,23 +286,16 @@ bool cap_disas_monitor(disassemble_info *info, uint64_t pc, int count)
 
         /* Make certain that we can make progress.  */
         assert(tsize != 0);
-        if (info->read_memory_func(pc + csize, cap_buf + csize,
-                                   tsize, info) == 0)
-        {
-            csize += tsize;
+        info->read_memory_func(pc + csize, cap_buf + csize, tsize, info);
+        csize += tsize;
 
-            if (cs_disasm_iter(handle, &cbuf, &csize, &pc, insn)) {
-                cap_dump_insn(info, insn);
-                if (--count <= 0) {
-                    break;
-                }
+        if (cs_disasm_iter(handle, &cbuf, &csize, &pc, insn)) {
+            cap_dump_insn(info, insn);
+            if (--count <= 0) {
+                break;
             }
-            memmove(cap_buf, cbuf, csize);
-        } else {
-            info->fprintf_func(info->stream,
-                               "0x%08" PRIx64 ": unable to read memory\n", pc);
-            break;
         }
+        memmove(cap_buf, cbuf, csize);
     }
 
     cs_close(&handle);

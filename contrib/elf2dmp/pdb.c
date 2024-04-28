@@ -25,10 +25,6 @@
 
 static uint32_t pdb_get_file_size(const struct pdb_reader *r, unsigned idx)
 {
-    if (idx >= r->ds.toc->num_files) {
-        return 0;
-    }
-
     return r->ds.toc->file_size[idx];
 }
 
@@ -94,18 +90,18 @@ uint64_t pdb_resolve(uint64_t img_base, struct pdb_reader *r, const char *name)
 
 static void pdb_reader_ds_exit(struct pdb_reader *r)
 {
-    g_free(r->ds.toc);
+    free(r->ds.toc);
 }
 
 static void pdb_exit_symbols(struct pdb_reader *r)
 {
-    g_free(r->modimage);
-    g_free(r->symbols);
+    free(r->modimage);
+    free(r->symbols);
 }
 
 static void pdb_exit_segments(struct pdb_reader *r)
 {
-    g_free(r->segs);
+    free(r->segs);
 }
 
 static void *pdb_ds_read(const PDB_DS_HEADER *header,
@@ -120,7 +116,10 @@ static void *pdb_ds_read(const PDB_DS_HEADER *header,
 
     nBlocks = (size + header->block_size - 1) / header->block_size;
 
-    buffer = g_malloc(nBlocks * header->block_size);
+    buffer = malloc(nBlocks * header->block_size);
+    if (!buffer) {
+        return NULL;
+    }
 
     for (i = 0; i < nBlocks; i++) {
         memcpy(buffer + i * header->block_size, (const char *)header +
@@ -160,17 +159,16 @@ static void *pdb_ds_read_file(struct pdb_reader* r, uint32_t file_number)
 
 static int pdb_init_segments(struct pdb_reader *r)
 {
-    unsigned stream_idx = r->segments;
+    char *segs;
+    unsigned stream_idx = r->sidx.segments;
 
-    r->segs = pdb_ds_read_file(r, stream_idx);
-    if (!r->segs) {
+    segs = pdb_ds_read_file(r, stream_idx);
+    if (!segs) {
         return 1;
     }
 
+    r->segs = segs;
     r->segs_size = pdb_get_file_size(r, stream_idx);
-    if (!r->segs_size) {
-        return 1;
-    }
 
     return 0;
 }
@@ -179,6 +177,9 @@ static int pdb_init_symbols(struct pdb_reader *r)
 {
     int err = 0;
     PDB_SYMBOLS *symbols;
+    PDB_STREAM_INDEXES *sidx = &r->sidx;
+
+    memset(sidx, -1, sizeof(*sidx));
 
     symbols = pdb_ds_read_file(r, 3);
     if (!symbols) {
@@ -187,11 +188,15 @@ static int pdb_init_symbols(struct pdb_reader *r)
 
     r->symbols = symbols;
 
-    r->segments = *(uint16_t *)((const char *)symbols + sizeof(PDB_SYMBOLS) +
+    if (symbols->stream_index_size != sizeof(PDB_STREAM_INDEXES)) {
+        err = 1;
+        goto out_symbols;
+    }
+
+    memcpy(sidx, (const char *)symbols + sizeof(PDB_SYMBOLS) +
             symbols->module_size + symbols->offset_size +
             symbols->hash_size + symbols->srcmodule_size +
-            symbols->pdbimport_size + symbols->unknown2_size +
-            offsetof(PDB_STREAM_INDEXES, segments));
+            symbols->pdbimport_size + symbols->unknown2_size, sizeof(*sidx));
 
     /* Read global symbol table */
     r->modimage = pdb_ds_read_file(r, symbols->gsym_file);
@@ -203,17 +208,13 @@ static int pdb_init_symbols(struct pdb_reader *r)
     return 0;
 
 out_symbols:
-    g_free(symbols);
+    free(symbols);
 
     return err;
 }
 
 static int pdb_reader_ds_init(struct pdb_reader *r, PDB_DS_HEADER *hdr)
 {
-    if (hdr->block_size == 0) {
-        return 1;
-    }
-
     memset(r->file_used, 0, sizeof(r->file_used));
     r->ds.header = hdr;
     r->ds.toc = pdb_ds_read(hdr, (uint32_t *)((uint8_t *)hdr +
@@ -260,7 +261,7 @@ static int pdb_reader_init(struct pdb_reader *r, void *data)
 out_sym:
     pdb_exit_symbols(r);
 out_root:
-    g_free(r->ds.root);
+    free(r->ds.root);
 out_ds:
     pdb_reader_ds_exit(r);
 
@@ -271,7 +272,7 @@ static void pdb_reader_exit(struct pdb_reader *r)
 {
     pdb_exit_segments(r);
     pdb_exit_symbols(r);
-    g_free(r->ds.root);
+    free(r->ds.root);
     pdb_reader_ds_exit(r);
 }
 
@@ -284,7 +285,6 @@ int pdb_init_from_file(const char *name, struct pdb_reader *reader)
     reader->gmf = g_mapped_file_new(name, TRUE, &gerr);
     if (gerr) {
         eprintf("Failed to map PDB file \'%s\'\n", name);
-        g_error_free(gerr);
         return 1;
     }
 

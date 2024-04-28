@@ -403,8 +403,8 @@ static void bcm2835_sdhost_init(Object *obj)
 {
     BCM2835SDHostState *s = BCM2835_SDHOST(obj);
 
-    qbus_init(&s->sdbus, sizeof(s->sdbus),
-              TYPE_BCM2835_SDHOST_BUS, DEVICE(s), "sd-bus");
+    qbus_create_inplace(&s->sdbus, sizeof(s->sdbus),
+                        TYPE_BCM2835_SDHOST_BUS, DEVICE(s), "sd-bus");
 
     memory_region_init_io(&s->iomem, obj, &bcm2835_sdhost_ops, s,
                           TYPE_BCM2835_SDHOST, 0x1000);
@@ -436,19 +436,24 @@ static void bcm2835_sdhost_class_init(ObjectClass *klass, void *data)
     dc->vmsd = &vmstate_bcm2835_sdhost;
 }
 
-static const TypeInfo bcm2835_sdhost_types[] = {
-    {
-        .name           = TYPE_BCM2835_SDHOST,
-        .parent         = TYPE_SYS_BUS_DEVICE,
-        .instance_size  = sizeof(BCM2835SDHostState),
-        .class_init     = bcm2835_sdhost_class_init,
-        .instance_init  = bcm2835_sdhost_init,
-    },
-    {
-        .name           = TYPE_BCM2835_SDHOST_BUS,
-        .parent         = TYPE_SD_BUS,
-        .instance_size  = sizeof(SDBus),
-    },
+static TypeInfo bcm2835_sdhost_info = {
+    .name          = TYPE_BCM2835_SDHOST,
+    .parent        = TYPE_SYS_BUS_DEVICE,
+    .instance_size = sizeof(BCM2835SDHostState),
+    .class_init    = bcm2835_sdhost_class_init,
+    .instance_init = bcm2835_sdhost_init,
 };
 
-DEFINE_TYPES(bcm2835_sdhost_types)
+static const TypeInfo bcm2835_sdhost_bus_info = {
+    .name = TYPE_BCM2835_SDHOST_BUS,
+    .parent = TYPE_SD_BUS,
+    .instance_size = sizeof(SDBus),
+};
+
+static void bcm2835_sdhost_register_types(void)
+{
+    type_register_static(&bcm2835_sdhost_info);
+    type_register_static(&bcm2835_sdhost_bus_info);
+}
+
+type_init(bcm2835_sdhost_register_types)

@@ -28,16 +28,15 @@
 
 void qemu_spice_input_init(void);
 void qemu_spice_display_init(void);
-void qemu_spice_display_init_done(void);
 bool qemu_spice_have_display_interface(QemuConsole *con);
 int qemu_spice_add_display_interface(QXLInstance *qxlin, QemuConsole *con);
 int qemu_spice_migrate_info(const char *hostname, int port, int tls_port,
                             const char *subject);
 
-#if SPICE_SERVER_VERSION >= 0x000f00 /* release 0.15.0 */
-#define SPICE_HAS_ATTACHED_WORKER 1
+#if !defined(SPICE_SERVER_VERSION) || (SPICE_SERVER_VERSION < 0xc06)
+#define SPICE_NEEDS_SET_MM_TIME 1
 #else
-#define SPICE_HAS_ATTACHED_WORKER 0
+#define SPICE_NEEDS_SET_MM_TIME 0
 #endif
 
 #else  /* CONFIG_SPICE */

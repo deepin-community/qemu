@@ -13,10 +13,9 @@
  */
 
 #include "qemu/osdep.h"
-#include <glib/gstdio.h>
 
 #include "hw/acpi/tpm.h"
-#include "libqtest.h"
+#include "libqos/libqtest.h"
 #include "tpm-util.h"
 #include "qapi/qmp/qdict.h"
 
@@ -49,6 +48,51 @@ void tpm_util_crb_transfer(QTestState *s,
     g_assert_cmpint(sts & 1, ==, 0);
 
     qtest_memread(s, raddr, rsp, rsp_size);
+}
+
+void tpm_util_tis_transfer(QTestState *s,
+                           const unsigned char *req, size_t req_size,
+                           unsigned char *rsp, size_t rsp_size)
+{
+    uint32_t sts;
+    uint16_t bcount;
+    size_t i;
+
+    /* request use of locality 0 */
+    qtest_writeb(s, TIS_REG(0, TPM_TIS_REG_ACCESS), TPM_TIS_ACCESS_REQUEST_USE);
+    qtest_writel(s, TIS_REG(0, TPM_TIS_REG_STS), TPM_TIS_STS_COMMAND_READY);
+
+    sts = qtest_readl(s, TIS_REG(0, TPM_TIS_REG_STS));
+    bcount = (sts >> 8) & 0xffff;
+    g_assert_cmpint(bcount, >=, req_size);
+
+    /* transmit command */
+    for (i = 0; i < req_size; i++) {
+        qtest_writeb(s, TIS_REG(0, TPM_TIS_REG_DATA_FIFO), req[i]);
+    }
+
+    /* start processing */
+    qtest_writeb(s, TIS_REG(0, TPM_TIS_REG_STS), TPM_TIS_STS_TPM_GO);
+
+    uint64_t end_time = g_get_monotonic_time() + 50 * G_TIME_SPAN_SECOND;
+    do {
+        sts = qtest_readl(s, TIS_REG(0, TPM_TIS_REG_STS));
+        if ((sts & TPM_TIS_STS_DATA_AVAILABLE) != 0) {
+            break;
+        }
+    } while (g_get_monotonic_time() < end_time);
+
+    sts = qtest_readl(s, TIS_REG(0, TPM_TIS_REG_STS));
+    bcount = (sts >> 8) & 0xffff;
+
+    memset(rsp, 0, rsp_size);
+    for (i = 0; i < bcount; i++) {
+        rsp[i] = qtest_readb(s, TIS_REG(0, TPM_TIS_REG_DATA_FIFO));
+    }
+
+    /* relinquish use of locality 0 */
+    qtest_writeb(s, TIS_REG(0, TPM_TIS_REG_ACCESS),
+                 TPM_TIS_ACCESS_ACTIVE_LOCALITY);
 }
 
 void tpm_util_startup(QTestState *s, tx_func *tx)
@@ -206,7 +250,7 @@ void tpm_util_wait_for_migration_complete(QTestState *who)
         status = qdict_get_str(rsp_return, "status");
         completed = strcmp(status, "completed") == 0;
         g_assert_cmpstr(status, !=,  "failed");
-        qobject_unref(rsp);
+        qobject_unref(rsp_return);
         if (completed) {
             return;
         }
@@ -245,24 +289,6 @@ void tpm_util_migration_start_qemu(QTestState **src_qemu,
 
     *dst_qemu = qtest_init(dst_qemu_args);
 
-    g_free(src_qemu_args);
-    g_free(dst_qemu_args);
-}
-
-/* Remove directory with remainders of swtpm */
-void tpm_util_rmdir(const char *path)
-{
-    char *filename;
-    int ret;
-
-    filename = g_strdup_printf("%s/tpm2-00.permall", path);
-    g_unlink(filename);
-    g_free(filename);
-
-    filename = g_strdup_printf("%s/.lock", path);
-    g_unlink(filename);
-    g_free(filename);
-
-    ret = g_rmdir(path);
-    g_assert(!ret);
+    free(src_qemu_args);
+    free(dst_qemu_args);
 }

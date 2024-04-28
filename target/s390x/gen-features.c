@@ -374,7 +374,7 @@ static uint16_t base_GEN10_GA1[] = {
     S390_FEAT_COMPARE_AND_SWAP_AND_STORE_2,
     S390_FEAT_GENERAL_INSTRUCTIONS_EXT,
     S390_FEAT_EXECUTE_EXT,
-    S390_FEAT_FLOATING_POINT_SUPPORT_ENH,
+    S390_FEAT_FLOATING_POINT_SUPPPORT_ENH,
     S390_FEAT_DFP,
     S390_FEAT_DFP_FAST,
     S390_FEAT_PFPO,
@@ -423,8 +423,6 @@ static uint16_t base_GEN14_GA1[] = {
 static uint16_t base_GEN15_GA1[] = {
     S390_FEAT_MISC_INSTRUCTION_EXT3,
 };
-
-#define base_GEN16_GA1 EmptyFeat
 
 /* Full features (in order of release)
  * Automatically includes corresponding base features.
@@ -476,7 +474,7 @@ static uint16_t full_GEN9_GA2[] = {
     S390_FEAT_MOVE_WITH_OPTIONAL_SPEC,
     S390_FEAT_EXTRACT_CPU_TIME,
     S390_FEAT_COMPARE_AND_SWAP_AND_STORE,
-    S390_FEAT_FLOATING_POINT_SUPPORT_ENH,
+    S390_FEAT_FLOATING_POINT_SUPPPORT_ENH,
     S390_FEAT_DFP,
 };
 
@@ -569,18 +567,6 @@ static uint16_t full_GEN15_GA1[] = {
     S390_FEAT_UNPACK,
 };
 
-static uint16_t full_GEN16_GA1[] = {
-    S390_FEAT_NNPA,
-    S390_FEAT_VECTOR_PACKED_DECIMAL_ENH2,
-    S390_FEAT_BEAR_ENH,
-    S390_FEAT_RDP,
-    S390_FEAT_PAI,
-    S390_FEAT_PAIE,
-    S390_FEAT_UV_FEAT_AP,
-    S390_FEAT_UV_FEAT_AP_INTR,
-};
-
-
 /* Default features (in order of release)
  * Automatically includes corresponding base features.
  * Default features are all features this version of QEMU supports for this
@@ -666,15 +652,6 @@ static uint16_t default_GEN15_GA1[] = {
     S390_FEAT_ETOKEN,
 };
 
-static uint16_t default_GEN16_GA1[] = {
-    S390_FEAT_NNPA,
-    S390_FEAT_VECTOR_PACKED_DECIMAL_ENH2,
-    S390_FEAT_BEAR_ENH,
-    S390_FEAT_RDP,
-    S390_FEAT_PAI,
-    S390_FEAT_PAIE,
-};
-
 /* QEMU (CPU model) features */
 
 static uint16_t qemu_V2_11[] = {
@@ -704,7 +681,7 @@ static uint16_t qemu_V3_1[] = {
     S390_FEAT_GENERAL_INSTRUCTIONS_EXT,
     S390_FEAT_EXECUTE_EXT,
     S390_FEAT_SET_PROGRAM_PARAMETERS,
-    S390_FEAT_FLOATING_POINT_SUPPORT_ENH,
+    S390_FEAT_FLOATING_POINT_SUPPPORT_ENH,
     S390_FEAT_STFLE_45,
     S390_FEAT_STFLE_49,
     S390_FEAT_LOCAL_TLB_CLEARING,
@@ -729,37 +706,20 @@ static uint16_t qemu_V4_1[] = {
     S390_FEAT_VECTOR,
 };
 
-static uint16_t qemu_V6_0[] = {
+static uint16_t qemu_LATEST[] = {
     S390_FEAT_ACCESS_EXCEPTION_FS_INDICATION,
     S390_FEAT_SIDE_EFFECT_ACCESS_ESOP2,
     S390_FEAT_ESOP,
 };
 
-static uint16_t qemu_V6_2[] = {
+/* add all new definitions before this point */
+static uint16_t qemu_MAX[] = {
+    /* generates a dependency warning, leave it out for now */
+    S390_FEAT_MSA_EXT_5,
+    /* features introduced after the z13 */
     S390_FEAT_INSTRUCTION_EXEC_PROT,
     S390_FEAT_MISC_INSTRUCTION_EXT2,
     S390_FEAT_MSA_EXT_8,
-    S390_FEAT_VECTOR_ENH,
-};
-
-static uint16_t qemu_V7_0[] = {
-    S390_FEAT_MISC_INSTRUCTION_EXT3,
-};
-
-static uint16_t qemu_V7_1[] = {
-    S390_FEAT_VECTOR_ENH2,
-};
-
-/*
- * Features for the "qemu" CPU model of the latest QEMU machine and the "max"
- * CPU model under TCG. Don't include features that are not part of the full
- * feature set of the current "max" CPU model generation.
- */
-static uint16_t qemu_MAX[] = {
-    S390_FEAT_MSA_EXT_5,
-    S390_FEAT_KIMD_SHA_512,
-    S390_FEAT_KLMD_SHA_512,
-    S390_FEAT_PRNO_TRNG,
 };
 
 /****** END FEATURE DEFS ******/
@@ -822,7 +782,6 @@ static CpuFeatDefSpec CpuFeatDef[] = {
     CPU_FEAT_INITIALIZER(GEN14_GA1),
     CPU_FEAT_INITIALIZER(GEN14_GA2),
     CPU_FEAT_INITIALIZER(GEN15_GA1),
-    CPU_FEAT_INITIALIZER(GEN16_GA1),
 };
 
 #define FEAT_GROUP_INITIALIZER(_name)                  \
@@ -879,10 +838,7 @@ static FeatGroupDefSpec QemuFeatDef[] = {
     QEMU_FEAT_INITIALIZER(V3_1),
     QEMU_FEAT_INITIALIZER(V4_0),
     QEMU_FEAT_INITIALIZER(V4_1),
-    QEMU_FEAT_INITIALIZER(V6_0),
-    QEMU_FEAT_INITIALIZER(V6_2),
-    QEMU_FEAT_INITIALIZER(V7_0),
-    QEMU_FEAT_INITIALIZER(V7_1),
+    QEMU_FEAT_INITIALIZER(LATEST),
     QEMU_FEAT_INITIALIZER(MAX),
 };
 

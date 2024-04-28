@@ -15,8 +15,8 @@
 
 #include "qemu/osdep.h"
 #include "qapi/error.h"
+#include "cpu.h"
 #include "hw/arm/fsl-imx31.h"
-#include "hw/arm/boot.h"
 #include "hw/boards.h"
 #include "qemu/error-report.h"
 #include "exec/address-spaces.h"
@@ -125,6 +125,7 @@ static void kzm_init(MachineState *machine)
     }
 
     kzm_binfo.ram_size = machine->ram_size;
+    kzm_binfo.nb_cpus = 1;
 
     if (!qtest_enabled()) {
         arm_load_kernel(&s->soc.cpu, machine, &kzm_binfo);

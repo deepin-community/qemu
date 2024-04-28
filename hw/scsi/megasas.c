@@ -19,16 +19,15 @@
  */
 
 #include "qemu/osdep.h"
+#include "qemu-common.h"
 #include "hw/pci/pci.h"
 #include "hw/qdev-properties.h"
 #include "sysemu/dma.h"
 #include "sysemu/block-backend.h"
-#include "sysemu/rtc.h"
 #include "hw/pci/msi.h"
 #include "hw/pci/msix.h"
 #include "qemu/iov.h"
 #include "qemu/module.h"
-#include "qemu/hw-version.h"
 #include "hw/scsi/scsi.h"
 #include "scsi/constants.h"
 #include "trace.h"
@@ -42,7 +41,6 @@
 #define MEGASAS_MAX_FRAMES 2048         /* Firmware limit at 65535 */
 #define MEGASAS_DEFAULT_FRAMES 1000     /* Windows requires this */
 #define MEGASAS_GEN2_DEFAULT_FRAMES 1008     /* Windows requires this */
-#define MEGASAS_MIN_SGE 64
 #define MEGASAS_MAX_SGE 128             /* Firmware limit */
 #define MEGASAS_DEFAULT_SGE 80
 #define MEGASAS_MAX_SECTORS 0xFFFF      /* No real limit */
@@ -111,8 +109,8 @@ struct MegasasState {
     uint64_t reply_queue_pa;
     void *reply_queue;
     uint16_t reply_queue_len;
-    uint32_t reply_queue_head;
-    uint32_t reply_queue_tail;
+    uint16_t reply_queue_head;
+    uint16_t reply_queue_tail;
     uint64_t consumer_pa;
     uint64_t producer_pa;
 
@@ -170,16 +168,14 @@ static void megasas_frame_set_cmd_status(MegasasState *s,
                                          unsigned long frame, uint8_t v)
 {
     PCIDevice *pci = &s->parent_obj;
-    stb_pci_dma(pci, frame + offsetof(struct mfi_frame_header, cmd_status),
-                v, MEMTXATTRS_UNSPECIFIED);
+    stb_pci_dma(pci, frame + offsetof(struct mfi_frame_header, cmd_status), v);
 }
 
 static void megasas_frame_set_scsi_status(MegasasState *s,
                                           unsigned long frame, uint8_t v)
 {
     PCIDevice *pci = &s->parent_obj;
-    stb_pci_dma(pci, frame + offsetof(struct mfi_frame_header, scsi_status),
-                v, MEMTXATTRS_UNSPECIFIED);
+    stb_pci_dma(pci, frame + offsetof(struct mfi_frame_header, scsi_status), v);
 }
 
 static inline const char *mfi_frame_desc(unsigned int cmd)
@@ -204,12 +200,7 @@ static uint64_t megasas_frame_get_context(MegasasState *s,
                                           unsigned long frame)
 {
     PCIDevice *pci = &s->parent_obj;
-    uint64_t val;
-
-    ldq_le_pci_dma(pci, frame + offsetof(struct mfi_frame_header, context),
-                   &val, MEMTXATTRS_UNSPECIFIED);
-
-    return val;
+    return ldq_le_pci_dma(pci, frame + offsetof(struct mfi_frame_header, context));
 }
 
 static bool megasas_frame_is_ieee_sgl(MegasasCmd *cmd)
@@ -312,7 +303,6 @@ static int megasas_map_sgl(MegasasState *s, MegasasCmd *cmd, union mfi_sgl *sgl)
     }
     if (cmd->iov_size > iov_size) {
         trace_megasas_iovec_overflow(cmd->index, iov_size, cmd->iov_size);
-        goto unmap;
     } else if (cmd->iov_size < iov_size) {
         trace_megasas_iovec_underflow(cmd->index, iov_size, cmd->iov_size);
     }
@@ -385,7 +375,8 @@ static int megasas_setup_inquiry(uint8_t *cdb, int pg, int len)
         cdb[1] = 0x1;
         cdb[2] = pg;
     }
-    stw_be_p(&cdb[3], len);
+    cdb[3] = (len >> 8) & 0xff;
+    cdb[4] = (len & 0xff);
     return len;
 }
 
@@ -401,8 +392,18 @@ static void megasas_encode_lba(uint8_t *cdb, uint64_t lba,
     } else {
         cdb[0] = READ_16;
     }
-    stq_be_p(&cdb[2], lba);
-    stl_be_p(&cdb[2 + 8], len);
+    cdb[2] = (lba >> 56) & 0xff;
+    cdb[3] = (lba >> 48) & 0xff;
+    cdb[4] = (lba >> 40) & 0xff;
+    cdb[5] = (lba >> 32) & 0xff;
+    cdb[6] = (lba >> 24) & 0xff;
+    cdb[7] = (lba >> 16) & 0xff;
+    cdb[8] = (lba >> 8) & 0xff;
+    cdb[9] = (lba) & 0xff;
+    cdb[10] = (len >> 24) & 0xff;
+    cdb[11] = (len >> 16) & 0xff;
+    cdb[12] = (len >> 8) & 0xff;
+    cdb[13] = (len) & 0xff;
 }
 
 /*
@@ -530,8 +531,7 @@ static MegasasCmd *megasas_enqueue_frame(MegasasState *s,
     s->busy++;
 
     if (s->consumer_pa) {
-        ldl_le_pci_dma(pcid, s->consumer_pa, &s->reply_queue_tail,
-                       MEMTXATTRS_UNSPECIFIED);
+        s->reply_queue_tail = ldl_le_pci_dma(pcid, s->consumer_pa);
     }
     trace_megasas_qf_enqueue(cmd->index, cmd->count, cmd->context,
                              s->reply_queue_head, s->reply_queue_tail, s->busy);
@@ -541,7 +541,6 @@ static MegasasCmd *megasas_enqueue_frame(MegasasState *s,
 
 static void megasas_complete_frame(MegasasState *s, uint64_t context)
 {
-    const MemTxAttrs attrs = MEMTXATTRS_UNSPECIFIED;
     PCIDevice *pci_dev = PCI_DEVICE(s);
     int tail, queue_offset;
 
@@ -555,26 +554,24 @@ static void megasas_complete_frame(MegasasState *s, uint64_t context)
          */
         if (megasas_use_queue64(s)) {
             queue_offset = s->reply_queue_head * sizeof(uint64_t);
-            stq_le_pci_dma(pci_dev, s->reply_queue_pa + queue_offset,
-                           context, attrs);
+            stq_le_pci_dma(pci_dev, s->reply_queue_pa + queue_offset, context);
         } else {
             queue_offset = s->reply_queue_head * sizeof(uint32_t);
-            stl_le_pci_dma(pci_dev, s->reply_queue_pa + queue_offset,
-                           context, attrs);
+            stl_le_pci_dma(pci_dev, s->reply_queue_pa + queue_offset, context);
         }
-        ldl_le_pci_dma(pci_dev, s->consumer_pa, &s->reply_queue_tail, attrs);
+        s->reply_queue_tail = ldl_le_pci_dma(pci_dev, s->consumer_pa);
         trace_megasas_qf_complete(context, s->reply_queue_head,
                                   s->reply_queue_tail, s->busy);
     }
 
     if (megasas_intr_enabled(s)) {
         /* Update reply queue pointer */
-        ldl_le_pci_dma(pci_dev, s->consumer_pa, &s->reply_queue_tail, attrs);
+        s->reply_queue_tail = ldl_le_pci_dma(pci_dev, s->consumer_pa);
         tail = s->reply_queue_head;
         s->reply_queue_head = megasas_next_index(s, tail, s->fw_cmds);
         trace_megasas_qf_update(s->reply_queue_head, s->reply_queue_tail,
                                 s->busy);
-        stl_le_pci_dma(pci_dev, s->producer_pa, s->reply_queue_head, attrs);
+        stl_le_pci_dma(pci_dev, s->producer_pa, s->reply_queue_head);
         /* Notify HBA */
         if (msix_enabled(pci_dev)) {
             trace_megasas_msix_raise(0);
@@ -634,7 +631,6 @@ static void megasas_abort_command(MegasasCmd *cmd)
 
 static int megasas_init_firmware(MegasasState *s, MegasasCmd *cmd)
 {
-    const MemTxAttrs attrs = MEMTXATTRS_UNSPECIFIED;
     PCIDevice *pcid = PCI_DEVICE(s);
     uint32_t pa_hi, pa_lo;
     hwaddr iq_pa, initq_size = sizeof(struct mfi_init_qinfo);
@@ -673,9 +669,9 @@ static int megasas_init_firmware(MegasasState *s, MegasasCmd *cmd)
     pa_lo = le32_to_cpu(initq->pi_addr_lo);
     pa_hi = le32_to_cpu(initq->pi_addr_hi);
     s->producer_pa = ((uint64_t) pa_hi << 32) | pa_lo;
-    ldl_le_pci_dma(pcid, s->producer_pa, &s->reply_queue_head, attrs);
+    s->reply_queue_head = ldl_le_pci_dma(pcid, s->producer_pa);
     s->reply_queue_head %= MEGASAS_MAX_FRAMES;
-    ldl_le_pci_dma(pcid, s->consumer_pa, &s->reply_queue_tail, attrs);
+    s->reply_queue_tail = ldl_le_pci_dma(pcid, s->consumer_pa);
     s->reply_queue_tail %= MEGASAS_MAX_FRAMES;
     flags = le32_to_cpu(initq->flags);
     if (flags & MFI_QUEUE_FLAG_CONTEXT64) {
@@ -741,7 +737,6 @@ static int megasas_ctrl_get_info(MegasasState *s, MegasasCmd *cmd)
     size_t dcmd_size = sizeof(info);
     BusChild *kid;
     int num_pd_disks = 0;
-    dma_addr_t residual;
 
     memset(&info, 0x0, dcmd_size);
     if (cmd->iov_size < dcmd_size) {
@@ -852,9 +847,7 @@ static int megasas_ctrl_get_info(MegasasState *s, MegasasCmd *cmd)
                                        MFI_INFO_PDMIX_SATA |
                                        MFI_INFO_PDMIX_LD);
 
-    dma_buf_read(&info, dcmd_size, &residual, &cmd->qsg,
-                 MEMTXATTRS_UNSPECIFIED);
-    cmd->iov_size -= residual;
+    cmd->iov_size -= dma_buf_read((uint8_t *)&info, dcmd_size, &cmd->qsg);
     return MFI_STAT_OK;
 }
 
@@ -862,7 +855,6 @@ static int megasas_mfc_get_defaults(MegasasState *s, MegasasCmd *cmd)
 {
     struct mfi_defaults info;
     size_t dcmd_size = sizeof(struct mfi_defaults);
-    dma_addr_t residual;
 
     memset(&info, 0x0, dcmd_size);
     if (cmd->iov_size < dcmd_size) {
@@ -885,9 +877,7 @@ static int megasas_mfc_get_defaults(MegasasState *s, MegasasCmd *cmd)
     info.disable_preboot_cli = 1;
     info.cluster_disable = 1;
 
-    dma_buf_read(&info, dcmd_size, &residual, &cmd->qsg,
-                 MEMTXATTRS_UNSPECIFIED);
-    cmd->iov_size -= residual;
+    cmd->iov_size -= dma_buf_read((uint8_t *)&info, dcmd_size, &cmd->qsg);
     return MFI_STAT_OK;
 }
 
@@ -895,7 +885,6 @@ static int megasas_dcmd_get_bios_info(MegasasState *s, MegasasCmd *cmd)
 {
     struct mfi_bios_data info;
     size_t dcmd_size = sizeof(info);
-    dma_addr_t residual;
 
     memset(&info, 0x0, dcmd_size);
     if (cmd->iov_size < dcmd_size) {
@@ -909,9 +898,7 @@ static int megasas_dcmd_get_bios_info(MegasasState *s, MegasasCmd *cmd)
         info.expose_all_drives = 1;
     }
 
-    dma_buf_read(&info, dcmd_size, &residual, &cmd->qsg,
-                 MEMTXATTRS_UNSPECIFIED);
-    cmd->iov_size -= residual;
+    cmd->iov_size -= dma_buf_read((uint8_t *)&info, dcmd_size, &cmd->qsg);
     return MFI_STAT_OK;
 }
 
@@ -919,13 +906,10 @@ static int megasas_dcmd_get_fw_time(MegasasState *s, MegasasCmd *cmd)
 {
     uint64_t fw_time;
     size_t dcmd_size = sizeof(fw_time);
-    dma_addr_t residual;
 
     fw_time = cpu_to_le64(megasas_fw_time());
 
-    dma_buf_read(&fw_time, dcmd_size, &residual, &cmd->qsg,
-                 MEMTXATTRS_UNSPECIFIED);
-    cmd->iov_size -= residual;
+    cmd->iov_size -= dma_buf_read((uint8_t *)&fw_time, dcmd_size, &cmd->qsg);
     return MFI_STAT_OK;
 }
 
@@ -945,7 +929,6 @@ static int megasas_event_info(MegasasState *s, MegasasCmd *cmd)
 {
     struct mfi_evt_log_state info;
     size_t dcmd_size = sizeof(info);
-    dma_addr_t residual;
 
     memset(&info, 0, dcmd_size);
 
@@ -953,9 +936,7 @@ static int megasas_event_info(MegasasState *s, MegasasCmd *cmd)
     info.shutdown_seq_num = cpu_to_le32(s->shutdown_event);
     info.boot_seq_num = cpu_to_le32(s->boot_event);
 
-    dma_buf_read(&info, dcmd_size, &residual, &cmd->qsg,
-                 MEMTXATTRS_UNSPECIFIED);
-    cmd->iov_size -= residual;
+    cmd->iov_size -= dma_buf_read((uint8_t *)&info, dcmd_size, &cmd->qsg);
     return MFI_STAT_OK;
 }
 
@@ -985,7 +966,6 @@ static int megasas_dcmd_pd_get_list(MegasasState *s, MegasasCmd *cmd)
     size_t dcmd_size = sizeof(info);
     BusChild *kid;
     uint32_t offset, dcmd_limit, num_pd_disks = 0, max_pd_disks;
-    dma_addr_t residual;
 
     memset(&info, 0, dcmd_size);
     offset = 8;
@@ -1025,9 +1005,7 @@ static int megasas_dcmd_pd_get_list(MegasasState *s, MegasasCmd *cmd)
     info.size = cpu_to_le32(offset);
     info.count = cpu_to_le32(num_pd_disks);
 
-    dma_buf_read(&info, offset, &residual, &cmd->qsg,
-                 MEMTXATTRS_UNSPECIFIED);
-    cmd->iov_size -= residual;
+    cmd->iov_size -= dma_buf_read((uint8_t *)&info, offset, &cmd->qsg);
     return MFI_STAT_OK;
 }
 
@@ -1054,8 +1032,7 @@ static int megasas_pd_get_info_submit(SCSIDevice *sdev, int lun,
     uint64_t pd_size;
     uint16_t pd_id = ((sdev->id & 0xFF) << 8) | (lun & 0xFF);
     uint8_t cmdbuf[6];
-    size_t len;
-    dma_addr_t residual;
+    size_t len, resid;
 
     if (!cmd->iov_buf) {
         cmd->iov_buf = g_malloc0(dcmd_size);
@@ -1063,7 +1040,7 @@ static int megasas_pd_get_info_submit(SCSIDevice *sdev, int lun,
         info->inquiry_data[0] = 0x7f; /* Force PQual 0x3, PType 0x1f */
         info->vpd_page83[0] = 0x7f;
         megasas_setup_inquiry(cmdbuf, 0, sizeof(info->inquiry_data));
-        cmd->req = scsi_req_new(sdev, cmd->index, lun, cmdbuf, sizeof(cmdbuf), cmd);
+        cmd->req = scsi_req_new(sdev, cmd->index, lun, cmdbuf, cmd);
         if (!cmd->req) {
             trace_megasas_dcmd_req_alloc_failed(cmd->index,
                                                 "PD get info std inquiry");
@@ -1081,7 +1058,7 @@ static int megasas_pd_get_info_submit(SCSIDevice *sdev, int lun,
         return MFI_STAT_INVALID_STATUS;
     } else if (info->inquiry_data[0] != 0x7f && info->vpd_page83[0] == 0x7f) {
         megasas_setup_inquiry(cmdbuf, 0x83, sizeof(info->vpd_page83));
-        cmd->req = scsi_req_new(sdev, cmd->index, lun, cmdbuf, sizeof(cmdbuf), cmd);
+        cmd->req = scsi_req_new(sdev, cmd->index, lun, cmdbuf, cmd);
         if (!cmd->req) {
             trace_megasas_dcmd_req_alloc_failed(cmd->index,
                                                 "PD get info vpd inquiry");
@@ -1122,11 +1099,9 @@ static int megasas_pd_get_info_submit(SCSIDevice *sdev, int lun,
     info->connected_port_bitmap = 0x1;
     info->device_speed = 1;
     info->link_speed = 1;
-    dma_buf_read(cmd->iov_buf, dcmd_size, &residual, &cmd->qsg,
-                 MEMTXATTRS_UNSPECIFIED);
-    cmd->iov_size -= residual;
+    resid = dma_buf_read(cmd->iov_buf, dcmd_size, &cmd->qsg);
     g_free(cmd->iov_buf);
-    cmd->iov_size = dcmd_size - residual;
+    cmd->iov_size = dcmd_size - resid;
     cmd->iov_buf = NULL;
     return MFI_STAT_OK;
 }
@@ -1161,8 +1136,7 @@ static int megasas_dcmd_pd_get_info(MegasasState *s, MegasasCmd *cmd)
 static int megasas_dcmd_ld_get_list(MegasasState *s, MegasasCmd *cmd)
 {
     struct mfi_ld_list info;
-    size_t dcmd_size = sizeof(info);
-    dma_addr_t residual;
+    size_t dcmd_size = sizeof(info), resid;
     uint32_t num_ld_disks = 0, max_ld_disks;
     uint64_t ld_size;
     BusChild *kid;
@@ -1197,9 +1171,8 @@ static int megasas_dcmd_ld_get_list(MegasasState *s, MegasasCmd *cmd)
     info.ld_count = cpu_to_le32(num_ld_disks);
     trace_megasas_dcmd_ld_get_list(cmd->index, num_ld_disks, max_ld_disks);
 
-    dma_buf_read(&info, dcmd_size, &residual, &cmd->qsg,
-                 MEMTXATTRS_UNSPECIFIED);
-    cmd->iov_size = dcmd_size - residual;
+    resid = dma_buf_read((uint8_t *)&info, dcmd_size, &cmd->qsg);
+    cmd->iov_size = dcmd_size - resid;
     return MFI_STAT_OK;
 }
 
@@ -1207,8 +1180,7 @@ static int megasas_dcmd_ld_list_query(MegasasState *s, MegasasCmd *cmd)
 {
     uint16_t flags;
     struct mfi_ld_targetid_list info;
-    size_t dcmd_size = sizeof(info);
-    dma_addr_t residual;
+    size_t dcmd_size = sizeof(info), resid;
     uint32_t num_ld_disks = 0, max_ld_disks = s->fw_luns;
     BusChild *kid;
 
@@ -1248,9 +1220,8 @@ static int megasas_dcmd_ld_list_query(MegasasState *s, MegasasCmd *cmd)
     info.size = dcmd_size;
     trace_megasas_dcmd_ld_get_list(cmd->index, num_ld_disks, max_ld_disks);
 
-    dma_buf_read(&info, dcmd_size, &residual, &cmd->qsg,
-                 MEMTXATTRS_UNSPECIFIED);
-    cmd->iov_size = dcmd_size - residual;
+    resid = dma_buf_read((uint8_t *)&info, dcmd_size, &cmd->qsg);
+    cmd->iov_size = dcmd_size - resid;
     return MFI_STAT_OK;
 }
 
@@ -1260,8 +1231,7 @@ static int megasas_ld_get_info_submit(SCSIDevice *sdev, int lun,
     struct mfi_ld_info *info = cmd->iov_buf;
     size_t dcmd_size = sizeof(struct mfi_ld_info);
     uint8_t cdb[6];
-    ssize_t len;
-    dma_addr_t residual;
+    ssize_t len, resid;
     uint16_t sdev_id = ((sdev->id & 0xFF) << 8) | (lun & 0xFF);
     uint64_t ld_size;
 
@@ -1269,7 +1239,7 @@ static int megasas_ld_get_info_submit(SCSIDevice *sdev, int lun,
         cmd->iov_buf = g_malloc0(dcmd_size);
         info = cmd->iov_buf;
         megasas_setup_inquiry(cdb, 0x83, sizeof(info->vpd_page83));
-        cmd->req = scsi_req_new(sdev, cmd->index, lun, cdb, sizeof(cdb), cmd);
+        cmd->req = scsi_req_new(sdev, cmd->index, lun, cdb, cmd);
         if (!cmd->req) {
             trace_megasas_dcmd_req_alloc_failed(cmd->index,
                                                 "LD get info vpd inquiry");
@@ -1300,10 +1270,9 @@ static int megasas_ld_get_info_submit(SCSIDevice *sdev, int lun,
     info->ld_config.span[0].num_blocks = info->size;
     info->ld_config.span[0].array_ref = cpu_to_le16(sdev_id);
 
-    dma_buf_read(cmd->iov_buf, dcmd_size, &residual, &cmd->qsg,
-                 MEMTXATTRS_UNSPECIFIED);
+    resid = dma_buf_read(cmd->iov_buf, dcmd_size, &cmd->qsg);
     g_free(cmd->iov_buf);
-    cmd->iov_size = dcmd_size - residual;
+    cmd->iov_size = dcmd_size - resid;
     cmd->iov_buf = NULL;
     return MFI_STAT_OK;
 }
@@ -1346,7 +1315,6 @@ static int megasas_dcmd_cfg_read(MegasasState *s, MegasasCmd *cmd)
     struct mfi_config_data *info;
     int num_pd_disks = 0, array_offset, ld_offset;
     BusChild *kid;
-    dma_addr_t residual;
 
     if (cmd->iov_size > 4096) {
         return MFI_STAT_INVALID_PARAMETER;
@@ -1421,9 +1389,7 @@ static int megasas_dcmd_cfg_read(MegasasState *s, MegasasCmd *cmd)
         ld_offset += sizeof(struct mfi_ld_config);
     }
 
-    dma_buf_read(data, info->size, &residual, &cmd->qsg,
-                 MEMTXATTRS_UNSPECIFIED);
-    cmd->iov_size -= residual;
+    cmd->iov_size -= dma_buf_read((uint8_t *)data, info->size, &cmd->qsg);
     return MFI_STAT_OK;
 }
 
@@ -1431,7 +1397,6 @@ static int megasas_dcmd_get_properties(MegasasState *s, MegasasCmd *cmd)
 {
     struct mfi_ctrl_props info;
     size_t dcmd_size = sizeof(info);
-    dma_addr_t residual;
 
     memset(&info, 0x0, dcmd_size);
     if (cmd->iov_size < dcmd_size) {
@@ -1454,9 +1419,7 @@ static int megasas_dcmd_get_properties(MegasasState *s, MegasasCmd *cmd)
     info.ecc_bucket_leak_rate = cpu_to_le16(1440);
     info.expose_encl_devices = 1;
 
-    dma_buf_read(&info, dcmd_size, &residual, &cmd->qsg,
-                 MEMTXATTRS_UNSPECIFIED);
-    cmd->iov_size -= residual;
+    cmd->iov_size -= dma_buf_read((uint8_t *)&info, dcmd_size, &cmd->qsg);
     return MFI_STAT_OK;
 }
 
@@ -1485,7 +1448,7 @@ static int megasas_cluster_reset_ld(MegasasState *s, MegasasCmd *cmd)
         MegasasCmd *tmp_cmd = &s->frames[i];
         if (tmp_cmd->req && tmp_cmd->req->dev->id == target_id) {
             SCSIDevice *d = tmp_cmd->req->dev;
-            device_cold_reset(&d->qdev);
+            qdev_reset_all(&d->qdev);
         }
     }
     return MFI_STAT_OK;
@@ -1501,7 +1464,7 @@ static int megasas_dcmd_set_properties(MegasasState *s, MegasasCmd *cmd)
                                             dcmd_size);
         return MFI_STAT_INVALID_PARAMETER;
     }
-    dma_buf_write(&info, dcmd_size, NULL, &cmd->qsg, MEMTXATTRS_UNSPECIFIED);
+    dma_buf_write((uint8_t *)&info, dcmd_size, &cmd->qsg);
     trace_megasas_dcmd_unsupported(cmd->index, cmd->iov_size);
     return MFI_STAT_OK;
 }
@@ -1641,13 +1604,13 @@ static int megasas_handle_dcmd(MegasasState *s, MegasasCmd *cmd)
 }
 
 static int megasas_finish_internal_dcmd(MegasasCmd *cmd,
-                                        SCSIRequest *req, dma_addr_t residual)
+                                        SCSIRequest *req, size_t resid)
 {
     int retval = MFI_STAT_OK;
     int lun = req->lun;
 
     trace_megasas_dcmd_internal_finish(cmd->index, cmd->dcmd_opcode, lun);
-    cmd->iov_size -= residual;
+    cmd->iov_size -= resid;
     switch (cmd->dcmd_opcode) {
     case MFI_DCMD_PD_GET_INFO:
         retval = megasas_pd_get_info_submit(req->dev, lun, cmd);
@@ -1749,7 +1712,7 @@ static int megasas_handle_scsi(MegasasState *s, MegasasCmd *cmd,
         return MFI_STAT_SCSI_DONE_WITH_ERROR;
     }
 
-    cmd->req = scsi_req_new(sdev, cmd->index, lun_id, cdb, cdb_len, cmd);
+    cmd->req = scsi_req_new(sdev, cmd->index, lun_id, cdb, cmd);
     if (!cmd->req) {
         trace_megasas_scsi_req_alloc_failed(
                 mfi_frame_desc(frame_cmd), target_id, lun_id);
@@ -1824,7 +1787,7 @@ static int megasas_handle_io(MegasasState *s, MegasasCmd *cmd, int frame_cmd)
 
     megasas_encode_lba(cdb, lba_start, lba_count, is_write);
     cmd->req = scsi_req_new(sdev, cmd->index,
-                            lun_id, cdb, cdb_len, cmd);
+                            lun_id, cdb, cmd);
     if (!cmd->req) {
         trace_megasas_scsi_req_alloc_failed(
             mfi_frame_desc(frame_cmd), target_id, lun_id);
@@ -1889,12 +1852,13 @@ static void megasas_xfer_complete(SCSIRequest *req, uint32_t len)
     }
 }
 
-static void megasas_command_complete(SCSIRequest *req, size_t residual)
+static void megasas_command_complete(SCSIRequest *req, uint32_t status,
+                                     size_t resid)
 {
     MegasasCmd *cmd = req->hba_private;
     uint8_t cmd_status = MFI_STAT_OK;
 
-    trace_megasas_command_complete(cmd->index, req->status, residual);
+    trace_megasas_command_complete(cmd->index, status, resid);
 
     if (req->io_canceled) {
         return;
@@ -1904,11 +1868,12 @@ static void megasas_command_complete(SCSIRequest *req, size_t residual)
         /*
          * Internal command complete
          */
-        cmd_status = megasas_finish_internal_dcmd(cmd, req, residual);
+        cmd_status = megasas_finish_internal_dcmd(cmd, req, resid);
         if (cmd_status == MFI_STAT_INVALID_STATUS) {
             return;
         }
     } else {
+        req->status = status;
         trace_megasas_scsi_complete(cmd->index, req->status,
                                     cmd->iov_size, req->cmd.xfer);
         if (req->status != GOOD) {
@@ -2317,6 +2282,7 @@ static const VMStateDescription vmstate_megasas_gen2 = {
     .name = "megasas-gen2",
     .version_id = 0,
     .minimum_version_id = 0,
+    .minimum_version_id_old = 0,
     .fields      = (VMStateField[]) {
         VMSTATE_PCI_DEVICE(parent_obj, MegasasState),
         VMSTATE_MSIX(parent_obj, MegasasState),
@@ -2357,7 +2323,6 @@ static void megasas_scsi_realize(PCIDevice *dev, Error **errp)
     MegasasState *s = MEGASAS(dev);
     MegasasBaseClass *b = MEGASAS_GET_CLASS(s);
     uint8_t *pci_conf;
-    uint32_t sge;
     int i, bar_type;
     Error *err = NULL;
     int ret;
@@ -2419,22 +2384,20 @@ static void megasas_scsi_realize(PCIDevice *dev, Error **errp)
     if (!s->sas_addr) {
         s->sas_addr = ((NAA_LOCALLY_ASSIGNED_ID << 24) |
                        IEEE_COMPANY_LOCALLY_ASSIGNED) << 36;
-        s->sas_addr |= pci_dev_bus_num(dev) << 16;
-        s->sas_addr |= PCI_SLOT(dev->devfn) << 8;
+        s->sas_addr |= (pci_dev_bus_num(dev) << 16);
+        s->sas_addr |= (PCI_SLOT(dev->devfn) << 8);
         s->sas_addr |= PCI_FUNC(dev->devfn);
     }
     if (!s->hba_serial) {
         s->hba_serial = g_strdup(MEGASAS_HBA_SERIAL);
     }
-
-    sge = s->fw_sge + MFI_PASS_FRAME_SIZE;
-    if (sge < MEGASAS_MIN_SGE) {
-        sge = MEGASAS_MIN_SGE;
-    } else if (sge >= MEGASAS_MAX_SGE) {
-        sge = MEGASAS_MAX_SGE;
+    if (s->fw_sge >= MEGASAS_MAX_SGE - MFI_PASS_FRAME_SIZE) {
+        s->fw_sge = MEGASAS_MAX_SGE - MFI_PASS_FRAME_SIZE;
+    } else if (s->fw_sge >= 128 - MFI_PASS_FRAME_SIZE) {
+        s->fw_sge = 128 - MFI_PASS_FRAME_SIZE;
+    } else {
+        s->fw_sge = 64 - MFI_PASS_FRAME_SIZE;
     }
-    s->fw_sge = sge - MFI_PASS_FRAME_SIZE;
-
     if (s->fw_cmds > MEGASAS_MAX_FRAMES) {
         s->fw_cmds = MEGASAS_MAX_FRAMES;
     }
@@ -2455,7 +2418,8 @@ static void megasas_scsi_realize(PCIDevice *dev, Error **errp)
         s->frames[i].state = s;
     }
 
-    scsi_bus_init(&s->bus, sizeof(s->bus), DEVICE(dev), &megasas_scsi_info);
+    scsi_bus_new(&s->bus, sizeof(s->bus), DEVICE(dev),
+                 &megasas_scsi_info, NULL);
 }
 
 static Property megasas_properties_gen1[] = {

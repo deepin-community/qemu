@@ -23,7 +23,6 @@
 
 #include "hw/pci/pci_bridge.h"
 #include "hw/pci/pci_bus.h"
-#include "hw/pci/pci_device.h"
 #include "qom/object.h"
 
 #define TYPE_PCIE_PORT "pcie-port"
@@ -39,10 +38,6 @@ struct PCIEPort {
 };
 
 void pcie_port_init_reg(PCIDevice *d);
-
-PCIDevice *pcie_find_port_by_pn(PCIBus *bus, uint8_t pn);
-PCIDevice *pcie_find_port_first(PCIBus *bus);
-int pcie_count_ds_ports(PCIBus *bus);
 
 #define TYPE_PCIE_SLOT "pcie-slot"
 OBJECT_DECLARE_SIMPLE_TYPE(PCIESlot, PCIE_SLOT)
@@ -62,12 +57,8 @@ struct PCIESlot {
     /* Disable ACS (really for a pcie_root_port) */
     bool        disable_acs;
 
-    /* Indicates whether any type of hot-plug is allowed on the slot */
+    /* Indicates whether hot-plug is enabled on the slot */
     bool        hotplug;
-
-    /* broken ACPI hotplug compat knob to preserve 6.1 ABI intact */
-    bool        hide_native_hotplug_cap;
-
     QLIST_ENTRY(PCIESlot) next;
 };
 
@@ -84,7 +75,7 @@ DECLARE_CLASS_CHECKERS(PCIERootPortClass, PCIE_ROOT_PORT,
 struct PCIERootPortClass {
     PCIDeviceClass parent_class;
     DeviceRealize parent_realize;
-    ResettablePhases parent_phases;
+    DeviceReset parent_reset;
 
     uint8_t (*aer_vector)(const PCIDevice *dev);
     int (*interrupts_init)(PCIDevice *dev, Error **errp);

@@ -2,10 +2,6 @@
 QTest Device Emulation Testing Framework
 ========================================
 
-.. toctree::
-
-   qgraph
-
 QTest is a device emulation testing framework.  It can be very useful to test
 device models; it could also control certain aspects of QEMU (such as virtual
 clock stepping), with a special purpose "qtest" protocol.  Refer to
@@ -28,9 +24,6 @@ On top of libqtest, a higher level library, ``libqos``, was created to
 encapsulate common tasks of device drivers, such as memory management and
 communicating with system buses or devices. Many virtual device tests use
 libqos instead of directly calling into libqtest.
-Libqos also offers the Qgraph API to increase each test coverage and
-automate QEMU command line arguments and devices setup.
-Refer to :ref:`qgraph` for Qgraph explanation and API.
 
 Steps to add a new QTest case are:
 
@@ -81,11 +74,11 @@ which you can run manually.
 QTest Protocol
 --------------
 
-.. kernel-doc:: system/qtest.c
+.. kernel-doc:: softmmu/qtest.c
    :doc: QTest Protocol
 
 
 libqtest API reference
 ----------------------
 
-.. kernel-doc:: tests/qtest/libqtest.h
+.. kernel-doc:: tests/qtest/libqos/libqtest.h

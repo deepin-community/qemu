@@ -19,7 +19,7 @@ Function:
 		r4:   Configuration	
 	Output:		
 		r3:   Entry point for rtas calls	
-Description: Called by OpenFirmware to instantiate rtas, needs to copy
+Decription: Called by OpenFirmware to instantiate rtas, needs to copy
 	itself to destination, also do a relocations.
 	
 */

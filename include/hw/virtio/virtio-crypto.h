@@ -50,7 +50,6 @@ typedef struct VirtIOCryptoConf {
     uint32_t mac_algo_l;
     uint32_t mac_algo_h;
     uint32_t aead_algo;
-    uint32_t akcipher_algo;
 
     /* Maximum length of cipher key */
     uint32_t max_cipher_key_len;
@@ -72,7 +71,9 @@ typedef struct VirtIOCryptoReq {
     size_t in_len;
     VirtQueue *vq;
     struct VirtIOCrypto *vcrypto;
-    CryptoDevBackendOpInfo op_info;
+    union {
+        CryptoDevBackendSymOpInfo *sym_op_info;
+    } u;
 } VirtIOCryptoReq;
 
 typedef struct VirtIOCryptoQueue {

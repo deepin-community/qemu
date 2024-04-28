@@ -26,7 +26,6 @@
 
 #include "hw/ppc/fdt.h"
 #include "hw/ppc/pnv.h"
-#include "hw/ppc/pnv_chip.h"
 #include "hw/ppc/pnv_xscom.h"
 
 #include <libfdt.h>
@@ -221,14 +220,15 @@ const MemoryRegionOps pnv_xscom_ops = {
     .endianness = DEVICE_BIG_ENDIAN,
 };
 
-void pnv_xscom_init(PnvChip *chip, uint64_t size, hwaddr addr)
+void pnv_xscom_realize(PnvChip *chip, uint64_t size, Error **errp)
 {
+    SysBusDevice *sbd = SYS_BUS_DEVICE(chip);
     char *name;
 
     name = g_strdup_printf("xscom-%x", chip->chip_id);
     memory_region_init_io(&chip->xscom_mmio, OBJECT(chip), &pnv_xscom_ops,
                           chip, name, size);
-    memory_region_add_subregion(get_system_memory(), addr, &chip->xscom_mmio);
+    sysbus_init_mmio(sbd, &chip->xscom_mmio);
 
     memory_region_init(&chip->xscom, OBJECT(chip), name, size);
     address_space_init(&chip->xscom_as, &chip->xscom, name);
@@ -284,20 +284,11 @@ int pnv_dt_xscom(PnvChip *chip, void *fdt, int root_offset,
     _FDT(xscom_offset);
     g_free(name);
     _FDT((fdt_setprop_cell(fdt, xscom_offset, "ibm,chip-id", chip->chip_id)));
-    /*
-     * On P10, the xscom bus id has been deprecated and the chip id is
-     * calculated from the "Primary topology table index". See skiboot.
-     */
-    _FDT((fdt_setprop_cell(fdt, xscom_offset, "ibm,primary-topology-index",
-                           chip->chip_id)));
     _FDT((fdt_setprop_cell(fdt, xscom_offset, "#address-cells", 1)));
     _FDT((fdt_setprop_cell(fdt, xscom_offset, "#size-cells", 1)));
     _FDT((fdt_setprop(fdt, xscom_offset, "reg", reg, sizeof(reg))));
     _FDT((fdt_setprop(fdt, xscom_offset, "compatible", compat, compat_size)));
     _FDT((fdt_setprop(fdt, xscom_offset, "scom-controller", NULL, 0)));
-    if (chip->chip_id == 0) {
-        _FDT((fdt_setprop(fdt, xscom_offset, "primary", NULL, 0)));
-    }
 
     args.fdt = fdt;
     args.xscom_offset = xscom_offset;
@@ -317,7 +308,7 @@ void pnv_xscom_add_subregion(PnvChip *chip, hwaddr offset, MemoryRegion *mr)
 }
 
 void pnv_xscom_region_init(MemoryRegion *mr,
-                           Object *owner,
+                           struct Object *owner,
                            const MemoryRegionOps *ops,
                            void *opaque,
                            const char *name,

@@ -26,6 +26,7 @@
 #include "qemu/module.h"
 #include "qemu/atomic.h"
 #include "qemu/main-loop.h"
+#include "qemu-common.h"
 #include "audio.h"
 
 #define AUDIO_CAP "jack"
@@ -70,9 +71,6 @@ typedef struct QJackClient {
     int             buffersize;
     jack_port_t   **port;
     QJackBuffer     fifo;
-
-    /* Used as workspace by qjack_process() */
-    float **process_buffers;
 }
 QJackClient;
 
@@ -100,9 +98,9 @@ static void qjack_buffer_create(QJackBuffer *buffer, int channels, int frames)
     buffer->used     = 0;
     buffer->rptr     = 0;
     buffer->wptr     = 0;
-    buffer->data     = g_new(float *, channels);
+    buffer->data     = g_malloc(channels * sizeof(float *));
     for (int i = 0; i < channels; ++i) {
-        buffer->data[i] = g_new(float, frames);
+        buffer->data[i] = g_malloc(frames * sizeof(float));
     }
 }
 
@@ -270,21 +268,22 @@ static int qjack_process(jack_nframes_t nframes, void *arg)
     }
 
     /* get the buffers for the ports */
+    float *buffers[c->nchannels];
     for (int i = 0; i < c->nchannels; ++i) {
-        c->process_buffers[i] = jack_port_get_buffer(c->port[i], nframes);
+        buffers[i] = jack_port_get_buffer(c->port[i], nframes);
     }
 
     if (c->out) {
         if (likely(c->enabled)) {
-            qjack_buffer_read_l(&c->fifo, c->process_buffers, nframes);
+            qjack_buffer_read_l(&c->fifo, buffers, nframes);
         } else {
-            for (int i = 0; i < c->nchannels; ++i) {
-                memset(c->process_buffers[i], 0, nframes * sizeof(float));
+            for(int i = 0; i < c->nchannels; ++i) {
+                memset(buffers[i], 0, nframes * sizeof(float));
             }
         }
     } else {
         if (likely(c->enabled)) {
-            qjack_buffer_write_l(&c->fifo, c->process_buffers, nframes);
+            qjack_buffer_write_l(&c->fifo, buffers, nframes);
         }
     }
 
@@ -402,8 +401,7 @@ static void qjack_client_connect_ports(QJackClient *c)
 static int qjack_client_init(QJackClient *c)
 {
     jack_status_t status;
-    int client_name_len = jack_client_name_size(); /* includes NUL */
-    g_autofree char *client_name = g_new(char, client_name_len);
+    char client_name[jack_client_name_size()];
     jack_options_t options = JackNullOption;
 
     if (c->state == QJACK_STATE_RUNNING) {
@@ -412,9 +410,9 @@ static int qjack_client_init(QJackClient *c)
 
     c->connect_ports = true;
 
-    snprintf(client_name, client_name_len, "%s-%s",
+    snprintf(client_name, sizeof(client_name), "%s-%s",
         c->out ? "out" : "in",
-        c->opt->client_name ? c->opt->client_name : audio_application_name());
+        c->opt->client_name ? c->opt->client_name : qemu_get_vm_name());
 
     if (c->opt->exact_name) {
         options |= JackUseExactName;
@@ -450,16 +448,13 @@ static int qjack_client_init(QJackClient *c)
           jack_get_client_name(c->client));
     }
 
-    /* Allocate working buffer for process callback */
-    c->process_buffers = g_new(float *, c->nchannels);
-
     jack_set_process_callback(c->client, qjack_process , c);
     jack_set_port_registration_callback(c->client, qjack_port_registration, c);
     jack_set_xrun_callback(c->client, qjack_xrun, c);
     jack_on_shutdown(c->client, qjack_shutdown, c);
 
     /* allocate and register the ports */
-    c->port = g_new(jack_port_t *, c->nchannels);
+    c->port = g_malloc(sizeof(jack_port_t *) * c->nchannels);
     for (int i = 0; i < c->nchannels; ++i) {
 
         char port_name[16];
@@ -489,8 +484,8 @@ static int qjack_client_init(QJackClient *c)
         c->buffersize = 512;
     }
 
-    /* create a 3 period buffer */
-    qjack_buffer_create(&c->fifo, c->nchannels, c->buffersize * 3);
+    /* create a 2 period buffer */
+    qjack_buffer_create(&c->fifo, c->nchannels, c->buffersize * 2);
 
     qjack_client_connect_ports(c);
     c->state = QJACK_STATE_RUNNING;
@@ -584,7 +579,6 @@ static void qjack_client_fini_locked(QJackClient *c)
 
         qjack_buffer_free(&c->fifo);
         g_free(c->port);
-        g_free(c->process_buffers);
 
         c->state = QJACK_STATE_DISCONNECTED;
         /* fallthrough */
@@ -629,7 +623,6 @@ static void qjack_enable_in(HWVoiceIn *hw, bool enable)
     ji->c.enabled = enable;
 }
 
-#if !defined(WIN32) && defined(CONFIG_PTHREAD_SETNAME_NP_W_TID)
 static int qjack_thread_creator(jack_native_thread_t *thread,
     const pthread_attr_t *attr, void *(*function)(void *), void *arg)
 {
@@ -643,9 +636,8 @@ static int qjack_thread_creator(jack_native_thread_t *thread,
 
     return ret;
 }
-#endif
 
-static void *qjack_init(Audiodev *dev, Error **errp)
+static void *qjack_init(Audiodev *dev)
 {
     assert(dev->driver == AUDIODEV_DRIVER_JACK);
     return dev;
@@ -659,14 +651,12 @@ static struct audio_pcm_ops jack_pcm_ops = {
     .init_out       = qjack_init_out,
     .fini_out       = qjack_fini_out,
     .write          = qjack_write,
-    .buffer_get_free = audio_generic_buffer_get_free,
     .run_buffer_out = audio_generic_run_buffer_out,
     .enable_out     = qjack_enable_out,
 
     .init_in        = qjack_init_in,
     .fini_in        = qjack_fini_in,
     .read           = qjack_read,
-    .run_buffer_in  = audio_generic_run_buffer_in,
     .enable_in      = qjack_enable_in
 };
 
@@ -676,6 +666,7 @@ static struct audio_driver jack_driver = {
     .init           = qjack_init,
     .fini           = qjack_fini,
     .pcm_ops        = &jack_pcm_ops,
+    .can_be_default = 1,
     .max_voices_out = INT_MAX,
     .max_voices_in  = INT_MAX,
     .voice_size_out = sizeof(QJackOut),
@@ -696,9 +687,7 @@ static void register_audio_jack(void)
 {
     qemu_mutex_init(&qjack_shutdown_lock);
     audio_driver_register(&jack_driver);
-#if !defined(WIN32) && defined(CONFIG_PTHREAD_SETNAME_NP_W_TID)
     jack_set_thread_creator(qjack_thread_creator);
-#endif
     jack_set_error_function(qjack_error);
     jack_set_info_function(qjack_info);
 }

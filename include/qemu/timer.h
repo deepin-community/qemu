@@ -520,7 +520,7 @@ static inline QEMUTimer *timer_new_full(QEMUTimerListGroup *timer_list_group,
                                         int scale, int attributes,
                                         QEMUTimerCB *cb, void *opaque)
 {
-    QEMUTimer *ts = g_new0(QEMUTimer, 1);
+    QEMUTimer *ts = g_malloc0(sizeof(QEMUTimer));
     timer_init_full(ts, timer_list_group, type, scale, attributes, cb, opaque);
     return ts;
 }
@@ -610,6 +610,17 @@ static inline QEMUTimer *timer_new_ms(QEMUClockType type, QEMUTimerCB *cb,
 void timer_deinit(QEMUTimer *ts);
 
 /**
+ * timer_free:
+ * @ts: the timer
+ *
+ * Free a timer (it must not be on the active list)
+ */
+static inline void timer_free(QEMUTimer *ts)
+{
+    g_free(ts);
+}
+
+/**
  * timer_del:
  * @ts: the timer
  *
@@ -619,21 +630,6 @@ void timer_deinit(QEMUTimer *ts);
  * freed while this function is running.
  */
 void timer_del(QEMUTimer *ts);
-
-/**
- * timer_free:
- * @ts: the timer
- *
- * Free a timer. This will call timer_del() for you to remove
- * the timer from the active list if it was still active.
- */
-static inline void timer_free(QEMUTimer *ts)
-{
-    if (ts) {
-        timer_del(ts);
-        g_free(ts);
-    }
-}
 
 /**
  * timer_mod_ns:
@@ -810,8 +806,6 @@ static inline int64_t get_clock_realtime(void)
     return tv.tv_sec * 1000000000LL + (tv.tv_usec * 1000);
 }
 
-extern int64_t clock_start;
-
 /* Warning: don't insert tracepoints into these functions, they are
    also used by simpletrace backend and tracepoints would cause
    an infinite recursion! */
@@ -979,28 +973,6 @@ static inline int64_t cpu_get_host_ticks(void)
     return cur - ofs;
 }
 
-#elif defined(__riscv) && __riscv_xlen == 32
-static inline int64_t cpu_get_host_ticks(void)
-{
-    uint32_t lo, hi, tmph;
-    do {
-        asm volatile("RDTIMEH %0\n\t"
-                     "RDTIME %1\n\t"
-                     "RDTIMEH %2"
-                     : "=r"(hi), "=r"(lo), "=r"(tmph));
-    } while (unlikely(tmph != hi));
-    return lo | (uint64_t)hi << 32;
-}
-
-#elif defined(__riscv) && __riscv_xlen > 32
-static inline int64_t cpu_get_host_ticks(void)
-{
-    int64_t val;
-
-    asm volatile("RDTIME %0" : "=r"(val));
-    return val;
-}
-
 #else
 /* The host CPU doesn't have an easily accessible cycle counter.
    Just return a monotonically increasing value.  This will be
@@ -1009,6 +981,15 @@ static inline int64_t cpu_get_host_ticks(void)
 {
     return get_clock();
 }
+#endif
+
+#ifdef CONFIG_PROFILER
+static inline int64_t profile_getclock(void)
+{
+    return get_clock();
+}
+
+extern int64_t dev_time;
 #endif
 
 #endif

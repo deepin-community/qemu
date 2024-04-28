@@ -10,10 +10,23 @@
 #include "qemu/osdep.h"
 #include "qapi/error.h"
 #include "qapi/qapi-commands-trace.h"
-#include "control.h"
+#include "control-vcpu.h"
 
 
-static bool check_events(bool ignore_unavailable, bool is_pattern,
+static CPUState *get_cpu(bool has_vcpu, int vcpu, Error **errp)
+{
+    if (has_vcpu) {
+        CPUState *cpu = qemu_get_cpu(vcpu);
+        if (cpu == NULL) {
+            error_setg(errp, "invalid vCPU index %u", vcpu);
+        }
+        return cpu;
+    } else {
+        return NULL;
+    }
+}
+
+static bool check_events(bool has_vcpu, bool ignore_unavailable, bool is_pattern,
                          const char *name, Error **errp)
 {
     if (!is_pattern) {
@@ -22,6 +35,12 @@ static bool check_events(bool ignore_unavailable, bool is_pattern,
         /* error for non-existing event */
         if (ev == NULL) {
             error_setg(errp, "unknown event \"%s\"", name);
+            return false;
+        }
+
+        /* error for non-vcpu event */
+        if (has_vcpu && !trace_event_is_vcpu(ev)) {
+            error_setg(errp, "event \"%s\" is not vCPU-specific", name);
             return false;
         }
 
@@ -36,7 +55,7 @@ static bool check_events(bool ignore_unavailable, bool is_pattern,
         /* error for unavailable events */
         TraceEventIter iter;
         TraceEvent *ev;
-        trace_event_iter_init_pattern(&iter, name);
+        trace_event_iter_init(&iter, name);
         while ((ev = trace_event_iter_next(&iter)) != NULL) {
             if (!ignore_unavailable && !trace_event_get_state_static(ev)) {
                 error_setg(errp, "event \"%s\" is disabled", trace_event_get_name(ev));
@@ -51,34 +70,61 @@ TraceEventInfoList *qmp_trace_event_get_state(const char *name,
                                               bool has_vcpu, int64_t vcpu,
                                               Error **errp)
 {
+    Error *err = NULL;
     TraceEventInfoList *events = NULL;
     TraceEventIter iter;
     TraceEvent *ev;
     bool is_pattern = trace_event_is_pattern(name);
+    CPUState *cpu;
+
+    /* Check provided vcpu */
+    cpu = get_cpu(has_vcpu, vcpu, &err);
+    if (err) {
+        error_propagate(errp, err);
+        return NULL;
+    }
 
     /* Check events */
-    if (!check_events(true, is_pattern, name, errp)) {
+    if (!check_events(has_vcpu, true, is_pattern, name, errp)) {
         return NULL;
     }
 
     /* Get states (all errors checked above) */
-    trace_event_iter_init_pattern(&iter, name);
+    trace_event_iter_init(&iter, name);
     while ((ev = trace_event_iter_next(&iter)) != NULL) {
-        TraceEventInfo *value;
+        TraceEventInfoList *elem;
+        bool is_vcpu = trace_event_is_vcpu(ev);
+        if (has_vcpu && !is_vcpu) {
+            continue;
+        }
 
-        value = g_new(TraceEventInfo, 1);
-        value->name = g_strdup(trace_event_get_name(ev));
+        elem = g_new(TraceEventInfoList, 1);
+        elem->value = g_new(TraceEventInfo, 1);
+        elem->value->vcpu = is_vcpu;
+        elem->value->name = g_strdup(trace_event_get_name(ev));
 
         if (!trace_event_get_state_static(ev)) {
-            value->state = TRACE_EVENT_STATE_UNAVAILABLE;
+            elem->value->state = TRACE_EVENT_STATE_UNAVAILABLE;
         } else {
-            if (trace_event_get_state_dynamic(ev)) {
-                value->state = TRACE_EVENT_STATE_ENABLED;
+            if (has_vcpu) {
+                if (is_vcpu) {
+                    if (trace_event_get_vcpu_state_dynamic(cpu, ev)) {
+                        elem->value->state = TRACE_EVENT_STATE_ENABLED;
+                    } else {
+                        elem->value->state = TRACE_EVENT_STATE_DISABLED;
+                    }
+                }
+                /* else: already skipped above */
             } else {
-                value->state = TRACE_EVENT_STATE_DISABLED;
+                if (trace_event_get_state_dynamic(ev)) {
+                    elem->value->state = TRACE_EVENT_STATE_ENABLED;
+                } else {
+                    elem->value->state = TRACE_EVENT_STATE_DISABLED;
+                }
             }
         }
-        QAPI_LIST_PREPEND(events, value);
+        elem->next = events;
+        events = elem;
     }
 
     return events;
@@ -89,22 +135,36 @@ void qmp_trace_event_set_state(const char *name, bool enable,
                                bool has_vcpu, int64_t vcpu,
                                Error **errp)
 {
+    Error *err = NULL;
     TraceEventIter iter;
     TraceEvent *ev;
     bool is_pattern = trace_event_is_pattern(name);
+    CPUState *cpu;
+
+    /* Check provided vcpu */
+    cpu = get_cpu(has_vcpu, vcpu, &err);
+    if (err) {
+        error_propagate(errp, err);
+        return;
+    }
 
     /* Check events */
-    if (!check_events(has_ignore_unavailable && ignore_unavailable,
+    if (!check_events(has_vcpu, has_ignore_unavailable && ignore_unavailable,
                       is_pattern, name, errp)) {
         return;
     }
 
     /* Apply changes (all errors checked above) */
-    trace_event_iter_init_pattern(&iter, name);
+    trace_event_iter_init(&iter, name);
     while ((ev = trace_event_iter_next(&iter)) != NULL) {
-        if (!trace_event_get_state_static(ev)) {
+        if (!trace_event_get_state_static(ev) ||
+            (has_vcpu && !trace_event_is_vcpu(ev))) {
             continue;
         }
-        trace_event_set_state_dynamic(ev, enable);
+        if (has_vcpu) {
+            trace_event_set_vcpu_state_dynamic(cpu, ev, enable);
+        } else {
+            trace_event_set_state_dynamic(ev, enable);
+        }
     }
 }

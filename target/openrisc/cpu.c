@@ -21,9 +21,6 @@
 #include "qapi/error.h"
 #include "qemu/qemu-print.h"
 #include "cpu.h"
-#include "exec/exec-all.h"
-#include "fpu/softfloat-helpers.h"
-#include "tcg/tcg.h"
 
 static void openrisc_cpu_set_pc(CPUState *cs, vaddr value)
 {
@@ -31,35 +28,6 @@ static void openrisc_cpu_set_pc(CPUState *cs, vaddr value)
 
     cpu->env.pc = value;
     cpu->env.dflag = 0;
-}
-
-static vaddr openrisc_cpu_get_pc(CPUState *cs)
-{
-    OpenRISCCPU *cpu = OPENRISC_CPU(cs);
-
-    return cpu->env.pc;
-}
-
-static void openrisc_cpu_synchronize_from_tb(CPUState *cs,
-                                             const TranslationBlock *tb)
-{
-    OpenRISCCPU *cpu = OPENRISC_CPU(cs);
-
-    tcg_debug_assert(!(cs->tcg_cflags & CF_PCREL));
-    cpu->env.pc = tb->pc;
-}
-
-static void openrisc_restore_state_to_opc(CPUState *cs,
-                                          const TranslationBlock *tb,
-                                          const uint64_t *data)
-{
-    OpenRISCCPU *cpu = OPENRISC_CPU(cs);
-
-    cpu->env.pc = data[0];
-    cpu->env.dflag = data[1] & 1;
-    if (data[1] & 2) {
-        cpu->env.ppc = cpu->env.pc - 4;
-    }
 }
 
 static bool openrisc_cpu_has_work(CPUState *cs)
@@ -73,15 +41,13 @@ static void openrisc_disas_set_info(CPUState *cpu, disassemble_info *info)
     info->print_insn = print_insn_or1k;
 }
 
-static void openrisc_cpu_reset_hold(Object *obj)
+static void openrisc_cpu_reset(DeviceState *dev)
 {
-    CPUState *s = CPU(obj);
+    CPUState *s = CPU(dev);
     OpenRISCCPU *cpu = OPENRISC_CPU(s);
     OpenRISCCPUClass *occ = OPENRISC_CPU_GET_CLASS(cpu);
 
-    if (occ->parent_phases.hold) {
-        occ->parent_phases.hold(obj);
-    }
+    occ->parent_reset(dev);
 
     memset(&cpu->env, 0, offsetof(CPUOpenRISCState, end_reset_fields));
 
@@ -91,9 +57,6 @@ static void openrisc_cpu_reset_hold(Object *obj)
     s->exception_index = -1;
     cpu_set_fpcsr(&cpu->env, 0);
 
-    set_float_detect_tininess(float_tininess_before_rounding,
-                              &cpu->env.fp_status);
-
 #ifndef CONFIG_USER_ONLY
     cpu->env.picmr = 0x00000000;
     cpu->env.picsr = 0x00000000;
@@ -101,33 +64,6 @@ static void openrisc_cpu_reset_hold(Object *obj)
     cpu->env.ttmr = 0x00000000;
 #endif
 }
-
-#ifndef CONFIG_USER_ONLY
-static void openrisc_cpu_set_irq(void *opaque, int irq, int level)
-{
-    OpenRISCCPU *cpu = (OpenRISCCPU *)opaque;
-    CPUState *cs = CPU(cpu);
-    uint32_t irq_bit;
-
-    if (irq > 31 || irq < 0) {
-        return;
-    }
-
-    irq_bit = 1U << irq;
-
-    if (level) {
-        cpu->env.picsr |= irq_bit;
-    } else {
-        cpu->env.picsr &= ~irq_bit;
-    }
-
-    if (cpu->env.picsr & cpu->env.picmr) {
-        cpu_interrupt(cs, CPU_INTERRUPT_HARD);
-    } else {
-        cpu_reset_interrupt(cs, CPU_INTERRUPT_HARD);
-    }
-}
-#endif
 
 static void openrisc_cpu_realizefn(DeviceState *dev, Error **errp)
 {
@@ -149,9 +85,9 @@ static void openrisc_cpu_realizefn(DeviceState *dev, Error **errp)
 
 static void openrisc_cpu_initfn(Object *obj)
 {
-#ifndef CONFIG_USER_ONLY
-    qdev_init_gpio_in_named(DEVICE(obj), openrisc_cpu_set_irq, "IRQ", NR_IRQS);
-#endif
+    OpenRISCCPU *cpu = OPENRISC_CPU(obj);
+
+    cpu_set_cpustate_pointers(cpu);
 }
 
 /* CPU models */
@@ -164,7 +100,8 @@ static ObjectClass *openrisc_cpu_class_by_name(const char *cpu_model)
     typename = g_strdup_printf(OPENRISC_CPU_TYPE_NAME("%s"), cpu_model);
     oc = object_class_by_name(typename);
     g_free(typename);
-    if (oc != NULL && !object_class_dynamic_cast(oc, TYPE_OPENRISC_CPU)) {
+    if (oc != NULL && (!object_class_dynamic_cast(oc, TYPE_OPENRISC_CPU) ||
+                       object_class_is_abstract(oc))) {
         return NULL;
     }
     return oc;
@@ -205,54 +142,32 @@ static void openrisc_any_initfn(Object *obj)
                       | (IMMUCFGR_NTS & (ctz32(TLB_SIZE) << 2));
 }
 
-#ifndef CONFIG_USER_ONLY
-#include "hw/core/sysemu-cpu-ops.h"
-
-static const struct SysemuCPUOps openrisc_sysemu_ops = {
-    .get_phys_page_debug = openrisc_cpu_get_phys_page_debug,
-};
-#endif
-
-#include "hw/core/tcg-cpu-ops.h"
-
-static const struct TCGCPUOps openrisc_tcg_ops = {
-    .initialize = openrisc_translate_init,
-    .synchronize_from_tb = openrisc_cpu_synchronize_from_tb,
-    .restore_state_to_opc = openrisc_restore_state_to_opc,
-
-#ifndef CONFIG_USER_ONLY
-    .tlb_fill = openrisc_cpu_tlb_fill,
-    .cpu_exec_interrupt = openrisc_cpu_exec_interrupt,
-    .do_interrupt = openrisc_cpu_do_interrupt,
-#endif /* !CONFIG_USER_ONLY */
-};
-
 static void openrisc_cpu_class_init(ObjectClass *oc, void *data)
 {
     OpenRISCCPUClass *occ = OPENRISC_CPU_CLASS(oc);
     CPUClass *cc = CPU_CLASS(occ);
     DeviceClass *dc = DEVICE_CLASS(oc);
-    ResettableClass *rc = RESETTABLE_CLASS(oc);
 
     device_class_set_parent_realize(dc, openrisc_cpu_realizefn,
                                     &occ->parent_realize);
-    resettable_class_set_parent_phases(rc, NULL, openrisc_cpu_reset_hold, NULL,
-                                       &occ->parent_phases);
+    device_class_set_parent_reset(dc, openrisc_cpu_reset, &occ->parent_reset);
 
     cc->class_by_name = openrisc_cpu_class_by_name;
     cc->has_work = openrisc_cpu_has_work;
+    cc->do_interrupt = openrisc_cpu_do_interrupt;
+    cc->cpu_exec_interrupt = openrisc_cpu_exec_interrupt;
     cc->dump_state = openrisc_cpu_dump_state;
     cc->set_pc = openrisc_cpu_set_pc;
-    cc->get_pc = openrisc_cpu_get_pc;
     cc->gdb_read_register = openrisc_cpu_gdb_read_register;
     cc->gdb_write_register = openrisc_cpu_gdb_write_register;
+    cc->tlb_fill = openrisc_cpu_tlb_fill;
 #ifndef CONFIG_USER_ONLY
+    cc->get_phys_page_debug = openrisc_cpu_get_phys_page_debug;
     dc->vmsd = &vmstate_openrisc_cpu;
-    cc->sysemu_ops = &openrisc_sysemu_ops;
 #endif
     cc->gdb_num_core_regs = 32 + 3;
+    cc->tcg_initialize = openrisc_translate_init;
     cc->disas_set_info = openrisc_disas_set_info;
-    cc->tcg_ops = &openrisc_tcg_ops;
 }
 
 /* Sort alphabetically by type name, except for "any". */
@@ -309,7 +224,6 @@ static const TypeInfo openrisc_cpus_type_infos[] = {
         .name = TYPE_OPENRISC_CPU,
         .parent = TYPE_CPU,
         .instance_size = sizeof(OpenRISCCPU),
-        .instance_align = __alignof(OpenRISCCPU),
         .instance_init = openrisc_cpu_initfn,
         .abstract = true,
         .class_size = sizeof(OpenRISCCPUClass),

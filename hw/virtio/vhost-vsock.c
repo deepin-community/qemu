@@ -70,10 +70,14 @@ static int vhost_vsock_set_running(VirtIODevice *vdev, int start)
 static void vhost_vsock_set_status(VirtIODevice *vdev, uint8_t status)
 {
     VHostVSockCommon *vvc = VHOST_VSOCK_COMMON(vdev);
-    bool should_start = virtio_device_should_start(vdev, status);
+    bool should_start = status & VIRTIO_CONFIG_S_DRIVER_OK;
     int ret;
 
-    if (vhost_dev_is_started(&vvc->vhost_dev) == should_start) {
+    if (!vdev->vm_running) {
+        should_start = false;
+    }
+
+    if (vvc->vhost_dev.started == should_start) {
         return;
     }
 
@@ -104,7 +108,8 @@ static uint64_t vhost_vsock_get_features(VirtIODevice *vdev,
                                          uint64_t requested_features,
                                          Error **errp)
 {
-    return vhost_vsock_common_get_features(vdev, requested_features, errp);
+    /* No feature bits used yet */
+    return requested_features;
 }
 
 static const VMStateDescription vmstate_virtio_vhost_vsock = {
@@ -145,8 +150,9 @@ static void vhost_vsock_device_realize(DeviceState *dev, Error **errp)
             return;
         }
 
-        if (!g_unix_set_fd_nonblocking(vhostfd, true, NULL)) {
-            error_setg_errno(errp, errno,
+        ret = qemu_try_set_nonblock(vhostfd);
+        if (ret < 0) {
+            error_setg_errno(errp, -ret,
                              "vhost-vsock: unable to set non-blocking mode");
             return;
         }
@@ -158,22 +164,15 @@ static void vhost_vsock_device_realize(DeviceState *dev, Error **errp)
             return;
         }
 
-        if (!g_unix_set_fd_nonblocking(vhostfd, true, NULL)) {
-            error_setg_errno(errp, errno,
-                             "Failed to set FD nonblocking");
-            return;
-        }
+        qemu_set_nonblock(vhostfd);
     }
 
-    vhost_vsock_common_realize(vdev);
+    vhost_vsock_common_realize(vdev, "vhost-vsock");
 
     ret = vhost_dev_init(&vvc->vhost_dev, (void *)(uintptr_t)vhostfd,
-                         VHOST_BACKEND_TYPE_KERNEL, 0, errp);
+                         VHOST_BACKEND_TYPE_KERNEL, 0);
     if (ret < 0) {
-        /*
-         * vhostfd is closed by vhost_dev_cleanup, which is called
-         * by vhost_dev_init on initialization error.
-         */
+        error_setg_errno(errp, -ret, "vhost-vsock: vhost_dev_init failed");
         goto err_virtio;
     }
 
@@ -186,10 +185,15 @@ static void vhost_vsock_device_realize(DeviceState *dev, Error **errp)
     return;
 
 err_vhost_dev:
-    /* vhost_dev_cleanup() closes the vhostfd passed to vhost_dev_init() */
     vhost_dev_cleanup(&vvc->vhost_dev);
+    /* vhost_dev_cleanup() closes the vhostfd passed to vhost_dev_init() */
+    vhostfd = -1;
 err_virtio:
     vhost_vsock_common_unrealize(vdev);
+    if (vhostfd >= 0) {
+        close(vhostfd);
+    }
+    return;
 }
 
 static void vhost_vsock_device_unrealize(DeviceState *dev)

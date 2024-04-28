@@ -1,4 +1,3 @@
-=======================
 QEMU disk image utility
 =======================
 
@@ -57,7 +56,7 @@ cases. See below for a description of the supported disk formats.
 *OUTPUT_FMT* is the destination format.
 
 *OPTIONS* is a comma separated list of format specific options in a
-name=value format. Use ``-o help`` for an overview of the options supported
+name=value format. Use ``-o ?`` for an overview of the options supported
 by the used format or see the format descriptions below for details.
 
 *SNAPSHOT_PARAM* is param used for internal snapshot, format is
@@ -106,11 +105,7 @@ by the used format or see the format descriptions below for details.
 
 .. option:: -c
 
-  Indicates that target image must be compressed (qcow/qcow2 and vmdk with
-  streamOptimized subformat only).
-
-  For qcow2, the compression algorithm can be specified with the ``-o
-  compression_type=...`` option (see below).
+  Indicates that target image must be compressed (qcow format only).
 
 .. option:: -h
 
@@ -131,9 +126,9 @@ by the used format or see the format descriptions below for details.
 .. option:: -S SIZE
 
   Indicates the consecutive number of bytes that must contain only zeros
-  for ``qemu-img`` to create a sparse image during conversion. This value is
-  rounded down to the nearest 512 bytes. You may use the common size suffixes
-  like ``k`` for kilobytes.
+  for qemu-img to create a sparse image during conversion. This value is rounded
+  down to the nearest 512 bytes. You may use the common size suffixes like
+  ``k`` for kilobytes.
 
 .. option:: -t CACHE
 
@@ -336,8 +331,8 @@ Command description:
   ``-r all`` fixes all kinds of errors, with a higher risk of choosing the
   wrong fix or hiding corruption that has already occurred.
 
-  Only the formats ``qcow2``, ``qed``, ``parallels``, ``vhdx``, ``vmdk`` and
-  ``vdi`` support consistency checks.
+  Only the formats ``qcow2``, ``qed`` and ``vdi`` support
+  consistency checks.
 
   In case the image does not have any inconsistencies, check exits with ``0``.
   Other exit codes indicate the kind of inconsistency found or if another error
@@ -409,7 +404,7 @@ Command description:
   The following table sumarizes all exit codes of the compare subcommand:
 
   0
-    Images are identical (or requested help was printed)
+    Images are identical
   1
     Images differ
   2
@@ -419,7 +414,7 @@ Command description:
   4
     Error on reading data
 
-.. option:: convert [--object OBJECTDEF] [--image-opts] [--target-image-opts] [--target-is-zero] [--bitmaps [--skip-broken-bitmaps]] [-U] [-C] [-c] [-p] [-q] [-n] [-f FMT] [-t CACHE] [-T SRC_CACHE] [-O OUTPUT_FMT] [-B BACKING_FILE [-F BACKING_FMT]] [-o OPTIONS] [-l SNAPSHOT_PARAM] [-S SPARSE_SIZE] [-r RATE_LIMIT] [-m NUM_COROUTINES] [-W] FILENAME [FILENAME2 [...]] OUTPUT_FILENAME
+.. option:: convert [--object OBJECTDEF] [--image-opts] [--target-image-opts] [--target-is-zero] [--bitmaps] [-U] [-C] [-c] [-p] [-q] [-n] [-f FMT] [-t CACHE] [-T SRC_CACHE] [-O OUTPUT_FMT] [-B BACKING_FILE] [-o OPTIONS] [-l SNAPSHOT_PARAM] [-S SPARSE_SIZE] [-r RATE_LIMIT] [-m NUM_COROUTINES] [-W] FILENAME [FILENAME2 [...]] OUTPUT_FILENAME
 
   Convert the disk image *FILENAME* or a snapshot *SNAPSHOT_PARAM*
   to disk image *OUTPUT_FILENAME* using format *OUTPUT_FMT*. It can
@@ -435,7 +430,7 @@ Command description:
   suppressed from the destination image.
 
   *SPARSE_SIZE* indicates the consecutive number of bytes (defaults to 4k)
-  that must contain only zeros for ``qemu-img`` to create a sparse image during
+  that must contain only zeros for qemu-img to create a sparse image during
   conversion. If *SPARSE_SIZE* is 0, the source will not be scanned for
   unallocated or zero sectors, and the destination image will always be
   fully allocated.
@@ -443,7 +438,7 @@ Command description:
   You can use the *BACKING_FILE* option to force the output image to be
   created as a copy on write image of the specified base image; the
   *BACKING_FILE* should have the same content as the input's base image,
-  however the path, image format (as given by *BACKING_FMT*), etc may differ.
+  however the path, image format, etc may differ.
 
   If a relative path name is given, the backing file is looked up relative to
   the directory containing *OUTPUT_FILENAME*.
@@ -451,7 +446,7 @@ Command description:
   If the ``-n`` option is specified, the target volume creation will be
   skipped. This is useful for formats such as ``rbd`` if the target
   volume has already been created with site specific options that cannot
-  be supplied through ``qemu-img``.
+  be supplied through qemu-img.
 
   Out of order writes can be enabled with ``-W`` to improve performance.
   This is only recommended for preallocated devices like host devices or other
@@ -461,13 +456,7 @@ Command description:
   *NUM_COROUTINES* specifies how many coroutines work in parallel during
   the convert process (defaults to 8).
 
-  Use of ``--bitmaps`` requests that any persistent bitmaps present in
-  the original are also copied to the destination.  If any bitmap is
-  inconsistent in the source, the conversion will fail unless
-  ``--skip-broken-bitmaps`` is also specified to copy only the
-  consistent bitmaps.
-
-.. option:: create [--object OBJECTDEF] [-q] [-f FMT] [-b BACKING_FILE [-F BACKING_FMT]] [-u] [-o OPTIONS] FILENAME [SIZE]
+.. option:: create [--object OBJECTDEF] [-q] [-f FMT] [-b BACKING_FILE] [-F BACKING_FMT] [-u] [-o OPTIONS] FILENAME [SIZE]
 
   Create the new disk image *FILENAME* of size *SIZE* and format
   *FMT*. Depending on the file format, you can add one or more *OPTIONS*
@@ -476,7 +465,7 @@ Command description:
   If the option *BACKING_FILE* is specified, then the image will record
   only the differences from *BACKING_FILE*. No size needs to be specified in
   this case. *BACKING_FILE* will never be modified unless you use the
-  ``commit`` monitor command (or ``qemu-img commit``).
+  ``commit`` monitor command (or qemu-img commit).
 
   If a relative path name is given, the backing file is looked up relative to
   the directory containing *FILENAME*.
@@ -604,16 +593,13 @@ Command description:
   the ``start``, ``length``, ``offset`` fields;
   it will also include other more specific information:
 
-  - boolean field ``data``: true if the sectors contain actual data,
-    false if the sectors are either unallocated or stored as optimized
-    all-zero clusters
-  - boolean field ``zero``: true if the data is known to read as zero
-  - boolean field ``present``: true if the data belongs to the backing
-    chain, false if rebasing the backing chain onto a deeper file
-    would pick up data from the deeper file;
-  - integer field ``depth``: the depth within the backing chain at
-    which the data was resolved; for example, a depth of 2 refers to
-    the backing file of the backing file of *FILENAME*.
+  - whether the sectors contain actual data or not (boolean field ``data``;
+    if false, the sectors are either unallocated or stored as optimized
+    all-zero clusters);
+  - whether the data is known to read as zero (boolean field ``zero``);
+  - in order to make the output shorter, the target file is expressed as
+    a ``depth``; for example, a depth of 2 refers to the backing file
+    of the backing file of *FILENAME*.
 
   In JSON format, the ``offset`` field is optional; it is absent in
   cases where ``human`` format would omit the entry or exit with an error.
@@ -667,7 +653,7 @@ Command description:
 
   List, apply, create or delete snapshots in image *FILENAME*.
 
-.. option:: rebase [--object OBJECTDEF] [--image-opts] [-U] [-q] [-f FMT] [-t CACHE] [-T SRC_CACHE] [-p] [-u] [-c] -b BACKING_FILE [-F BACKING_FMT] FILENAME
+.. option:: rebase [--object OBJECTDEF] [--image-opts] [-U] [-q] [-f FMT] [-t CACHE] [-T SRC_CACHE] [-p] [-u] -b BACKING_FILE [-F BACKING_FMT] FILENAME
 
   Changes the backing file of an image. Only the formats ``qcow2`` and
   ``qed`` support changing the backing file.
@@ -688,22 +674,20 @@ Command description:
 
   Safe mode
     This is the default mode and performs a real rebase operation. The
-    new backing file may differ from the old one and ``qemu-img rebase``
+    new backing file may differ from the old one and qemu-img rebase
     will take care of keeping the guest-visible content of *FILENAME*
     unchanged.
 
     In order to achieve this, any clusters that differ between
     *BACKING_FILE* and the old backing file of *FILENAME* are merged
-    into *FILENAME* before actually changing the backing file. With the
-    ``-c`` option specified, the clusters which are being merged (but not
-    the entire *FILENAME* image) are compressed when written.
+    into *FILENAME* before actually changing the backing file.
 
     Note that the safe mode is an expensive operation, comparable to
     converting an image. It only works if the old backing file still
     exists.
 
   Unsafe mode
-    ``qemu-img`` uses the unsafe mode if ``-u`` is specified. In this
+    qemu-img uses the unsafe mode if ``-u`` is specified. In this
     mode, only the backing file name and format of *FILENAME* is changed
     without any checks on the file contents. The user must take care of
     specifying the correct new backing file, or the guest-visible
@@ -741,7 +725,7 @@ Command description:
   sizes accordingly.  Failure to do so will result in data loss!
 
   When shrinking images, the ``--shrink`` option must be given. This informs
-  ``qemu-img`` that the user acknowledges all loss of data beyond the truncated
+  qemu-img that the user acknowledges all loss of data beyond the truncated
   image's end.
 
   After using this command to grow a disk image, you must use file system and
@@ -782,7 +766,7 @@ Supported image file formats:
 
   QEMU image format, the most versatile format. Use it to have smaller
   images (useful if your filesystem does not supports holes, for example
-  on Windows), optional AES encryption, zlib or zstd based compression and
+  on Windows), optional AES encryption, zlib based compression and
   support of multiple VM snapshots.
 
   Supported options:
@@ -799,17 +783,6 @@ Supported image file formats:
 
   ``backing_fmt``
     Image format of the base image
-
-  ``compression_type``
-    This option configures which compression algorithm will be used for
-    compressed clusters on the image. Note that setting this option doesn't yet
-    cause the image to actually receive compressed writes. It is most commonly
-    used with the ``-c`` option of ``qemu-img convert``, but can also be used
-    with the ``compress`` filter driver or backup block jobs with compression
-    enabled.
-
-    Valid values are ``zlib`` and ``zstd``. For images that use
-    ``compat=0.10``, only ``zlib`` compression is available.
 
   ``encryption``
     If this option is set to ``on``, the image is encrypted with
@@ -892,37 +865,6 @@ Supported image file formats:
     couldn't be changed to NOCOW by setting ``nocow=on``. One can
     issue ``lsattr filename`` to check if the NOCOW flag is set or not
     (Capital 'C' is NOCOW flag).
-
-  ``data_file``
-    Filename where all guest data will be stored. If this option is used,
-    the qcow2 file will only contain the image's metadata.
-
-    Note: Data loss will occur if the given filename already exists when
-    using this option with ``qemu-img create`` since ``qemu-img`` will create
-    the data file anew, overwriting the file's original contents. To simply
-    update the reference to point to the given pre-existing file, use
-    ``qemu-img amend``.
-
-  ``data_file_raw``
-    If this option is set to ``on``, QEMU will always keep the external data
-    file consistent as a standalone read-only raw image.
-
-    It does this by forwarding all write accesses to the qcow2 file through to
-    the raw data file, including their offsets. Therefore, data that is visible
-    on the qcow2 node (i.e., to the guest) at some offset is visible at the same
-    offset in the raw data file. This results in a read-only raw image. Writes
-    that bypass the qcow2 metadata may corrupt the qcow2 metadata because the
-    out-of-band writes may result in the metadata falling out of sync with the
-    raw image.
-
-    If this option is ``off``, QEMU will use the data file to store data in an
-    arbitrary manner. The file’s content will not make sense without the
-    accompanying qcow2 metadata. Where data is written will have no relation to
-    its offset as seen by the guest, and some writes (specifically zero writes)
-    may not be forwarded to the data file at all, but will only be handled by
-    modifying qcow2 metadata.
-
-    This option can only be enabled if ``data_file`` is set.
 
 ``Other``
 

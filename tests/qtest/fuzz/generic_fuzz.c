@@ -15,20 +15,18 @@
 #include <wordexp.h>
 
 #include "hw/core/cpu.h"
-#include "tests/qtest/libqtest.h"
-#include "tests/qtest/libqos/pci-pc.h"
+#include "tests/qtest/libqos/libqtest.h"
 #include "fuzz.h"
+#include "fork_fuzz.h"
+#include "exec/address-spaces.h"
 #include "string.h"
 #include "exec/memory.h"
 #include "exec/ramblock.h"
+#include "exec/address-spaces.h"
 #include "hw/qdev-core.h"
 #include "hw/pci/pci.h"
-#include "hw/pci/pci_device.h"
 #include "hw/boards.h"
 #include "generic_fuzz_configs.h"
-#include "hw/mem/sparse-mem.h"
-
-static void pci_enum(gpointer pcidev, gpointer bus);
 
 /*
  * SEPARATOR is used to separate "operations" in the fuzz input
@@ -48,10 +46,10 @@ enum cmds {
     OP_CLOCK_STEP,
 };
 
+#define DEFAULT_TIMEOUT_US 100000
 #define USEC_IN_SEC 1000000000
 
 #define MAX_DMA_FILL_SIZE 0x10000
-#define MAX_TOTAL_DMA_SIZE 0x10000000
 
 #define PCI_HOST_BRIDGE_CFG 0xcf8
 #define PCI_HOST_BRIDGE_DATA 0xcfc
@@ -61,10 +59,9 @@ typedef struct {
     ram_addr_t size; /* The number of bytes until the end of the I/O region */
 } address_range;
 
-static bool qtest_log_enabled;
-size_t dma_bytes_written;
+static useconds_t timeout = DEFAULT_TIMEOUT_US;
 
-MemoryRegion *sparse_mem_mr;
+static bool qtest_log_enabled;
 
 /*
  * A pattern used to populate a DMA region or perform a memwrite. This is
@@ -97,22 +94,19 @@ struct get_io_cb_info {
     address_range result;
 };
 
-static bool get_io_address_cb(Int128 start, Int128 size,
-                              const MemoryRegion *mr,
-                              hwaddr offset_in_region,
-                              void *opaque)
-{
+static int get_io_address_cb(Int128 start, Int128 size,
+                          const MemoryRegion *mr, void *opaque) {
     struct get_io_cb_info *info = opaque;
     if (g_hash_table_lookup(fuzzable_memoryregions, mr)) {
         if (info->index == 0) {
             info->result.addr = (ram_addr_t)start;
             info->result.size = (ram_addr_t)size;
             info->found = 1;
-            return true;
+            return 1;
         }
         info->index--;
     }
-    return false;
+    return 0;
 }
 
 /*
@@ -145,7 +139,7 @@ static void *pattern_alloc(pattern p, size_t len)
     return buf;
 }
 
-static int fuzz_memory_access_size(MemoryRegion *mr, unsigned l, hwaddr addr)
+static int memory_access_size(MemoryRegion *mr, unsigned l, hwaddr addr)
 {
     unsigned access_size_max = mr->ops->valid.max_access_size;
 
@@ -180,7 +174,7 @@ static int fuzz_memory_access_size(MemoryRegion *mr, unsigned l, hwaddr addr)
  * generic_fuzz(), avoiding potential race-conditions, which we don't have
  * a good way for reproducing right now.
  */
-void fuzz_dma_read_cb(size_t addr, size_t len, MemoryRegion *mr)
+void fuzz_dma_read_cb(size_t addr, size_t len, MemoryRegion *mr, bool is_write)
 {
     /* Are we in the generic-fuzzer or are we using another fuzz-target? */
     if (!qts_global) {
@@ -192,12 +186,15 @@ void fuzz_dma_read_cb(size_t addr, size_t len, MemoryRegion *mr)
      * - We have no DMA patterns defined
      * - The length of the DMA read request is zero
      * - The DMA read is hitting an MR other than the machine's main RAM
+     * - The DMA request is not a read (what happens for a address_space_map
+     *   with is_write=True? Can the device use the same pointer to do reads?)
      * - The DMA request hits past the bounds of our RAM
      */
     if (dma_patterns->len == 0
         || len == 0
-        || dma_bytes_written + len > MAX_TOTAL_DMA_SIZE
-        || (mr != current_machine->ram && mr != sparse_mem_mr)) {
+        || mr != current_machine->ram
+        || is_write
+        || addr > current_machine->ram_size) {
         return;
     }
 
@@ -215,12 +212,12 @@ void fuzz_dma_read_cb(size_t addr, size_t len, MemoryRegion *mr)
             double_fetch = true;
             if (addr < region.addr
                 && avoid_double_fetches) {
-                fuzz_dma_read_cb(addr, region.addr - addr, mr);
+                fuzz_dma_read_cb(addr, region.addr - addr, mr, is_write);
             }
             if (addr + len > region.addr + region.size
                 && avoid_double_fetches) {
                 fuzz_dma_read_cb(region.addr + region.size,
-                        addr + len - (region.addr + region.size), mr);
+                        addr + len - (region.addr + region.size), mr, is_write);
             }
             return;
         }
@@ -242,18 +239,10 @@ void fuzz_dma_read_cb(size_t addr, size_t len, MemoryRegion *mr)
                                       addr, &addr1, &l, true,
                                       MEMTXATTRS_UNSPECIFIED);
 
-        /*
-         *  If mr1 isn't RAM, address_space_translate doesn't update l. Use
-         *  fuzz_memory_access_size to identify the number of bytes that it
-         *  is safe to write without accidentally writing to another
-         *  MemoryRegion.
-         */
-        if (!memory_region_is_ram(mr1)) {
-            l = fuzz_memory_access_size(mr1, l, addr1);
-        }
-        if (memory_region_is_ram(mr1) ||
-            memory_region_is_romd(mr1) ||
-            mr1 == sparse_mem_mr) {
+        if (!(memory_region_is_ram(mr1) ||
+              memory_region_is_romd(mr1))) {
+            l = memory_access_size(mr1, l, addr1);
+        } else {
             /* ROM/RAM case */
             if (qtest_log_enabled) {
                 /*
@@ -269,7 +258,6 @@ void fuzz_dma_read_cb(size_t addr, size_t len, MemoryRegion *mr)
                 fflush(stderr);
             }
             qtest_memwrite(qts_global, addr, buf, l);
-            dma_bytes_written += l;
         }
         len -= l;
         buf += l;
@@ -591,6 +579,15 @@ static void op_disable_pci(QTestState *s, const unsigned char *data, size_t len)
     pci_disabled = true;
 }
 
+static void handle_timeout(int sig)
+{
+    if (qtest_log_enabled) {
+        fprintf(stderr, "[Timeout]\n");
+        fflush(stderr);
+    }
+    _Exit(0);
+}
+
 /*
  * Here, we interpret random bytes from the fuzzer, as a sequence of commands.
  * Some commands can be variable-width, so we use a separator, SEPARATOR, to
@@ -647,33 +644,54 @@ static void generic_fuzz(QTestState *s, const unsigned char *Data, size_t Size)
     size_t cmd_len;
     uint8_t op;
 
-    op_clear_dma_patterns(s, NULL, 0);
-    pci_disabled = false;
-    dma_bytes_written = 0;
+    if (fork() == 0) {
+        /*
+         * Sometimes the fuzzer will find inputs that take quite a long time to
+         * process. Often times, these inputs do not result in new coverage.
+         * Even if these inputs might be interesting, they can slow down the
+         * fuzzer, overall. Set a timeout to avoid hurting performance, too much
+         */
+        if (timeout) {
+            struct sigaction sact;
+            struct itimerval timer;
 
-    QPCIBus *pcibus = qpci_new_pc(s, NULL);
-    g_ptr_array_foreach(fuzzable_pci_devices, pci_enum, pcibus);
-    qpci_free_pc(pcibus);
+            sigemptyset(&sact.sa_mask);
+            sact.sa_flags   = SA_NODEFER;
+            sact.sa_handler = handle_timeout;
+            sigaction(SIGALRM, &sact, NULL);
 
-    while (cmd && Size) {
-        /* Get the length until the next command or end of input */
-        nextcmd = memmem(cmd, Size, SEPARATOR, strlen(SEPARATOR));
-        cmd_len = nextcmd ? nextcmd - cmd : Size;
-
-        if (cmd_len > 0) {
-            /* Interpret the first byte of the command as an opcode */
-            op = *cmd % (sizeof(ops) / sizeof((ops)[0]));
-            ops[op](s, cmd + 1, cmd_len - 1);
-
-            /* Run the main loop */
-            flush_events(s);
+            memset(&timer, 0, sizeof(timer));
+            timer.it_value.tv_sec = timeout / USEC_IN_SEC;
+            timer.it_value.tv_usec = timeout % USEC_IN_SEC;
+            setitimer(ITIMER_VIRTUAL, &timer, NULL);
         }
-        /* Advance to the next command */
-        cmd = nextcmd ? nextcmd + sizeof(SEPARATOR) - 1 : nextcmd;
-        Size = Size - (cmd_len + sizeof(SEPARATOR) - 1);
-        g_array_set_size(dma_regions, 0);
+
+        op_clear_dma_patterns(s, NULL, 0);
+        pci_disabled = false;
+
+        while (cmd && Size) {
+            /* Get the length until the next command or end of input */
+            nextcmd = memmem(cmd, Size, SEPARATOR, strlen(SEPARATOR));
+            cmd_len = nextcmd ? nextcmd - cmd : Size;
+
+            if (cmd_len > 0) {
+                /* Interpret the first byte of the command as an opcode */
+                op = *cmd % (sizeof(ops) / sizeof((ops)[0]));
+                ops[op](s, cmd + 1, cmd_len - 1);
+
+                /* Run the main loop */
+                flush_events(s);
+            }
+            /* Advance to the next command */
+            cmd = nextcmd ? nextcmd + sizeof(SEPARATOR) - 1 : nextcmd;
+            Size = Size - (cmd_len + sizeof(SEPARATOR) - 1);
+            g_array_set_size(dma_regions, 0);
+        }
+        _Exit(0);
+    } else {
+        flush_events(s);
+        wait(0);
     }
-    fuzz_reset(s);
 }
 
 static void usage(void)
@@ -685,17 +703,21 @@ static void usage(void)
     printf("Optionally: QEMU_AVOID_DOUBLE_FETCH= "
             "Try to avoid racy DMA double fetch bugs? %d by default\n",
             avoid_double_fetches);
+    printf("Optionally: QEMU_FUZZ_TIMEOUT= Specify a custom timeout (us). "
+            "0 to disable. %d by default\n", timeout);
     exit(0);
 }
 
 static int locate_fuzz_memory_regions(Object *child, void *opaque)
 {
+    const char *name;
     MemoryRegion *mr;
     if (object_dynamic_cast(child, TYPE_MEMORY_REGION)) {
         mr = MEMORY_REGION(child);
         if ((memory_region_is_ram(mr) ||
             memory_region_is_ram_device(mr) ||
             memory_region_is_rom(mr)) == false) {
+            name = object_get_canonical_path_component(child);
             /*
              * We don't want duplicate pointers to the same MemoryRegion, so
              * try to remove copies of the pointer, before adding it.
@@ -708,13 +730,8 @@ static int locate_fuzz_memory_regions(Object *child, void *opaque)
 
 static int locate_fuzz_objects(Object *child, void *opaque)
 {
-    GString *type_name;
-    GString *path_name;
     char *pattern = opaque;
-
-    type_name = g_string_new(object_get_typename(child));
-    g_string_ascii_down(type_name);
-    if (g_pattern_match_simple(pattern, type_name->str)) {
+    if (g_pattern_match_simple(pattern, object_get_typename(child))) {
         /* Find and save ptrs to any child MemoryRegions */
         object_child_foreach_recursive(child, locate_fuzz_memory_regions, NULL);
 
@@ -731,9 +748,8 @@ static int locate_fuzz_objects(Object *child, void *opaque)
             g_ptr_array_add(fuzzable_pci_devices, PCI_DEVICE(child));
         }
     } else if (object_dynamic_cast(OBJECT(child), TYPE_MEMORY_REGION)) {
-        path_name = g_string_new(object_get_canonical_path_component(child));
-        g_string_ascii_down(path_name);
-        if (g_pattern_match_simple(pattern, path_name->str)) {
+        if (g_pattern_match_simple(pattern,
+            object_get_canonical_path_component(child))) {
             MemoryRegion *mr;
             mr = MEMORY_REGION(child);
             if ((memory_region_is_ram(mr) ||
@@ -742,28 +758,8 @@ static int locate_fuzz_objects(Object *child, void *opaque)
                 g_hash_table_insert(fuzzable_memoryregions, mr, (gpointer)true);
             }
         }
-        g_string_free(path_name, true);
     }
-    g_string_free(type_name, true);
     return 0;
-}
-
-
-static void pci_enum(gpointer pcidev, gpointer bus)
-{
-    PCIDevice *dev = pcidev;
-    QPCIDevice *qdev;
-    int i;
-
-    qdev = qpci_device_find(bus, dev->devfn);
-    g_assert(qdev != NULL);
-    for (i = 0; i < 6; i++) {
-        if (dev->io_regions[i].size) {
-            qpci_iomap(qdev, i, NULL);
-        }
-    }
-    qpci_device_enable(qdev);
-    g_free(qdev);
 }
 
 static void generic_pre_fuzz(QTestState *s)
@@ -771,7 +767,6 @@ static void generic_pre_fuzz(QTestState *s)
     GHashTableIter iter;
     MemoryRegion *mr;
     char **result;
-    GString *name_pattern;
 
     if (!getenv("QEMU_FUZZ_OBJECTS")) {
         usage();
@@ -782,13 +777,10 @@ static void generic_pre_fuzz(QTestState *s)
     if (getenv("QEMU_AVOID_DOUBLE_FETCH")) {
         avoid_double_fetches = 1;
     }
+    if (getenv("QEMU_FUZZ_TIMEOUT")) {
+        timeout = g_ascii_strtoll(getenv("QEMU_FUZZ_TIMEOUT"), NULL, 0);
+    }
     qts_global = s;
-
-    /*
-     * Create a special device that we can use to back DMA buffers at very
-     * high memory addresses
-     */
-    sparse_mem_mr = sparse_mem_init(0, UINT64_MAX);
 
     dma_regions = g_array_new(false, false, sizeof(address_range));
     dma_patterns = g_array_new(false, false, sizeof(pattern));
@@ -798,32 +790,27 @@ static void generic_pre_fuzz(QTestState *s)
 
     result = g_strsplit(getenv("QEMU_FUZZ_OBJECTS"), " ", -1);
     for (int i = 0; result[i] != NULL; i++) {
-        name_pattern = g_string_new(result[i]);
-        /*
-         * Make the pattern lowercase. We do the same for all the MemoryRegion
-         * and Type names so the configs are case-insensitive.
-         */
-        g_string_ascii_down(name_pattern);
         printf("Matching objects by name %s\n", result[i]);
         object_child_foreach_recursive(qdev_get_machine(),
                                     locate_fuzz_objects,
-                                    name_pattern->str);
-        g_string_free(name_pattern, true);
+                                    result[i]);
     }
     g_strfreev(result);
     printf("This process will try to fuzz the following MemoryRegions:\n");
 
     g_hash_table_iter_init(&iter, fuzzable_memoryregions);
     while (g_hash_table_iter_next(&iter, (gpointer)&mr, NULL)) {
-        printf("  * %s (size 0x%" PRIx64 ")\n",
+        printf("  * %s (size %lx)\n",
                object_get_canonical_path_component(&(mr->parent_obj)),
-               memory_region_size(mr));
+               (uint64_t)mr->size);
     }
 
     if (!g_hash_table_size(fuzzable_memoryregions)) {
         printf("No fuzzable memory regions found...\n");
         exit(1);
     }
+
+    counter_shm_init();
 }
 
 /*
@@ -846,9 +833,9 @@ static void generic_pre_fuzz(QTestState *s)
  *          functionality B
  *
  * This function attempts to produce an input that:
- * Output: maps a device's BARs, set up three DMA patterns, triggers
- *          device functionality A, replaces the DMA patterns with a single
- *          pattern, and triggers device functionality B.
+ * Ouptut: maps a device's BARs, set up three DMA patterns, triggers
+ *          functionality A device, replaces the DMA patterns with a single
+ *          patten, and triggers device functionality B.
  */
 static size_t generic_fuzz_crossover(const uint8_t *data1, size_t size1, const
                                      uint8_t *data2, size_t size2, uint8_t *out,
@@ -925,21 +912,12 @@ static GString *generic_fuzz_cmdline(FuzzTarget *t)
 
 static GString *generic_fuzz_predefined_config_cmdline(FuzzTarget *t)
 {
-    gchar *args;
     const generic_fuzz_config *config;
     g_assert(t->opaque);
 
     config = t->opaque;
-    g_setenv("QEMU_AVOID_DOUBLE_FETCH", "1", 1);
-    if (config->argfunc) {
-        args = config->argfunc();
-        g_setenv("QEMU_FUZZ_ARGS", args, 1);
-        g_free(args);
-    } else {
-        g_assert_nonnull(config->args);
-        g_setenv("QEMU_FUZZ_ARGS", config->args, 1);
-    }
-    g_setenv("QEMU_FUZZ_OBJECTS", config->objects, 1);
+    setenv("QEMU_FUZZ_ARGS", config->args, 1);
+    setenv("QEMU_FUZZ_OBJECTS", config->objects, 1);
     return generic_fuzz_cmdline(t);
 }
 
@@ -954,10 +932,17 @@ static void register_generic_fuzz_targets(void)
             .crossover = generic_fuzz_crossover
     });
 
-    for (int i = 0; i < ARRAY_SIZE(predefined_configs); i++) {
-        const generic_fuzz_config *config = predefined_configs + i;
+    GString *name;
+    const generic_fuzz_config *config;
+
+    for (int i = 0;
+         i < sizeof(predefined_configs) / sizeof(generic_fuzz_config);
+         i++) {
+        config = predefined_configs + i;
+        name = g_string_new("generic-fuzz");
+        g_string_append_printf(name, "-%s", config->name);
         fuzz_add_target(&(FuzzTarget){
-                .name = g_strconcat("generic-fuzz-", config->name, NULL),
+                .name = name->str,
                 .description = "Predefined generic-fuzz config.",
                 .get_init_cmdline = generic_fuzz_predefined_config_cmdline,
                 .pre_fuzz = generic_pre_fuzz,

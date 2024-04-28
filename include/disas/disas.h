@@ -1,23 +1,34 @@
 #ifndef QEMU_DISAS_H
 #define QEMU_DISAS_H
 
-/* Disassemble this for me please... (debugging). */
-void disas(FILE *out, const void *code, size_t size);
-void target_disas(FILE *out, CPUState *cpu, uint64_t code, size_t size);
+#include "exec/hwaddr.h"
 
-void monitor_disas(Monitor *mon, CPUState *cpu, uint64_t pc,
-                   int nb_insn, bool is_physical);
+#ifdef NEED_CPU_H
+#include "cpu.h"
+
+/* Disassemble this for me please... (debugging). */
+void disas(FILE *out, void *code, unsigned long size);
+void target_disas(FILE *out, CPUState *cpu, target_ulong code,
+                  target_ulong size);
+
+void monitor_disas(Monitor *mon, CPUState *cpu,
+                   target_ulong pc, int nb_insn, int is_physical);
 
 char *plugin_disas(CPUState *cpu, uint64_t addr, size_t size);
 
 /* Look up symbol for debugging purpose.  Returns "" if unknown. */
-const char *lookup_symbol(uint64_t orig_addr);
+const char *lookup_symbol(target_ulong orig_addr);
+#endif
 
 struct syminfo;
 struct elf32_sym;
 struct elf64_sym;
 
-typedef const char *(*lookup_symbol_t)(struct syminfo *s, uint64_t orig_addr);
+#if defined(CONFIG_USER_ONLY)
+typedef const char *(*lookup_symbol_t)(struct syminfo *s, target_ulong orig_addr);
+#else
+typedef const char *(*lookup_symbol_t)(struct syminfo *s, hwaddr orig_addr);
+#endif
 
 struct syminfo {
     lookup_symbol_t lookup_symbol;

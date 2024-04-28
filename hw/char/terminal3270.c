@@ -16,7 +16,6 @@
 #include "qemu/module.h"
 #include "chardev/char-fe.h"
 #include "hw/qdev-properties.h"
-#include "hw/qdev-properties-system.h"
 #include "hw/s390x/3270-ccw.h"
 #include "qom/object.h"
 
@@ -200,13 +199,9 @@ static int read_payload_3270(EmulatedCcw3270Device *dev)
 {
     Terminal3270 *t = TERMINAL_3270(dev);
     int len;
-    int ret;
 
     len = MIN(ccw_dstream_avail(get_cds(t)), t->in_len);
-    ret = ccw_dstream_write_buf(get_cds(t), t->inv, len);
-    if (ret < 0) {
-        return ret;
-    }
+    ccw_dstream_write_buf(get_cds(t), t->inv, len);
     t->in_len -= len;
 
     return len;
@@ -264,10 +259,7 @@ static int write_payload_3270(EmulatedCcw3270Device *dev, uint8_t cmd)
 
     t->outv[out_len++] = cmd;
     do {
-        retval = ccw_dstream_read_buf(get_cds(t), &t->outv[out_len], len);
-        if (retval < 0) {
-            return retval;
-        }
+        ccw_dstream_read_buf(get_cds(t), &t->outv[out_len], len);
         count = ccw_dstream_avail(get_cds(t));
         out_len += len;
 

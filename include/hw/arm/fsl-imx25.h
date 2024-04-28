@@ -17,6 +17,7 @@
 #ifndef FSL_IMX25_H
 #define FSL_IMX25_H
 
+#include "hw/arm/boot.h"
 #include "hw/intc/imx_avic.h"
 #include "hw/misc/imx25_ccm.h"
 #include "hw/char/imx_serial.h"
@@ -33,7 +34,7 @@
 #include "target/arm/cpu.h"
 #include "qom/object.h"
 
-#define TYPE_FSL_IMX25 "fsl-imx25"
+#define TYPE_FSL_IMX25 "fsl,imx25"
 OBJECT_DECLARE_SIMPLE_TYPE(FslIMX25State, FSL_IMX25)
 
 #define FSL_IMX25_NUM_UARTS 5

@@ -29,7 +29,7 @@ get-parent CONSTANT ppack
 
 0 pci-alias-disk
 
-\ Required interface for deblocker
+\ Requiered interface for deblocker
 
 200   CONSTANT block-size
 40000 CONSTANT max-transfer 

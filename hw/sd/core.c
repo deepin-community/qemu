@@ -160,19 +160,6 @@ void sdbus_read_data(SDBus *sdbus, void *buf, size_t length)
     }
 }
 
-bool sdbus_receive_ready(SDBus *sdbus)
-{
-    SDState *card = get_card(sdbus);
-
-    if (card) {
-        SDCardClass *sc = SD_CARD_GET_CLASS(card);
-
-        return sc->receive_ready(card);
-    }
-
-    return false;
-}
-
 bool sdbus_data_ready(SDBus *sdbus)
 {
     SDState *card = get_card(sdbus);
@@ -259,13 +246,16 @@ void sdbus_reparent_card(SDBus *from, SDBus *to)
     sdbus_set_readonly(to, readonly);
 }
 
-static const TypeInfo sd_bus_types[] = {
-    {
-        .name           = TYPE_SD_BUS,
-        .parent         = TYPE_BUS,
-        .instance_size  = sizeof(SDBus),
-        .class_size     = sizeof(SDBusClass),
-    },
+static const TypeInfo sd_bus_info = {
+    .name = TYPE_SD_BUS,
+    .parent = TYPE_BUS,
+    .instance_size = sizeof(SDBus),
+    .class_size = sizeof(SDBusClass),
 };
 
-DEFINE_TYPES(sd_bus_types)
+static void sd_bus_register_types(void)
+{
+    type_register_static(&sd_bus_info);
+}
+
+type_init(sd_bus_register_types)

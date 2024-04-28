@@ -140,8 +140,7 @@ static inline int test_bit(long nr, const unsigned long *addr)
  * @addr: The address to start the search at
  * @size: The maximum size to search
  *
- * Returns the bit number of the last set bit,
- * or @size if there is no set bit in the bitmap.
+ * Returns the bit number of the first set bit, or size.
  */
 unsigned long find_last_bit(const unsigned long *addr,
                             unsigned long size);
@@ -151,9 +150,6 @@ unsigned long find_last_bit(const unsigned long *addr,
  * @addr: The address to base the search on
  * @offset: The bitnumber to start searching at
  * @size: The bitmap size in bits
- *
- * Returns the bit number of the next set bit,
- * or @size if there are no further set bits in the bitmap.
  */
 unsigned long find_next_bit(const unsigned long *addr,
                             unsigned long size,
@@ -164,9 +160,6 @@ unsigned long find_next_bit(const unsigned long *addr,
  * @addr: The address to base the search on
  * @offset: The bitnumber to start searching at
  * @size: The bitmap size in bits
- *
- * Returns the bit number of the next cleared bit,
- * or @size if there are no further clear bits in the bitmap.
  */
 
 unsigned long find_next_zero_bit(const unsigned long *addr,
@@ -178,8 +171,7 @@ unsigned long find_next_zero_bit(const unsigned long *addr,
  * @addr: The address to start the search at
  * @size: The maximum size to search
  *
- * Returns the bit number of the first set bit,
- * or @size if there is no set bit in the bitmap.
+ * Returns the bit number of the first set bit.
  */
 static inline unsigned long find_first_bit(const unsigned long *addr,
                                            unsigned long size)
@@ -202,8 +194,7 @@ static inline unsigned long find_first_bit(const unsigned long *addr,
  * @addr: The address to start the search at
  * @size: The maximum size to search
  *
- * Returns the bit number of the first cleared bit,
- * or @size if there is no clear bit in the bitmap.
+ * Returns the bit number of the first cleared bit.
  */
 static inline unsigned long find_first_zero_bit(const unsigned long *addr,
                                                 unsigned long size)
@@ -218,7 +209,7 @@ static inline unsigned long find_first_zero_bit(const unsigned long *addr,
  */
 static inline uint8_t rol8(uint8_t word, unsigned int shift)
 {
-    return (word << (shift & 7)) | (word >> (-shift & 7));
+    return (word << shift) | (word >> ((8 - shift) & 7));
 }
 
 /**
@@ -228,7 +219,7 @@ static inline uint8_t rol8(uint8_t word, unsigned int shift)
  */
 static inline uint8_t ror8(uint8_t word, unsigned int shift)
 {
-    return (word >> (shift & 7)) | (word << (-shift & 7));
+    return (word >> shift) | (word << ((8 - shift) & 7));
 }
 
 /**
@@ -238,7 +229,7 @@ static inline uint8_t ror8(uint8_t word, unsigned int shift)
  */
 static inline uint16_t rol16(uint16_t word, unsigned int shift)
 {
-    return (word << (shift & 15)) | (word >> (-shift & 15));
+    return (word << shift) | (word >> ((16 - shift) & 15));
 }
 
 /**
@@ -248,7 +239,7 @@ static inline uint16_t rol16(uint16_t word, unsigned int shift)
  */
 static inline uint16_t ror16(uint16_t word, unsigned int shift)
 {
-    return (word >> (shift & 15)) | (word << (-shift & 15));
+    return (word >> shift) | (word << ((16 - shift) & 15));
 }
 
 /**
@@ -258,7 +249,7 @@ static inline uint16_t ror16(uint16_t word, unsigned int shift)
  */
 static inline uint32_t rol32(uint32_t word, unsigned int shift)
 {
-    return (word << (shift & 31)) | (word >> (-shift & 31));
+    return (word << shift) | (word >> ((32 - shift) & 31));
 }
 
 /**
@@ -268,7 +259,7 @@ static inline uint32_t rol32(uint32_t word, unsigned int shift)
  */
 static inline uint32_t ror32(uint32_t word, unsigned int shift)
 {
-    return (word >> (shift & 31)) | (word << (-shift & 31));
+    return (word >> shift) | (word << ((32 - shift) & 31));
 }
 
 /**
@@ -278,7 +269,7 @@ static inline uint32_t ror32(uint32_t word, unsigned int shift)
  */
 static inline uint64_t rol64(uint64_t word, unsigned int shift)
 {
-    return (word << (shift & 63)) | (word >> (-shift & 63));
+    return (word << shift) | (word >> ((64 - shift) & 63));
 }
 
 /**
@@ -288,36 +279,7 @@ static inline uint64_t rol64(uint64_t word, unsigned int shift)
  */
 static inline uint64_t ror64(uint64_t word, unsigned int shift)
 {
-    return (word >> (shift & 63)) | (word << (-shift & 63));
-}
-
-/**
- * hswap32 - swap 16-bit halfwords within a 32-bit value
- * @h: value to swap
- */
-static inline uint32_t hswap32(uint32_t h)
-{
-    return rol32(h, 16);
-}
-
-/**
- * hswap64 - swap 16-bit halfwords within a 64-bit value
- * @h: value to swap
- */
-static inline uint64_t hswap64(uint64_t h)
-{
-    uint64_t m = 0x0000ffff0000ffffull;
-    h = rol64(h, 32);
-    return ((h & m) << 16) | ((h >> 16) & m);
-}
-
-/**
- * wswap64 - swap 32-bit words within a 64-bit value
- * @h: value to swap
- */
-static inline uint64_t wswap64(uint64_t h)
-{
-    return rol64(h, 32);
+    return (word >> shift) | (word << ((64 - shift) & 63));
 }
 
 /**

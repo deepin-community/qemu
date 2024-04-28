@@ -23,12 +23,12 @@
 #include "qemu/error-report.h"
 #include "qemu/log.h"
 #include "qemu/module.h"
-#include "qemu/units.h"
 #include "hw/irq.h"
 #include "hw/ppc/ppc.h"
 #include "hw/ppc/ppc4xx.h"
-#include "hw/pci/pci_device.h"
+#include "hw/pci/pci.h"
 #include "hw/pci/pci_host.h"
+#include "exec/address-spaces.h"
 #include "trace.h"
 #include "qom/object.h"
 
@@ -45,7 +45,8 @@ struct PLBInMap {
     MemoryRegion mr;
 };
 
-OBJECT_DECLARE_SIMPLE_TYPE(PPC440PCIXState, PPC440_PCIX_HOST)
+#define TYPE_PPC440_PCIX_HOST_BRIDGE "ppc440-pcix-host"
+OBJECT_DECLARE_SIMPLE_TYPE(PPC440PCIXState, PPC440_PCIX_HOST_BRIDGE)
 
 #define PPC440_PCIX_NR_POMS 3
 #define PPC440_PCIX_NR_PIMS 3
@@ -64,7 +65,6 @@ struct PPC440PCIXState {
     MemoryRegion container;
     MemoryRegion iomem;
     MemoryRegion busmem;
-    MemoryRegion regs;
 };
 
 #define PPC440_REG_BASE     0x80000
@@ -169,7 +169,7 @@ static void ppc440_pcix_reg_write4(void *opaque, hwaddr addr,
 {
     struct PPC440PCIXState *s = opaque;
 
-    trace_ppc440_pcix_reg_write(addr, val, size);
+    trace_ppc440_pcix_reg_read(addr, val);
     switch (addr) {
     case PCI_VENDOR_ID ... PCI_MAX_LAT:
         stl_le_p(s->dev->config + addr, val);
@@ -398,7 +398,7 @@ static const MemoryRegionOps pci_reg_ops = {
 
 static void ppc440_pcix_reset(DeviceState *dev)
 {
-    struct PPC440PCIXState *s = PPC440_PCIX_HOST(dev);
+    struct PPC440PCIXState *s = PPC440_PCIX_HOST_BRIDGE(dev);
     int i;
 
     for (i = 0; i < PPC440_PCIX_NR_POMS; i++) {
@@ -415,15 +415,8 @@ static void ppc440_pcix_reset(DeviceState *dev)
     s->sts = 0;
 }
 
-/*
- * All four IRQ[ABCD] pins from all slots are tied to a single board
- * IRQ, so our mapping function here maps everything to IRQ 0.
- * The code in pci_change_irq_level() tracks the number of times
- * the mapped IRQ is asserted and deasserted, so if multiple devices
- * assert an IRQ at the same time the behaviour is correct.
- *
- * This may need further refactoring for boards that use multiple IRQ lines.
- */
+/* All pins from each slot are tied to a single board IRQ.
+ * This may need further refactoring for other boards. */
 static int ppc440_pcix_map_irq(PCIDevice *pci_dev, int irq_num)
 {
     trace_ppc440_pcix_map_irq(pci_dev->devfn, irq_num, 0);
@@ -449,39 +442,28 @@ static AddressSpace *ppc440_pcix_set_iommu(PCIBus *b, void *opaque, int devfn)
     return &s->bm_as;
 }
 
-static const PCIIOMMUOps ppc440_iommu_ops = {
-    .get_address_space = ppc440_pcix_set_iommu,
-};
-
-/*
- * Some guests on sam460ex write all kinds of garbage here such as
- * missing enable bit and low bits set and still expect this to work
- * (apparently it does on real hardware because these boot there) so
- * we have to override these ops here and fix it up
- */
-static void pci_host_config_write(void *opaque, hwaddr addr,
-                                  uint64_t val, unsigned len)
+/* The default pci_host_data_{read,write} functions in pci/pci_host.c
+ * deny access to registers without bit 31 set but our clients want
+ * this to work so we have to override these here */
+static void pci_host_data_write(void *opaque, hwaddr addr,
+                                uint64_t val, unsigned len)
 {
     PCIHostState *s = opaque;
-
-    if (addr != 0 || len != 4) {
-        return;
-    }
-    s->config_reg = (val & 0xfffffffcULL) | (1UL << 31);
+    pci_data_write(s->bus, s->config_reg | (addr & 3), val, len);
 }
 
-static uint64_t pci_host_config_read(void *opaque, hwaddr addr,
-                                     unsigned len)
+static uint64_t pci_host_data_read(void *opaque,
+                                   hwaddr addr, unsigned len)
 {
     PCIHostState *s = opaque;
-    uint32_t val = s->config_reg;
-
+    uint32_t val;
+    val = pci_data_read(s->bus, s->config_reg | (addr & 3), len);
     return val;
 }
 
-const MemoryRegionOps ppc440_pcix_host_conf_ops = {
-    .read = pci_host_config_read,
-    .write = pci_host_config_write,
+const MemoryRegionOps ppc440_pcix_host_data_ops = {
+    .read = pci_host_data_read,
+    .write = pci_host_data_write,
     .endianness = DEVICE_LITTLE_ENDIAN,
 };
 
@@ -492,35 +474,32 @@ static void ppc440_pcix_realize(DeviceState *dev, Error **errp)
     PCIHostState *h;
 
     h = PCI_HOST_BRIDGE(dev);
-    s = PPC440_PCIX_HOST(dev);
+    s = PPC440_PCIX_HOST_BRIDGE(dev);
 
     sysbus_init_irq(sbd, &s->irq);
-    memory_region_init(&s->busmem, OBJECT(dev), "pci-mem", UINT64_MAX);
-    memory_region_init(&s->iomem, OBJECT(dev), "pci-io", 64 * KiB);
+    memory_region_init(&s->busmem, OBJECT(dev), "pci bus memory", UINT64_MAX);
     h->bus = pci_register_root_bus(dev, NULL, ppc440_pcix_set_irq,
-                         ppc440_pcix_map_irq, &s->irq, &s->busmem, &s->iomem,
-                         PCI_DEVFN(0, 0), 1, TYPE_PCI_BUS);
+                         ppc440_pcix_map_irq, &s->irq, &s->busmem,
+                         get_system_io(), PCI_DEVFN(0, 0), 1, TYPE_PCI_BUS);
 
-    s->dev = pci_create_simple(h->bus, PCI_DEVFN(0, 0),
-                               TYPE_PPC4xx_HOST_BRIDGE);
+    s->dev = pci_create_simple(h->bus, PCI_DEVFN(0, 0), "ppc4xx-host-bridge");
 
     memory_region_init(&s->bm, OBJECT(s), "bm-ppc440-pcix", UINT64_MAX);
     memory_region_add_subregion(&s->bm, 0x0, &s->busmem);
     address_space_init(&s->bm_as, &s->bm, "pci-bm");
-    pci_setup_iommu(h->bus, &ppc440_iommu_ops, s);
+    pci_setup_iommu(h->bus, ppc440_pcix_set_iommu, s);
 
     memory_region_init(&s->container, OBJECT(s), "pci-container", PCI_ALL_SIZE);
-    memory_region_init_io(&h->conf_mem, OBJECT(s), &ppc440_pcix_host_conf_ops,
+    memory_region_init_io(&h->conf_mem, OBJECT(s), &pci_host_conf_le_ops,
                           h, "pci-conf-idx", 4);
-    memory_region_init_io(&h->data_mem, OBJECT(s), &pci_host_data_le_ops,
+    memory_region_init_io(&h->data_mem, OBJECT(s), &ppc440_pcix_host_data_ops,
                           h, "pci-conf-data", 4);
-    memory_region_init_io(&s->regs, OBJECT(s), &pci_reg_ops, s, "pci-reg",
-                          PPC440_REG_SIZE);
+    memory_region_init_io(&s->iomem, OBJECT(s), &pci_reg_ops, s,
+                          "pci.reg", PPC440_REG_SIZE);
     memory_region_add_subregion(&s->container, PCIC0_CFGADDR, &h->conf_mem);
     memory_region_add_subregion(&s->container, PCIC0_CFGDATA, &h->data_mem);
-    memory_region_add_subregion(&s->container, PPC440_REG_BASE, &s->regs);
+    memory_region_add_subregion(&s->container, PPC440_REG_BASE, &s->iomem);
     sysbus_init_mmio(sbd, &s->container);
-    sysbus_init_mmio(sbd, &s->iomem);
 }
 
 static void ppc440_pcix_class_init(ObjectClass *klass, void *data)
@@ -532,7 +511,7 @@ static void ppc440_pcix_class_init(ObjectClass *klass, void *data)
 }
 
 static const TypeInfo ppc440_pcix_info = {
-    .name          = TYPE_PPC440_PCIX_HOST,
+    .name          = TYPE_PPC440_PCIX_HOST_BRIDGE,
     .parent        = TYPE_PCI_HOST_BRIDGE,
     .instance_size = sizeof(PPC440PCIXState),
     .class_init    = ppc440_pcix_class_init,

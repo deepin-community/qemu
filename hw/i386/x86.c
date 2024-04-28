@@ -25,19 +25,16 @@
 #include "qemu/option.h"
 #include "qemu/cutils.h"
 #include "qemu/units.h"
-#include "qemu/datadir.h"
+#include "qemu-common.h"
 #include "qapi/error.h"
+#include "qapi/qmp/qerror.h"
 #include "qapi/qapi-visit-common.h"
-#include "qapi/clone-visitor.h"
-#include "qapi/qapi-visit-machine.h"
 #include "qapi/visitor.h"
 #include "sysemu/qtest.h"
-#include "sysemu/whpx.h"
 #include "sysemu/numa.h"
 #include "sysemu/replay.h"
 #include "sysemu/sysemu.h"
 #include "sysemu/cpu-timers.h"
-#include "sysemu/xen.h"
 #include "trace.h"
 
 #include "hw/i386/x86.h"
@@ -46,7 +43,6 @@
 #include "hw/i386/fw_cfg.h"
 #include "hw/intc/i8259.h"
 #include "hw/rtc/mc146818rtc.h"
-#include "target/i386/sev.h"
 
 #include "hw/acpi/cpu_hotplug.h"
 #include "hw/irq.h"
@@ -56,22 +52,19 @@
 #include "elf.h"
 #include "standard-headers/asm-x86/bootparam.h"
 #include CONFIG_DEVICES
-#include "kvm/kvm_i386.h"
+#include "kvm_i386.h"
 
-#ifdef CONFIG_XEN_EMU
-#include "hw/xen/xen.h"
-#include "hw/i386/kvm/xen_evtchn.h"
-#endif
+#define BIOS_FILENAME "bios.bin"
 
 /* Physical Address of PVH entry point read from kernel ELF NOTE */
 static size_t pvh_start_addr;
 
-static void init_topo_info(X86CPUTopoInfo *topo_info,
+inline void init_topo_info(X86CPUTopoInfo *topo_info,
                            const X86MachineState *x86ms)
 {
     MachineState *ms = MACHINE(x86ms);
 
-    topo_info->dies_per_pkg = ms->smp.dies;
+    topo_info->dies_per_pkg = x86ms->smp_dies;
     topo_info->cores_per_die = ms->smp.cores;
     topo_info->threads_per_core = ms->smp.threads;
 }
@@ -87,11 +80,24 @@ static void init_topo_info(X86CPUTopoInfo *topo_info,
 uint32_t x86_cpu_apic_id_from_index(X86MachineState *x86ms,
                                     unsigned int cpu_index)
 {
+    X86MachineClass *x86mc = X86_MACHINE_GET_CLASS(x86ms);
     X86CPUTopoInfo topo_info;
+    uint32_t correct_id;
+    static bool warned;
 
     init_topo_info(&topo_info, x86ms);
 
-    return x86_apicid_from_cpu_idx(&topo_info, cpu_index);
+    correct_id = x86_apicid_from_cpu_idx(&topo_info, cpu_index);
+    if (x86mc->compat_apic_id_mode) {
+        if (cpu_index != correct_id && !warned && !qtest_enabled()) {
+            error_report("APIC IDs set in compatibility mode, "
+                         "CPU topology won't match the configuration");
+            warned = true;
+        }
+        return cpu_index;
+    } else {
+        return correct_id;
+    }
 }
 
 
@@ -127,45 +133,23 @@ void x86_cpus_init(X86MachineState *x86ms, int default_cpu_version)
      */
     x86ms->apic_id_limit = x86_cpu_apic_id_from_index(x86ms,
                                                       ms->smp.max_cpus - 1) + 1;
-
-    /*
-     * Can we support APIC ID 255 or higher?  With KVM, that requires
-     * both in-kernel lapic and X2APIC userspace API.
-     *
-     * kvm_enabled() must go first to ensure that kvm_* references are
-     * not emitted for the linker to consume (kvm_enabled() is
-     * a literal `0` in configurations where kvm_* aren't defined)
-     */
-    if (kvm_enabled() && x86ms->apic_id_limit > 255 &&
-        (!kvm_irqchip_in_kernel() || !kvm_enable_x2apic())) {
-        error_report("current -smp configuration requires kernel "
-                     "irqchip and X2APIC API support.");
-        exit(EXIT_FAILURE);
-    }
-
-    if (kvm_enabled()) {
-        kvm_set_max_apic_id(x86ms->apic_id_limit);
-    }
-
     possible_cpus = mc->possible_cpu_arch_ids(ms);
     for (i = 0; i < ms->smp.cpus; i++) {
         x86_cpu_new(x86ms, possible_cpus->cpus[i].arch_id, &error_fatal);
     }
 }
 
-void x86_rtc_set_cpus_count(ISADevice *s, uint16_t cpus_count)
+void x86_rtc_set_cpus_count(ISADevice *rtc, uint16_t cpus_count)
 {
-    MC146818RtcState *rtc = MC146818_RTC(s);
-
     if (cpus_count > 0xff) {
         /*
          * If the number of CPUs can't be represented in 8 bits, the
          * BIOS must use "FW_CFG_NB_CPUS". Set RTC field to 0 just
          * to make old BIOSes fail more predictably.
          */
-        mc146818rtc_set_cmos_data(rtc, 0x5f, 0);
+        rtc_set_memory(rtc, 0x5f, 0);
     } else {
-        mc146818rtc_set_cmos_data(rtc, 0x5f, cpus_count - 1);
+        rtc_set_memory(rtc, 0x5f, cpus_count - 1);
     }
 }
 
@@ -309,7 +293,7 @@ void x86_cpu_pre_plug(HotplugHandler *hotplug_dev,
 
     init_topo_info(&topo_info, x86ms);
 
-    env->nr_dies = ms->smp.dies;
+    env->nr_dies = x86ms->smp_dies;
 
     /*
      * If APIC ID is not set,
@@ -317,13 +301,13 @@ void x86_cpu_pre_plug(HotplugHandler *hotplug_dev,
      */
     if (cpu->apic_id == UNASSIGNED_APIC_ID) {
         int max_socket = (ms->smp.max_cpus - 1) /
-                                smp_threads / smp_cores / ms->smp.dies;
+                                smp_threads / smp_cores / x86ms->smp_dies;
 
         /*
          * die-id was optional in QEMU 4.0 and older, so keep it optional
          * if there's only one die per socket.
          */
-        if (cpu->die_id < 0 && ms->smp.dies == 1) {
+        if (cpu->die_id < 0 && x86ms->smp_dies == 1) {
             cpu->die_id = 0;
         }
 
@@ -338,9 +322,9 @@ void x86_cpu_pre_plug(HotplugHandler *hotplug_dev,
         if (cpu->die_id < 0) {
             error_setg(errp, "CPU die-id is not set");
             return;
-        } else if (cpu->die_id > ms->smp.dies - 1) {
+        } else if (cpu->die_id > x86ms->smp_dies - 1) {
             error_setg(errp, "Invalid CPU die-id: %u must be in range 0:%u",
-                       cpu->die_id, ms->smp.dies - 1);
+                       cpu->die_id, x86ms->smp_dies - 1);
             return;
         }
         if (cpu->core_id < 0) {
@@ -369,6 +353,8 @@ void x86_cpu_pre_plug(HotplugHandler *hotplug_dev,
 
     cpu_slot = x86_find_cpu_slot(MACHINE(x86ms), cpu->apic_id, &idx);
     if (!cpu_slot) {
+        MachineState *ms = MACHINE(x86ms);
+
         x86_topo_ids_from_apicid(cpu->apic_id, &topo_info, &topo_ids);
         error_setg(errp,
             "Invalid CPU [socket: %u, die: %u, core: %u, thread: %u] with"
@@ -422,12 +408,7 @@ void x86_cpu_pre_plug(HotplugHandler *hotplug_dev,
     }
     cpu->thread_id = topo_ids.smt_id;
 
-    /*
-    * kvm_enabled() must go first to ensure that kvm_* references are
-    * not emitted for the linker to consume (kvm_enabled() is
-    * a literal `0` in configurations where kvm_* aren't defined)
-    */
-    if (kvm_enabled() && hyperv_feat_enabled(cpu, HYPERV_FEAT_VPINDEX) &&
+    if (hyperv_feat_enabled(cpu, HYPERV_FEAT_VPINDEX) &&
         !kvm_hv_vpindex_settable()) {
         error_setg(errp, "kernel doesn't allow setting HyperV VP_INDEX");
         return;
@@ -496,7 +477,7 @@ const CPUArchIdList *x86_possible_cpu_arch_ids(MachineState *ms)
                                  &topo_info, &topo_ids);
         ms->possible_cpus->cpus[i].props.has_socket_id = true;
         ms->possible_cpus->cpus[i].props.socket_id = topo_ids.pkg_id;
-        if (ms->smp.dies > 1) {
+        if (x86ms->smp_dies > 1) {
             ms->possible_cpus->cpus[i].props.has_die_id = true;
             ms->possible_cpus->cpus[i].props.die_id = topo_ids.die_id;
         }
@@ -551,8 +532,7 @@ static void pic_irq_request(void *opaque, int irq, int level)
     X86CPU *cpu = X86_CPU(cs);
 
     trace_x86_pic_interrupt(irq, level);
-    if (cpu->apic_state && !kvm_irqchip_in_kernel() &&
-        !whpx_apic_in_platform()) {
+    if (cpu->apic_state && !kvm_irqchip_in_kernel()) {
         CPU_FOREACH(cs) {
             cpu = X86_CPU(cs);
             if (apic_accept_pic_intr(cpu->apic_state)) {
@@ -578,7 +558,7 @@ int cpu_get_pic_interrupt(CPUX86State *env)
     X86CPU *cpu = env_archcpu(env);
     int intno;
 
-    if (!kvm_irqchip_in_kernel() && !whpx_apic_in_platform()) {
+    if (!kvm_irqchip_in_kernel()) {
         intno = apic_get_interrupt(cpu->apic_state);
         if (intno >= 0) {
             return intno;
@@ -608,32 +588,11 @@ void gsi_handler(void *opaque, int n, int level)
     GSIState *s = opaque;
 
     trace_x86_gsi_interrupt(n, level);
-    switch (n) {
-    case 0 ... ISA_NUM_IRQS - 1:
-        if (s->i8259_irq[n]) {
-            /* Under KVM, Kernel will forward to both PIC and IOAPIC */
-            qemu_set_irq(s->i8259_irq[n], level);
-        }
-        /* fall through */
-    case ISA_NUM_IRQS ... IOAPIC_NUM_PINS - 1:
-#ifdef CONFIG_XEN_EMU
-        /*
-         * Xen delivers the GSI to the Legacy PIC (not that Legacy PIC
-         * routing actually works properly under Xen). And then to
-         * *either* the PIRQ handling or the I/OAPIC depending on
-         * whether the former wants it.
-         */
-        if (xen_mode == XEN_EMULATE && xen_evtchn_set_gsi(n, level)) {
-            break;
-        }
-#endif
-        qemu_set_irq(s->ioapic_irq[n], level);
-        break;
-    case IO_APIC_SECONDARY_IRQBASE
-        ... IO_APIC_SECONDARY_IRQBASE + IOAPIC_NUM_PINS - 1:
-        qemu_set_irq(s->ioapic2_irq[n - IO_APIC_SECONDARY_IRQBASE], level);
-        break;
+    if (n < ISA_NUM_IRQS) {
+        /* Under KVM, Kernel will forward to both PIC and IOAPIC */
+        qemu_set_irq(s->i8259_irq[n], level);
     }
+    qemu_set_irq(s->ioapic_irq[n], level);
 }
 
 void ioapic_init_gsi(GSIState *gsi_state, const char *parent_name)
@@ -657,23 +616,6 @@ void ioapic_init_gsi(GSIState *gsi_state, const char *parent_name)
     for (i = 0; i < IOAPIC_NUM_PINS; i++) {
         gsi_state->ioapic_irq[i] = qdev_get_gpio_in(dev, i);
     }
-}
-
-DeviceState *ioapic_init_secondary(GSIState *gsi_state)
-{
-    DeviceState *dev;
-    SysBusDevice *d;
-    unsigned int i;
-
-    dev = qdev_new(TYPE_IOAPIC);
-    d = SYS_BUS_DEVICE(dev);
-    sysbus_realize_and_unref(d, &error_fatal);
-    sysbus_mmio_map(d, 0, IO_APIC_SECONDARY_ADDRESS);
-
-    for (i = 0; i < IOAPIC_NUM_PINS; i++) {
-        gsi_state->ioapic2_irq[i] = qdev_get_gpio_in(dev, i);
-    }
-    return dev;
 }
 
 struct setup_data {
@@ -720,8 +662,6 @@ static uint64_t read_pvh_start_addr(void *arg1, void *arg2, bool is64)
         elf_note_data_addr =
             ((void *)nhdr64) + nhdr_size64 +
             QEMU_ALIGN_UP(nhdr_namesz, phdr_align);
-
-        pvh_start_addr = *elf_note_data_addr;
     } else {
         struct elf32_note *nhdr32 = (struct elf32_note *)arg1;
         uint32_t nhdr_size32 = sizeof(struct elf32_note);
@@ -731,9 +671,9 @@ static uint64_t read_pvh_start_addr(void *arg1, void *arg2, bool is64)
         elf_note_data_addr =
             ((void *)nhdr32) + nhdr_size32 +
             QEMU_ALIGN_UP(nhdr_namesz, phdr_align);
-
-        pvh_start_addr = *(uint32_t *)elf_note_data_addr;
     }
+
+    pvh_start_addr = *elf_note_data_addr;
 
     return pvh_start_addr;
 }
@@ -791,9 +731,9 @@ static bool load_elfboot(const char *kernel_filename,
 void x86_load_linux(X86MachineState *x86ms,
                     FWCfgState *fw_cfg,
                     int acpi_data_size,
-                    bool pvh_enabled)
+                    bool pvh_enabled,
+                    bool linuxboot_dma_enabled)
 {
-    bool linuxboot_dma_enabled = X86_MACHINE_GET_CLASS(x86ms)->fwcfg_dma_enabled;
     uint16_t protocol;
     int setup_size, kernel_size, cmdline_size;
     int dtb_size, setup_data_offset;
@@ -808,7 +748,6 @@ void x86_load_linux(X86MachineState *x86ms,
     const char *initrd_filename = machine->initrd_filename;
     const char *dtb_filename = machine->dtb;
     const char *kernel_cmdline = machine->kernel_cmdline;
-    SevKernelLoaderContext sev_load_ctx = {};
 
     /* Align to 16 bytes as a paranoia measure */
     cmdline_size = (strlen(kernel_cmdline) + 16) & ~15;
@@ -841,7 +780,7 @@ void x86_load_linux(X86MachineState *x86ms,
          * PVH), so we try multiboot first since we check the multiboot magic
          * header before to load it.
          */
-        if (load_multiboot(x86ms, fw_cfg, f, kernel_filename, initrd_filename,
+        if (load_multiboot(fw_cfg, f, kernel_filename, initrd_filename,
                            kernel_cmdline, kernel_size, header)) {
             return;
         }
@@ -955,8 +894,6 @@ void x86_load_linux(X86MachineState *x86ms,
     fw_cfg_add_i32(fw_cfg, FW_CFG_CMDLINE_ADDR, cmdline_addr);
     fw_cfg_add_i32(fw_cfg, FW_CFG_CMDLINE_SIZE, strlen(kernel_cmdline) + 1);
     fw_cfg_add_string(fw_cfg, FW_CFG_CMDLINE_DATA, kernel_cmdline);
-    sev_load_ctx.cmdline_data = (char *)kernel_cmdline;
-    sev_load_ctx.cmdline_size = strlen(kernel_cmdline) + 1;
 
     if (protocol >= 0x202) {
         stl_p(header + 0x228, cmdline_addr);
@@ -1038,8 +975,6 @@ void x86_load_linux(X86MachineState *x86ms,
         fw_cfg_add_i32(fw_cfg, FW_CFG_INITRD_ADDR, initrd_addr);
         fw_cfg_add_i32(fw_cfg, FW_CFG_INITRD_SIZE, initrd_size);
         fw_cfg_add_bytes(fw_cfg, FW_CFG_INITRD_DATA, initrd_data, initrd_size);
-        sev_load_ctx.initrd_data = initrd_data;
-        sev_load_ctx.initrd_size = initrd_size;
 
         stl_p(header + 0x218, initrd_addr);
         stl_p(header + 0x21c, initrd_size);
@@ -1098,32 +1033,15 @@ void x86_load_linux(X86MachineState *x86ms,
         load_image_size(dtb_filename, setup_data->data, dtb_size);
     }
 
-    /*
-     * If we're starting an encrypted VM, it will be OVMF based, which uses the
-     * efi stub for booting and doesn't require any values to be placed in the
-     * kernel header.  We therefore don't update the header so the hash of the
-     * kernel on the other side of the fw_cfg interface matches the hash of the
-     * file the user passed in.
-     */
-    if (!sev_enabled()) {
-        memcpy(setup, header, MIN(sizeof(header), setup_size));
-    }
+    memcpy(setup, header, MIN(sizeof(header), setup_size));
 
     fw_cfg_add_i32(fw_cfg, FW_CFG_KERNEL_ADDR, prot_addr);
     fw_cfg_add_i32(fw_cfg, FW_CFG_KERNEL_SIZE, kernel_size);
     fw_cfg_add_bytes(fw_cfg, FW_CFG_KERNEL_DATA, kernel, kernel_size);
-    sev_load_ctx.kernel_data = (char *)kernel;
-    sev_load_ctx.kernel_size = kernel_size;
 
     fw_cfg_add_i32(fw_cfg, FW_CFG_SETUP_ADDR, real_addr);
     fw_cfg_add_i32(fw_cfg, FW_CFG_SETUP_SIZE, setup_size);
     fw_cfg_add_bytes(fw_cfg, FW_CFG_SETUP_DATA, setup, setup_size);
-    sev_load_ctx.setup_data = (char *)setup;
-    sev_load_ctx.setup_size = setup_size;
-
-    if (sev_enabled()) {
-        sev_add_kernel_loader_hashes(&sev_load_ctx, &error_fatal);
-    }
 
     option_rom[nb_option_roms].bootindex = 0;
     option_rom[nb_option_roms].name = "linuxboot.bin";
@@ -1133,17 +1051,17 @@ void x86_load_linux(X86MachineState *x86ms,
     nb_option_roms++;
 }
 
-void x86_bios_rom_init(MachineState *ms, const char *default_firmware,
-                       MemoryRegion *rom_memory, bool isapc_ram_fw)
+void x86_bios_rom_init(MemoryRegion *rom_memory, bool isapc_ram_fw)
 {
-    const char *bios_name;
     char *filename;
     MemoryRegion *bios, *isa_bios;
     int bios_size, isa_bios_size;
-    ssize_t ret;
+    int ret;
 
     /* BIOS load */
-    bios_name = ms->firmware ?: default_firmware;
+    if (bios_name == NULL) {
+        bios_name = BIOS_FILENAME;
+    }
     filename = qemu_find_file(QEMU_FILE_TYPE_BIOS, bios_name);
     if (filename) {
         bios_size = get_image_size(filename);
@@ -1156,25 +1074,14 @@ void x86_bios_rom_init(MachineState *ms, const char *default_firmware,
     }
     bios = g_malloc(sizeof(*bios));
     memory_region_init_ram(bios, NULL, "pc.bios", bios_size, &error_fatal);
-    if (sev_enabled()) {
-        /*
-         * The concept of a "reset" simply doesn't exist for
-         * confidential computing guests, we have to destroy and
-         * re-launch them instead.  So there is no need to register
-         * the firmware as rom to properly re-initialize on reset.
-         * Just go for a straight file load instead.
-         */
-        void *ptr = memory_region_get_ram_ptr(bios);
-        load_image_size(filename, ptr, bios_size);
-        x86_firmware_configure(ptr, bios_size);
-    } else {
-        if (!isapc_ram_fw) {
-            memory_region_set_readonly(bios, true);
-        }
-        ret = rom_add_file_fixed(bios_name, (uint32_t)(-bios_size), -1);
-        if (ret != 0) {
-            goto bios_error;
-        }
+    if (!isapc_ram_fw) {
+        memory_region_set_readonly(bios, true);
+    }
+    ret = rom_add_file_fixed(bios_name, (uint32_t)(-bios_size), -1);
+    if (ret != 0) {
+    bios_error:
+        fprintf(stderr, "qemu: could not load PC BIOS '%s'\n", bios_name);
+        exit(1);
     }
     g_free(filename);
 
@@ -1195,11 +1102,6 @@ void x86_bios_rom_init(MachineState *ms, const char *default_firmware,
     memory_region_add_subregion(rom_memory,
                                 (uint32_t)(-bios_size),
                                 bios);
-    return;
-
-bios_error:
-    fprintf(stderr, "qemu: could not load PC BIOS '%s'\n", bios_name);
-    exit(1);
 }
 
 bool x86_machine_is_smm_enabled(const X86MachineState *x86ms)
@@ -1269,136 +1171,14 @@ static void x86_machine_set_acpi(Object *obj, Visitor *v, const char *name,
     visit_type_OnOffAuto(v, name, &x86ms->acpi, errp);
 }
 
-static void x86_machine_get_pit(Object *obj, Visitor *v, const char *name,
-                                    void *opaque, Error **errp)
-{
-    X86MachineState *x86ms = X86_MACHINE(obj);
-    OnOffAuto pit = x86ms->pit;
-
-    visit_type_OnOffAuto(v, name, &pit, errp);
-}
-
-static void x86_machine_set_pit(Object *obj, Visitor *v, const char *name,
-                                    void *opaque, Error **errp)
-{
-    X86MachineState *x86ms = X86_MACHINE(obj);;
-
-    visit_type_OnOffAuto(v, name, &x86ms->pit, errp);
-}
-
-static void x86_machine_get_pic(Object *obj, Visitor *v, const char *name,
-                                void *opaque, Error **errp)
-{
-    X86MachineState *x86ms = X86_MACHINE(obj);
-    OnOffAuto pic = x86ms->pic;
-
-    visit_type_OnOffAuto(v, name, &pic, errp);
-}
-
-static void x86_machine_set_pic(Object *obj, Visitor *v, const char *name,
-                                void *opaque, Error **errp)
-{
-    X86MachineState *x86ms = X86_MACHINE(obj);
-
-    visit_type_OnOffAuto(v, name, &x86ms->pic, errp);
-}
-
-static char *x86_machine_get_oem_id(Object *obj, Error **errp)
-{
-    X86MachineState *x86ms = X86_MACHINE(obj);
-
-    return g_strdup(x86ms->oem_id);
-}
-
-static void x86_machine_set_oem_id(Object *obj, const char *value, Error **errp)
-{
-    X86MachineState *x86ms = X86_MACHINE(obj);
-    size_t len = strlen(value);
-
-    if (len > 6) {
-        error_setg(errp,
-                   "User specified "X86_MACHINE_OEM_ID" value is bigger than "
-                   "6 bytes in size");
-        return;
-    }
-
-    strncpy(x86ms->oem_id, value, 6);
-}
-
-static char *x86_machine_get_oem_table_id(Object *obj, Error **errp)
-{
-    X86MachineState *x86ms = X86_MACHINE(obj);
-
-    return g_strdup(x86ms->oem_table_id);
-}
-
-static void x86_machine_set_oem_table_id(Object *obj, const char *value,
-                                         Error **errp)
-{
-    X86MachineState *x86ms = X86_MACHINE(obj);
-    size_t len = strlen(value);
-
-    if (len > 8) {
-        error_setg(errp,
-                   "User specified "X86_MACHINE_OEM_TABLE_ID
-                   " value is bigger than "
-                   "8 bytes in size");
-        return;
-    }
-    strncpy(x86ms->oem_table_id, value, 8);
-}
-
-static void x86_machine_get_bus_lock_ratelimit(Object *obj, Visitor *v,
-                                const char *name, void *opaque, Error **errp)
-{
-    X86MachineState *x86ms = X86_MACHINE(obj);
-    uint64_t bus_lock_ratelimit = x86ms->bus_lock_ratelimit;
-
-    visit_type_uint64(v, name, &bus_lock_ratelimit, errp);
-}
-
-static void x86_machine_set_bus_lock_ratelimit(Object *obj, Visitor *v,
-                               const char *name, void *opaque, Error **errp)
-{
-    X86MachineState *x86ms = X86_MACHINE(obj);
-
-    visit_type_uint64(v, name, &x86ms->bus_lock_ratelimit, errp);
-}
-
-static void machine_get_sgx_epc(Object *obj, Visitor *v, const char *name,
-                                void *opaque, Error **errp)
-{
-    X86MachineState *x86ms = X86_MACHINE(obj);
-    SgxEPCList *list = x86ms->sgx_epc_list;
-
-    visit_type_SgxEPCList(v, name, &list, errp);
-}
-
-static void machine_set_sgx_epc(Object *obj, Visitor *v, const char *name,
-                                void *opaque, Error **errp)
-{
-    X86MachineState *x86ms = X86_MACHINE(obj);
-    SgxEPCList *list;
-
-    list = x86ms->sgx_epc_list;
-    visit_type_SgxEPCList(v, name, &x86ms->sgx_epc_list, errp);
-
-    qapi_free_SgxEPCList(list);
-}
-
 static void x86_machine_initfn(Object *obj)
 {
     X86MachineState *x86ms = X86_MACHINE(obj);
 
     x86ms->smm = ON_OFF_AUTO_AUTO;
     x86ms->acpi = ON_OFF_AUTO_AUTO;
-    x86ms->pit = ON_OFF_AUTO_AUTO;
-    x86ms->pic = ON_OFF_AUTO_AUTO;
+    x86ms->smp_dies = 1;
     x86ms->pci_irq_mask = ACPI_BUILD_PCI_IRQS;
-    x86ms->oem_id = g_strndup(ACPI_BUILD_APPNAME6, 6);
-    x86ms->oem_table_id = g_strndup(ACPI_BUILD_APPNAME8, 8);
-    x86ms->bus_lock_ratelimit = 0;
-    x86ms->above_4g_mem_start = 4 * GiB;
 }
 
 static void x86_machine_class_init(ObjectClass *oc, void *data)
@@ -1410,8 +1190,8 @@ static void x86_machine_class_init(ObjectClass *oc, void *data)
     mc->cpu_index_to_instance_props = x86_cpu_index_to_props;
     mc->get_default_cpu_node_id = x86_get_default_cpu_node_id;
     mc->possible_cpu_arch_ids = x86_possible_cpu_arch_ids;
+    x86mc->compat_apic_id_mode = false;
     x86mc->save_tsc_khz = true;
-    x86mc->fwcfg_dma_enabled = true;
     nc->nmi_monitor_handler = x86_nmi;
 
     object_class_property_add(oc, X86_MACHINE_SMM, "OnOffAuto",
@@ -1425,49 +1205,6 @@ static void x86_machine_class_init(ObjectClass *oc, void *data)
         NULL, NULL);
     object_class_property_set_description(oc, X86_MACHINE_ACPI,
         "Enable ACPI");
-
-    object_class_property_add(oc, X86_MACHINE_PIT, "OnOffAuto",
-                              x86_machine_get_pit,
-                              x86_machine_set_pit,
-                              NULL, NULL);
-    object_class_property_set_description(oc, X86_MACHINE_PIT,
-        "Enable i8254 PIT");
-
-    object_class_property_add(oc, X86_MACHINE_PIC, "OnOffAuto",
-                              x86_machine_get_pic,
-                              x86_machine_set_pic,
-                              NULL, NULL);
-    object_class_property_set_description(oc, X86_MACHINE_PIC,
-        "Enable i8259 PIC");
-
-    object_class_property_add_str(oc, X86_MACHINE_OEM_ID,
-                                  x86_machine_get_oem_id,
-                                  x86_machine_set_oem_id);
-    object_class_property_set_description(oc, X86_MACHINE_OEM_ID,
-                                          "Override the default value of field OEMID "
-                                          "in ACPI table header."
-                                          "The string may be up to 6 bytes in size");
-
-
-    object_class_property_add_str(oc, X86_MACHINE_OEM_TABLE_ID,
-                                  x86_machine_get_oem_table_id,
-                                  x86_machine_set_oem_table_id);
-    object_class_property_set_description(oc, X86_MACHINE_OEM_TABLE_ID,
-                                          "Override the default value of field OEM Table ID "
-                                          "in ACPI table header."
-                                          "The string may be up to 8 bytes in size");
-
-    object_class_property_add(oc, X86_MACHINE_BUS_LOCK_RATELIMIT, "uint64_t",
-                                x86_machine_get_bus_lock_ratelimit,
-                                x86_machine_set_bus_lock_ratelimit, NULL, NULL);
-    object_class_property_set_description(oc, X86_MACHINE_BUS_LOCK_RATELIMIT,
-            "Set the ratelimit for the bus locks acquired in VMs");
-
-    object_class_property_add(oc, "sgx-epc", "SgxEPC",
-        machine_get_sgx_epc, machine_set_sgx_epc,
-        NULL, NULL);
-    object_class_property_set_description(oc, "sgx-epc",
-        "SGX EPC device");
 }
 
 static const TypeInfo x86_machine_info = {

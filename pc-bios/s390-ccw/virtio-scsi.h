@@ -67,8 +67,8 @@ static inline bool virtio_scsi_response_ok(const VirtioScsiCmdResp *r)
         return r->response == VIRTIO_SCSI_S_OK && r->status == CDB_STATUS_GOOD;
 }
 
+int virtio_scsi_setup(VDev *vdev);
 int virtio_scsi_read_many(VDev *vdev,
-                          unsigned long sector, void *load_addr, int sec_num);
-int virtio_scsi_setup_device(SubChannelId schid);
+                          ulong sector, void *load_addr, int sec_num);
 
 #endif /* VIRTIO_SCSI_H */

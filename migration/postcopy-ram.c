@@ -17,7 +17,6 @@
  */
 
 #include "qemu/osdep.h"
-#include "qemu/madvise.h"
 #include "exec/target_page.h"
 #include "migration.h"
 #include "qemu-file.h"
@@ -31,13 +30,6 @@
 #include "qemu/error-report.h"
 #include "trace.h"
 #include "hw/boards.h"
-#include "exec/ramblock.h"
-#include "socket.h"
-#include "yank_functions.h"
-#include "tls.h"
-#include "qemu/userfaultfd.h"
-#include "qemu/mmap-alloc.h"
-#include "options.h"
 
 /* Arbitrary limit on size of each discard command,
  * keeps them around ~200 bytes
@@ -81,20 +73,6 @@ int postcopy_notify(enum PostcopyNotifyReason reason, Error **errp)
 
     return notifier_with_return_list_notify(&postcopy_notifier_list,
                                             &pnd);
-}
-
-/*
- * NOTE: this routine is not thread safe, we can't call it concurrently. But it
- * should be good enough for migration's purposes.
- */
-void postcopy_thread_create(MigrationIncomingState *mis,
-                            QemuThread *thread, const char *name,
-                            void *(*fn)(void *), int joinable)
-{
-    qemu_sem_init(&mis->thread_sync_sem, 0);
-    qemu_thread_create(thread, name, fn, mis, joinable);
-    qemu_sem_wait(&mis->thread_sync_sem);
-    qemu_sem_destroy(&mis->thread_sync_sem);
 }
 
 /* Postcopy needs to detect accesses to pages that haven't yet been copied
@@ -167,11 +145,14 @@ static struct PostcopyBlocktimeContext *blocktime_context_new(void)
 static uint32List *get_vcpu_blocktime_list(PostcopyBlocktimeContext *ctx)
 {
     MachineState *ms = MACHINE(qdev_get_machine());
-    uint32List *list = NULL;
+    uint32List *list = NULL, *entry = NULL;
     int i;
 
     for (i = ms->smp.cpus - 1; i >= 0; i--) {
-        QAPI_LIST_PREPEND(list, ctx->vcpu_blocktime[i]);
+        entry = g_new0(uint32List, 1);
+        entry->value = ctx->vcpu_blocktime[i];
+        entry->next = list;
+        list = entry;
     }
 
     return list;
@@ -227,9 +208,11 @@ static bool receive_ufd_features(uint64_t *features)
     int ufd;
     bool ret = true;
 
-    ufd = uffd_open(O_CLOEXEC);
+    /* if we are here __NR_userfaultfd should exists */
+    ufd = syscall(__NR_userfaultfd, O_CLOEXEC);
     if (ufd == -1) {
-        error_report("%s: uffd_open() failed: %s", __func__, strerror(errno));
+        error_report("%s: syscall __NR_userfaultfd failed: %s", __func__,
+                     strerror(errno));
         return false;
     }
 
@@ -283,13 +266,11 @@ static bool request_ufd_features(int ufd, uint64_t features)
     return true;
 }
 
-static bool ufd_check_and_apply(int ufd, MigrationIncomingState *mis,
-                                Error **errp)
+static bool ufd_check_and_apply(int ufd, MigrationIncomingState *mis)
 {
     uint64_t asked_features = 0;
     static uint64_t supported_features;
 
-    ERRP_GUARD();
     /*
      * it's not possible to
      * request UFFD_API twice per one fd
@@ -297,19 +278,21 @@ static bool ufd_check_and_apply(int ufd, MigrationIncomingState *mis,
      */
     if (!supported_features) {
         if (!receive_ufd_features(&supported_features)) {
-            error_setg(errp, "Userfault feature detection failed");
+            error_report("%s failed", __func__);
             return false;
         }
     }
 
 #ifdef UFFD_FEATURE_THREAD_ID
-    if (UFFD_FEATURE_THREAD_ID & supported_features) {
-        asked_features |= UFFD_FEATURE_THREAD_ID;
-        if (migrate_postcopy_blocktime()) {
-            if (!mis->blocktime_ctx) {
-                mis->blocktime_ctx = blocktime_context_new();
-            }
+    if (migrate_postcopy_blocktime() && mis &&
+        UFFD_FEATURE_THREAD_ID & supported_features) {
+        /* kernel supports that feature */
+        /* don't create blocktime_context if it exists */
+        if (!mis->blocktime_ctx) {
+            mis->blocktime_ctx = blocktime_context_new();
         }
+
+        asked_features |= UFFD_FEATURE_THREAD_ID;
     }
 #endif
 
@@ -319,19 +302,19 @@ static bool ufd_check_and_apply(int ufd, MigrationIncomingState *mis,
      * userfault file descriptor
      */
     if (!request_ufd_features(ufd, asked_features)) {
-        error_setg(errp, "Failed features %" PRIu64, asked_features);
+        error_report("%s failed: features %" PRIu64, __func__,
+                     asked_features);
         return false;
     }
 
-    if (qemu_real_host_page_size() != ram_pagesize_summary()) {
+    if (qemu_real_host_page_size != ram_pagesize_summary()) {
         bool have_hp = false;
         /* We've got a huge page */
 #ifdef UFFD_FEATURE_MISSING_HUGETLBFS
         have_hp = supported_features & UFFD_FEATURE_MISSING_HUGETLBFS;
 #endif
         if (!have_hp) {
-            error_setg(errp,
-                       "Userfault on this host does not support huge pages");
+            error_report("Userfault on this host does not support huge pages");
             return false;
         }
     }
@@ -340,30 +323,18 @@ static bool ufd_check_and_apply(int ufd, MigrationIncomingState *mis,
 
 /* Callback from postcopy_ram_supported_by_host block iterator.
  */
-static int test_ramblock_postcopiable(RAMBlock *rb, Error **errp)
+static int test_ramblock_postcopiable(RAMBlock *rb, void *opaque)
 {
     const char *block_name = qemu_ram_get_idstr(rb);
     ram_addr_t length = qemu_ram_get_used_length(rb);
     size_t pagesize = qemu_ram_pagesize(rb);
-    QemuFsType fs;
 
     if (length % pagesize) {
-        error_setg(errp,
-                   "Postcopy requires RAM blocks to be a page size multiple,"
-                   " block %s is 0x" RAM_ADDR_FMT " bytes with a "
-                   "page size of 0x%zx", block_name, length, pagesize);
+        error_report("Postcopy requires RAM blocks to be a page size multiple,"
+                     " block %s is 0x" RAM_ADDR_FMT " bytes with a "
+                     "page size of 0x%zx", block_name, length, pagesize);
         return 1;
     }
-
-    if (rb->fd >= 0) {
-        fs = qemu_fd_getfs(rb->fd);
-        if (fs != QEMU_FS_TYPE_TMPFS && fs != QEMU_FS_TYPE_HUGETLBFS) {
-            error_setg(errp,
-                       "Host backend files need to be TMPFS or HUGETLBFS only");
-            return 1;
-        }
-    }
-
     return 0;
 }
 
@@ -372,56 +343,43 @@ static int test_ramblock_postcopiable(RAMBlock *rb, Error **errp)
  * normally fine since if the postcopy succeeds it gets turned back on at the
  * end.
  */
-bool postcopy_ram_supported_by_host(MigrationIncomingState *mis, Error **errp)
+bool postcopy_ram_supported_by_host(MigrationIncomingState *mis)
 {
-    long pagesize = qemu_real_host_page_size();
+    long pagesize = qemu_real_host_page_size;
     int ufd = -1;
     bool ret = false; /* Error unless we change it */
     void *testarea = NULL;
     struct uffdio_register reg_struct;
     struct uffdio_range range_struct;
     uint64_t feature_mask;
-    RAMBlock *block;
+    Error *local_err = NULL;
 
-    ERRP_GUARD();
     if (qemu_target_page_size() > pagesize) {
-        error_setg(errp, "Target page size bigger than host page size");
+        error_report("Target page size bigger than host page size");
         goto out;
     }
 
-    ufd = uffd_open(O_CLOEXEC);
+    ufd = syscall(__NR_userfaultfd, O_CLOEXEC);
     if (ufd == -1) {
-        error_setg(errp, "Userfaultfd not available: %s", strerror(errno));
+        error_report("%s: userfaultfd not available: %s", __func__,
+                     strerror(errno));
         goto out;
     }
 
     /* Give devices a chance to object */
-    if (postcopy_notify(POSTCOPY_NOTIFY_PROBE, errp)) {
+    if (postcopy_notify(POSTCOPY_NOTIFY_PROBE, &local_err)) {
+        error_report_err(local_err);
         goto out;
     }
 
     /* Version and features check */
-    if (!ufd_check_and_apply(ufd, mis, errp)) {
+    if (!ufd_check_and_apply(ufd, mis)) {
         goto out;
     }
 
-    /*
-     * We don't support postcopy with some type of ramblocks.
-     *
-     * NOTE: we explicitly ignored migrate_ram_is_ignored() instead we checked
-     * all possible ramblocks.  This is because this function can be called
-     * when creating the migration object, during the phase RAM_MIGRATABLE
-     * is not even properly set for all the ramblocks.
-     *
-     * A side effect of this is we'll also check against RAM_SHARED
-     * ramblocks even if migrate_ignore_shared() is set (in which case
-     * we'll never migrate RAM_SHARED at all), but normally this shouldn't
-     * affect in reality, or we can revisit.
-     */
-    RAMBLOCK_FOREACH(block) {
-        if (test_ramblock_postcopiable(block, errp)) {
-            goto out;
-        }
+    /* We don't support postcopy with shared RAM yet */
+    if (foreach_not_ignored_block(test_ramblock_postcopiable, NULL)) {
+        goto out;
     }
 
     /*
@@ -429,7 +387,7 @@ bool postcopy_ram_supported_by_host(MigrationIncomingState *mis, Error **errp)
      * it was enabled.
      */
     if (munlockall()) {
-        error_setg(errp, "munlockall() failed: %s", strerror(errno));
+        error_report("%s: munlockall: %s", __func__,  strerror(errno));
         goto out;
     }
 
@@ -441,24 +399,25 @@ bool postcopy_ram_supported_by_host(MigrationIncomingState *mis, Error **errp)
     testarea = mmap(NULL, pagesize, PROT_READ | PROT_WRITE, MAP_PRIVATE |
                                     MAP_ANONYMOUS, -1, 0);
     if (testarea == MAP_FAILED) {
-        error_setg(errp, "Failed to map test area: %s", strerror(errno));
+        error_report("%s: Failed to map test area: %s", __func__,
+                     strerror(errno));
         goto out;
     }
-    g_assert(QEMU_PTR_IS_ALIGNED(testarea, pagesize));
+    g_assert(((size_t)testarea & (pagesize - 1)) == 0);
 
     reg_struct.range.start = (uintptr_t)testarea;
     reg_struct.range.len = pagesize;
     reg_struct.mode = UFFDIO_REGISTER_MODE_MISSING;
 
     if (ioctl(ufd, UFFDIO_REGISTER, &reg_struct)) {
-        error_setg(errp, "UFFDIO_REGISTER failed: %s", strerror(errno));
+        error_report("%s userfault register: %s", __func__, strerror(errno));
         goto out;
     }
 
     range_struct.start = (uintptr_t)testarea;
     range_struct.len = pagesize;
     if (ioctl(ufd, UFFDIO_UNREGISTER, &range_struct)) {
-        error_setg(errp, "UFFDIO_UNREGISTER failed: %s", strerror(errno));
+        error_report("%s userfault unregister: %s", __func__, strerror(errno));
         goto out;
     }
 
@@ -466,8 +425,8 @@ bool postcopy_ram_supported_by_host(MigrationIncomingState *mis, Error **errp)
                    (__u64)1 << _UFFDIO_COPY |
                    (__u64)1 << _UFFDIO_ZEROPAGE;
     if ((reg_struct.ioctls & feature_mask) != feature_mask) {
-        error_setg(errp, "Missing userfault map features: %" PRIx64,
-                   (uint64_t)(~reg_struct.ioctls & feature_mask));
+        error_report("Missing userfault map features: %" PRIx64,
+                     (uint64_t)(~reg_struct.ioctls & feature_mask));
         goto out;
     }
 
@@ -497,13 +456,6 @@ static int init_range(RAMBlock *rb, void *opaque)
     trace_postcopy_init_range(block_name, host_addr, offset, length);
 
     /*
-     * Save the used_length before running the guest. In case we have to
-     * resize RAM blocks when syncing RAM block sizes from the source during
-     * precopy, we'll update it manually via the ram block notifier.
-     */
-    rb->postcopy_length = length;
-
-    /*
      * We need the whole of RAM to be truly empty for postcopy, so things
      * like ROMs and any data tables built during init must be zero'd
      * - we're going to get the copy from the source anyway.
@@ -525,7 +477,7 @@ static int cleanup_range(RAMBlock *rb, void *opaque)
     const char *block_name = qemu_ram_get_idstr(rb);
     void *host_addr = qemu_ram_get_host_addr(rb);
     ram_addr_t offset = qemu_ram_get_offset(rb);
-    ram_addr_t length = rb->postcopy_length;
+    ram_addr_t length = qemu_ram_get_used_length(rb);
     MigrationIncomingState *mis = opaque;
     struct uffdio_range range_struct;
     trace_postcopy_cleanup_range(block_name, host_addr, offset, length);
@@ -567,68 +519,12 @@ int postcopy_ram_incoming_init(MigrationIncomingState *mis)
     return 0;
 }
 
-static void postcopy_temp_pages_cleanup(MigrationIncomingState *mis)
-{
-    int i;
-
-    if (mis->postcopy_tmp_pages) {
-        for (i = 0; i < mis->postcopy_channels; i++) {
-            if (mis->postcopy_tmp_pages[i].tmp_huge_page) {
-                munmap(mis->postcopy_tmp_pages[i].tmp_huge_page,
-                       mis->largest_page_size);
-                mis->postcopy_tmp_pages[i].tmp_huge_page = NULL;
-            }
-        }
-        g_free(mis->postcopy_tmp_pages);
-        mis->postcopy_tmp_pages = NULL;
-    }
-
-    if (mis->postcopy_tmp_zero_page) {
-        munmap(mis->postcopy_tmp_zero_page, mis->largest_page_size);
-        mis->postcopy_tmp_zero_page = NULL;
-    }
-}
-
 /*
  * At the end of a migration where postcopy_ram_incoming_init was called.
  */
 int postcopy_ram_incoming_cleanup(MigrationIncomingState *mis)
 {
     trace_postcopy_ram_incoming_cleanup_entry();
-
-    if (mis->preempt_thread_status == PREEMPT_THREAD_CREATED) {
-        /* Notify the fast load thread to quit */
-        mis->preempt_thread_status = PREEMPT_THREAD_QUIT;
-        /*
-         * Update preempt_thread_status before reading count.  Note: mutex
-         * lock only provide ACQUIRE semantic, and it doesn't stops this
-         * write to be reordered after reading the count.
-         */
-        smp_mb();
-        /*
-         * It's possible that the preempt thread is still handling the last
-         * pages to arrive which were requested by guest page faults.
-         * Making sure nothing is left behind by waiting on the condvar if
-         * that unlikely case happened.
-         */
-        WITH_QEMU_LOCK_GUARD(&mis->page_request_mutex) {
-            if (qatomic_read(&mis->page_requested_count)) {
-                /*
-                 * It is guaranteed to receive a signal later, because the
-                 * count>0 now, so it's destined to be decreased to zero
-                 * very soon by the preempt thread.
-                 */
-                qemu_cond_wait(&mis->page_request_cond,
-                               &mis->page_request_mutex);
-            }
-        }
-        /* Notify the fast load thread to quit */
-        if (mis->postcopy_qemufile_dst) {
-            qemu_file_shutdown(mis->postcopy_qemufile_dst);
-        }
-        qemu_thread_join(&mis->postcopy_prio_thread);
-        mis->preempt_thread_status = PREEMPT_THREAD_NONE;
-    }
 
     if (mis->have_fault_thread) {
         Error *local_err = NULL;
@@ -664,8 +560,14 @@ int postcopy_ram_incoming_cleanup(MigrationIncomingState *mis)
         }
     }
 
-    postcopy_temp_pages_cleanup(mis);
-
+    if (mis->postcopy_tmp_page) {
+        munmap(mis->postcopy_tmp_page, mis->largest_page_size);
+        mis->postcopy_tmp_page = NULL;
+    }
+    if (mis->postcopy_tmp_zero_page) {
+        munmap(mis->postcopy_tmp_zero_page, mis->largest_page_size);
+        mis->postcopy_tmp_zero_page = NULL;
+    }
     trace_postcopy_ram_incoming_cleanup_blocktime(
             get_postcopy_total_blocktime());
 
@@ -681,7 +583,7 @@ static int nhp_range(RAMBlock *rb, void *opaque)
     const char *block_name = qemu_ram_get_idstr(rb);
     void *host_addr = qemu_ram_get_host_addr(rb);
     ram_addr_t offset = qemu_ram_get_offset(rb);
-    ram_addr_t length = rb->postcopy_length;
+    ram_addr_t length = qemu_ram_get_used_length(rb);
     trace_postcopy_nhp_range(block_name, host_addr, offset, length);
 
     /*
@@ -725,7 +627,7 @@ static int ram_block_enable_notify(RAMBlock *rb, void *opaque)
     struct uffdio_register reg_struct;
 
     reg_struct.range.start = (uintptr_t)qemu_ram_get_host_addr(rb);
-    reg_struct.range.len = rb->postcopy_length;
+    reg_struct.range.len = qemu_ram_get_used_length(rb);
     reg_struct.mode = UFFDIO_REGISTER_MODE_MISSING;
 
     /* Now tell our userfault_fd that it's responsible for this area */
@@ -752,7 +654,7 @@ int postcopy_wake_shared(struct PostCopyFD *pcfd,
     struct uffdio_range range;
     int ret;
     trace_postcopy_wake_shared(client_addr, qemu_ram_get_idstr(rb));
-    range.start = ROUND_DOWN(client_addr, pagesize);
+    range.start = client_addr & ~(pagesize - 1);
     range.len = pagesize;
     ret = ioctl(pcfd->fd, UFFDIO_WAKE, &range);
     if (ret) {
@@ -763,29 +665,6 @@ int postcopy_wake_shared(struct PostCopyFD *pcfd,
     return ret;
 }
 
-static int postcopy_request_page(MigrationIncomingState *mis, RAMBlock *rb,
-                                 ram_addr_t start, uint64_t haddr)
-{
-    void *aligned = (void *)(uintptr_t)ROUND_DOWN(haddr, qemu_ram_pagesize(rb));
-
-    /*
-     * Discarded pages (via RamDiscardManager) are never migrated. On unlikely
-     * access, place a zeropage, which will also set the relevant bits in the
-     * recv_bitmap accordingly, so we won't try placing a zeropage twice.
-     *
-     * Checking a single bit is sufficient to handle pagesize > TPS as either
-     * all relevant bits are set or not.
-     */
-    assert(QEMU_IS_ALIGNED(start, qemu_ram_pagesize(rb)));
-    if (ramblock_page_is_discarded(rb, start)) {
-        bool received = ramblock_recv_bitmap_test_byte_offset(rb, start);
-
-        return received ? 0 : postcopy_place_page_zero(mis, aligned, rb);
-    }
-
-    return migrate_send_rp_req_pages(mis, rb, start, haddr);
-}
-
 /*
  * Callback from shared fault handlers to ask for a page,
  * the page must be specified by a RAMBlock and an offset in that rb
@@ -794,7 +673,8 @@ static int postcopy_request_page(MigrationIncomingState *mis, RAMBlock *rb,
 int postcopy_request_shared_page(struct PostCopyFD *pcfd, RAMBlock *rb,
                                  uint64_t client_addr, uint64_t rb_offset)
 {
-    uint64_t aligned_rbo = ROUND_DOWN(rb_offset, qemu_ram_pagesize(rb));
+    size_t pagesize = qemu_ram_pagesize(rb);
+    uint64_t aligned_rbo = rb_offset & ~(pagesize - 1);
     MigrationIncomingState *mis = migration_incoming_get_current();
 
     trace_postcopy_request_shared_page(pcfd->idstr, qemu_ram_get_idstr(rb),
@@ -804,7 +684,7 @@ int postcopy_request_shared_page(struct PostCopyFD *pcfd, RAMBlock *rb,
                                         qemu_ram_get_idstr(rb), rb_offset);
         return postcopy_wake_shared(pcfd, client_addr, rb);
     }
-    postcopy_request_page(mis, rb, aligned_rbo, client_addr);
+    migrate_send_rp_req_pages(mis, rb, aligned_rbo, client_addr);
     return 0;
 }
 
@@ -954,11 +834,15 @@ static void mark_postcopy_blocktime_end(uintptr_t addr)
                                       affected_cpu);
 }
 
-static void postcopy_pause_fault_thread(MigrationIncomingState *mis)
+static bool postcopy_pause_fault_thread(MigrationIncomingState *mis)
 {
     trace_postcopy_pause_fault_thread();
+
     qemu_sem_wait(&mis->postcopy_pause_sem_fault);
+
     trace_postcopy_pause_fault_thread_continued();
+
+    return true;
 }
 
 /*
@@ -975,7 +859,7 @@ static void *postcopy_ram_fault_thread(void *opaque)
     trace_postcopy_ram_fault_thread_entry();
     rcu_register_thread();
     mis->last_rb = NULL; /* last RAMBlock we sent part of */
-    qemu_sem_post(&mis->thread_sync_sem);
+    qemu_sem_post(&mis->fault_thread_sem);
 
     struct pollfd *pfd;
     size_t pfd_len = 2 + mis->postcopy_remote_fds->len;
@@ -1018,7 +902,13 @@ static void *postcopy_ram_fault_thread(void *opaque)
              * broken already using the event. We should hold until
              * the channel is rebuilt.
              */
-            postcopy_pause_fault_thread(mis);
+            if (postcopy_pause_fault_thread(mis)) {
+                /* Continue to read the userfaultfd */
+            } else {
+                error_report("%s: paused but don't allow to continue",
+                             __func__);
+                break;
+            }
         }
 
         if (pfd[1].revents) {
@@ -1074,7 +964,7 @@ static void *postcopy_ram_fault_thread(void *opaque)
                 break;
             }
 
-            rb_offset = ROUND_DOWN(rb_offset, qemu_ram_pagesize(rb));
+            rb_offset &= ~(qemu_ram_pagesize(rb) - 1);
             trace_postcopy_ram_fault_thread_request(msg.arg.pagefault.address,
                                                 qemu_ram_get_idstr(rb),
                                                 rb_offset,
@@ -1088,12 +978,19 @@ retry:
              * Send the request to the source - we want to request one
              * of our host page sizes (which is >= TPS)
              */
-            ret = postcopy_request_page(mis, rb, rb_offset,
-                                        msg.arg.pagefault.address);
+            ret = migrate_send_rp_req_pages(mis, rb, rb_offset,
+                                            msg.arg.pagefault.address);
             if (ret) {
                 /* May be network failure, try to wait for recovery */
-                postcopy_pause_fault_thread(mis);
-                goto retry;
+                if (ret == -EIO && postcopy_pause_fault_thread(mis)) {
+                    /* We got reconnected somehow, try to continue */
+                    goto retry;
+                } else {
+                    /* This is a unavoidable fault */
+                    error_report("%s: migrate_send_rp_req_pages() get %d",
+                                 __func__, ret);
+                    break;
+                }
             }
         }
 
@@ -1159,64 +1056,10 @@ retry:
     return NULL;
 }
 
-static int postcopy_temp_pages_setup(MigrationIncomingState *mis)
-{
-    PostcopyTmpPage *tmp_page;
-    int err, i, channels;
-    void *temp_page;
-
-    if (migrate_postcopy_preempt()) {
-        /* If preemption enabled, need extra channel for urgent requests */
-        mis->postcopy_channels = RAM_CHANNEL_MAX;
-    } else {
-        /* Both precopy/postcopy on the same channel */
-        mis->postcopy_channels = 1;
-    }
-
-    channels = mis->postcopy_channels;
-    mis->postcopy_tmp_pages = g_malloc0_n(sizeof(PostcopyTmpPage), channels);
-
-    for (i = 0; i < channels; i++) {
-        tmp_page = &mis->postcopy_tmp_pages[i];
-        temp_page = mmap(NULL, mis->largest_page_size, PROT_READ | PROT_WRITE,
-                         MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-        if (temp_page == MAP_FAILED) {
-            err = errno;
-            error_report("%s: Failed to map postcopy_tmp_pages[%d]: %s",
-                         __func__, i, strerror(err));
-            /* Clean up will be done later */
-            return -err;
-        }
-        tmp_page->tmp_huge_page = temp_page;
-        /* Initialize default states for each tmp page */
-        postcopy_temp_page_reset(tmp_page);
-    }
-
-    /*
-     * Map large zero page when kernel can't use UFFDIO_ZEROPAGE for hugepages
-     */
-    mis->postcopy_tmp_zero_page = mmap(NULL, mis->largest_page_size,
-                                       PROT_READ | PROT_WRITE,
-                                       MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-    if (mis->postcopy_tmp_zero_page == MAP_FAILED) {
-        err = errno;
-        mis->postcopy_tmp_zero_page = NULL;
-        error_report("%s: Failed to map large zero page %s",
-                     __func__, strerror(err));
-        return -err;
-    }
-
-    memset(mis->postcopy_tmp_zero_page, '\0', mis->largest_page_size);
-
-    return 0;
-}
-
 int postcopy_ram_incoming_setup(MigrationIncomingState *mis)
 {
-    Error *local_err = NULL;
-
     /* Open the fd for the kernel to give us userfaults */
-    mis->userfault_fd = uffd_open(O_CLOEXEC | O_NONBLOCK);
+    mis->userfault_fd = syscall(__NR_userfaultfd, O_CLOEXEC | O_NONBLOCK);
     if (mis->userfault_fd == -1) {
         error_report("%s: Failed to open userfault fd: %s", __func__,
                      strerror(errno));
@@ -1227,8 +1070,7 @@ int postcopy_ram_incoming_setup(MigrationIncomingState *mis)
      * Although the host check already tested the API, we need to
      * do the check again as an ABI handshake on the new fd.
      */
-    if (!ufd_check_and_apply(mis->userfault_fd, mis, &local_err)) {
-        error_report_err(local_err);
+    if (!ufd_check_and_apply(mis->userfault_fd, mis)) {
         return -1;
     }
 
@@ -1241,8 +1083,11 @@ int postcopy_ram_incoming_setup(MigrationIncomingState *mis)
         return -1;
     }
 
-    postcopy_thread_create(mis, &mis->fault_thread, "fault-default",
-                           postcopy_ram_fault_thread, QEMU_THREAD_JOINABLE);
+    qemu_sem_init(&mis->fault_thread_sem, 0);
+    qemu_thread_create(&mis->fault_thread, "postcopy/fault",
+                       postcopy_ram_fault_thread, mis, QEMU_THREAD_JOINABLE);
+    qemu_sem_wait(&mis->fault_thread_sem);
+    qemu_sem_destroy(&mis->fault_thread_sem);
     mis->have_fault_thread = true;
 
     /* Mark so that we get notified of accesses to unwritten areas */
@@ -1251,20 +1096,31 @@ int postcopy_ram_incoming_setup(MigrationIncomingState *mis)
         return -1;
     }
 
-    if (postcopy_temp_pages_setup(mis)) {
-        /* Error dumped in the sub-function */
+    mis->postcopy_tmp_page = mmap(NULL, mis->largest_page_size,
+                                  PROT_READ | PROT_WRITE, MAP_PRIVATE |
+                                  MAP_ANONYMOUS, -1, 0);
+    if (mis->postcopy_tmp_page == MAP_FAILED) {
+        mis->postcopy_tmp_page = NULL;
+        error_report("%s: Failed to map postcopy_tmp_page %s",
+                     __func__, strerror(errno));
         return -1;
     }
 
-    if (migrate_postcopy_preempt()) {
-        /*
-         * This thread needs to be created after the temp pages because
-         * it'll fetch RAM_CHANNEL_POSTCOPY PostcopyTmpPage immediately.
-         */
-        postcopy_thread_create(mis, &mis->postcopy_prio_thread, "fault-fast",
-                               postcopy_preempt_thread, QEMU_THREAD_JOINABLE);
-        mis->preempt_thread_status = PREEMPT_THREAD_CREATED;
+    /*
+     * Map large zero page when kernel can't use UFFDIO_ZEROPAGE for hugepages
+     */
+    mis->postcopy_tmp_zero_page = mmap(NULL, mis->largest_page_size,
+                                       PROT_READ | PROT_WRITE,
+                                       MAP_PRIVATE | MAP_ANONYMOUS,
+                                       -1, 0);
+    if (mis->postcopy_tmp_zero_page == MAP_FAILED) {
+        int e = errno;
+        mis->postcopy_tmp_zero_page = NULL;
+        error_report("%s: Failed to map large zero page %s",
+                     __func__, strerror(e));
+        return -e;
     }
+    memset(mis->postcopy_tmp_zero_page, '\0', mis->largest_page_size);
 
     trace_postcopy_ram_enable_notify();
 
@@ -1301,20 +1157,8 @@ static int qemu_ufd_copy_ioctl(MigrationIncomingState *mis, void *host_addr,
          */
         if (g_tree_lookup(mis->page_requested, host_addr)) {
             g_tree_remove(mis->page_requested, host_addr);
-            int left_pages = qatomic_dec_fetch(&mis->page_requested_count);
-
+            mis->page_requested_count--;
             trace_postcopy_page_req_del(host_addr, mis->page_requested_count);
-            /* Order the update of count and read of preempt status */
-            smp_mb();
-            if (mis->preempt_thread_status == PREEMPT_THREAD_QUIT &&
-                left_pages == 0) {
-                /*
-                 * This probably means the main thread is waiting for us.
-                 * Notify that we've finished receiving the last requested
-                 * page.
-                 */
-                qemu_cond_signal(&mis->page_request_cond);
-            }
         }
         qemu_mutex_unlock(&mis->page_request_mutex);
         mark_postcopy_blocktime_end((uintptr_t)host_addr);
@@ -1400,7 +1244,7 @@ void fill_destination_postcopy_migration_info(MigrationInfo *info)
 {
 }
 
-bool postcopy_ram_supported_by_host(MigrationIncomingState *mis, Error **errp)
+bool postcopy_ram_supported_by_host(MigrationIncomingState *mis)
 {
     error_report("%s: No OS support", __func__);
     return false;
@@ -1461,16 +1305,6 @@ int postcopy_wake_shared(struct PostCopyFD *pcfd,
 #endif
 
 /* ------------------------------------------------------------------------- */
-void postcopy_temp_page_reset(PostcopyTmpPage *tmp_page)
-{
-    tmp_page->target_pages = 0;
-    tmp_page->host_addr = NULL;
-    /*
-     * This is set to true when reset, and cleared as long as we received any
-     * of the non-zero small page within this huge page.
-     */
-    tmp_page->all_zero = true;
-}
 
 void postcopy_fault_thread_notify(MigrationIncomingState *mis)
 {
@@ -1567,7 +1401,7 @@ static PostcopyState incoming_postcopy_state;
 
 PostcopyState  postcopy_state_get(void)
 {
-    return qatomic_load_acquire(&incoming_postcopy_state);
+    return qatomic_mb_read(&incoming_postcopy_state);
 }
 
 /* Set the state and return the old state */
@@ -1595,10 +1429,6 @@ void postcopy_unregister_shared_ufd(struct PostCopyFD *pcfd)
     MigrationIncomingState *mis = migration_incoming_get_current();
     GArray *pcrfds = mis->postcopy_remote_fds;
 
-    if (!pcrfds) {
-        /* migration has already finished and freed the array */
-        return;
-    }
     for (i = 0; i < pcrfds->len; i++) {
         struct PostCopyFD *cur = &g_array_index(pcrfds, struct PostCopyFD, i);
         if (cur->fd == pcfd->fd) {
@@ -1606,170 +1436,4 @@ void postcopy_unregister_shared_ufd(struct PostCopyFD *pcfd)
             return;
         }
     }
-}
-
-void postcopy_preempt_new_channel(MigrationIncomingState *mis, QEMUFile *file)
-{
-    /*
-     * The new loading channel has its own threads, so it needs to be
-     * blocked too.  It's by default true, just be explicit.
-     */
-    qemu_file_set_blocking(file, true);
-    mis->postcopy_qemufile_dst = file;
-    qemu_sem_post(&mis->postcopy_qemufile_dst_done);
-    trace_postcopy_preempt_new_channel();
-}
-
-/*
- * Setup the postcopy preempt channel with the IOC.  If ERROR is specified,
- * setup the error instead.  This helper will free the ERROR if specified.
- */
-static void
-postcopy_preempt_send_channel_done(MigrationState *s,
-                                   QIOChannel *ioc, Error *local_err)
-{
-    if (local_err) {
-        migrate_set_error(s, local_err);
-        error_free(local_err);
-    } else {
-        migration_ioc_register_yank(ioc);
-        s->postcopy_qemufile_src = qemu_file_new_output(ioc);
-        trace_postcopy_preempt_new_channel();
-    }
-
-    /*
-     * Kick the waiter in all cases.  The waiter should check upon
-     * postcopy_qemufile_src to know whether it failed or not.
-     */
-    qemu_sem_post(&s->postcopy_qemufile_src_sem);
-}
-
-static void
-postcopy_preempt_tls_handshake(QIOTask *task, gpointer opaque)
-{
-    g_autoptr(QIOChannel) ioc = QIO_CHANNEL(qio_task_get_source(task));
-    MigrationState *s = opaque;
-    Error *local_err = NULL;
-
-    qio_task_propagate_error(task, &local_err);
-    postcopy_preempt_send_channel_done(s, ioc, local_err);
-}
-
-static void
-postcopy_preempt_send_channel_new(QIOTask *task, gpointer opaque)
-{
-    g_autoptr(QIOChannel) ioc = QIO_CHANNEL(qio_task_get_source(task));
-    MigrationState *s = opaque;
-    QIOChannelTLS *tioc;
-    Error *local_err = NULL;
-
-    if (qio_task_propagate_error(task, &local_err)) {
-        goto out;
-    }
-
-    if (migrate_channel_requires_tls_upgrade(ioc)) {
-        tioc = migration_tls_client_create(ioc, s->hostname, &local_err);
-        if (!tioc) {
-            goto out;
-        }
-        trace_postcopy_preempt_tls_handshake();
-        qio_channel_set_name(QIO_CHANNEL(tioc), "migration-tls-preempt");
-        qio_channel_tls_handshake(tioc, postcopy_preempt_tls_handshake,
-                                  s, NULL, NULL);
-        /* Setup the channel until TLS handshake finished */
-        return;
-    }
-
-out:
-    /* This handles both good and error cases */
-    postcopy_preempt_send_channel_done(s, ioc, local_err);
-}
-
-/*
- * This function will kick off an async task to establish the preempt
- * channel, and wait until the connection setup completed.  Returns 0 if
- * channel established, -1 for error.
- */
-int postcopy_preempt_establish_channel(MigrationState *s)
-{
-    /* If preempt not enabled, no need to wait */
-    if (!migrate_postcopy_preempt()) {
-        return 0;
-    }
-
-    /*
-     * Kick off async task to establish preempt channel.  Only do so with
-     * 8.0+ machines, because 7.1/7.2 require the channel to be created in
-     * setup phase of migration (even if racy in an unreliable network).
-     */
-    if (!s->preempt_pre_7_2) {
-        postcopy_preempt_setup(s);
-    }
-
-    /*
-     * We need the postcopy preempt channel to be established before
-     * starting doing anything.
-     */
-    qemu_sem_wait(&s->postcopy_qemufile_src_sem);
-
-    return s->postcopy_qemufile_src ? 0 : -1;
-}
-
-void postcopy_preempt_setup(MigrationState *s)
-{
-    /* Kick an async task to connect */
-    socket_send_channel_create(postcopy_preempt_send_channel_new, s);
-}
-
-static void postcopy_pause_ram_fast_load(MigrationIncomingState *mis)
-{
-    trace_postcopy_pause_fast_load();
-    qemu_mutex_unlock(&mis->postcopy_prio_thread_mutex);
-    qemu_sem_wait(&mis->postcopy_pause_sem_fast_load);
-    qemu_mutex_lock(&mis->postcopy_prio_thread_mutex);
-    trace_postcopy_pause_fast_load_continued();
-}
-
-static bool preempt_thread_should_run(MigrationIncomingState *mis)
-{
-    return mis->preempt_thread_status != PREEMPT_THREAD_QUIT;
-}
-
-void *postcopy_preempt_thread(void *opaque)
-{
-    MigrationIncomingState *mis = opaque;
-    int ret;
-
-    trace_postcopy_preempt_thread_entry();
-
-    rcu_register_thread();
-
-    qemu_sem_post(&mis->thread_sync_sem);
-
-    /*
-     * The preempt channel is established in asynchronous way.  Wait
-     * for its completion.
-     */
-    qemu_sem_wait(&mis->postcopy_qemufile_dst_done);
-
-    /* Sending RAM_SAVE_FLAG_EOS to terminate this thread */
-    qemu_mutex_lock(&mis->postcopy_prio_thread_mutex);
-    while (preempt_thread_should_run(mis)) {
-        ret = ram_load_postcopy(mis->postcopy_qemufile_dst,
-                                RAM_CHANNEL_POSTCOPY);
-        /* If error happened, go into recovery routine */
-        if (ret && preempt_thread_should_run(mis)) {
-            postcopy_pause_ram_fast_load(mis);
-        } else {
-            /* We're done */
-            break;
-        }
-    }
-    qemu_mutex_unlock(&mis->postcopy_prio_thread_mutex);
-
-    rcu_unregister_thread();
-
-    trace_postcopy_preempt_thread_exit();
-
-    return NULL;
 }

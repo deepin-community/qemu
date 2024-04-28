@@ -1,0 +1,50 @@
+Commit-Id: 0266e8e3b3981b492e82be20bb97e8ed9792ed00
+From: Vincent Fazio <vfazio@gmail.com>
+Date: Sun, 31 Jan 2021 00:19:48 -0600
+Subject: linux-user/elfload: fix address calculation in fallback scenario
+Bug-Debian: https://bugs.debian.org/988174
+
+Previously, guest_loaddr was not taken into account when returning an
+address from pgb_find_hole when /proc/self/maps was unavailable which
+caused an improper guest_base address to be calculated.
+
+This could cause a SIGSEGV later in load_elf_image -> target_mmap for
+ET_EXEC type images since the mmap MAP_FIXED flag is specified which
+could clobber existing mappings at the address returnd by g2h().
+
+  mmap(0xd87000, 16846912, PROT_NONE, MAP_PRIVATE|MAP_ANONYMOUS|MAP_NORESERVE|0x100000, -1, 0) = 0xd87000
+  munmap(0xd87000, 16846912)              = 0
+  write(2, "Locating guest address space @ 0"..., 40Locating guest address space @ 0xd87000) = 40
+  mmap(0x1187000, 16850944, PROT_NONE, MAP_PRIVATE|MAP_FIXED|MAP_ANONYMOUS|MAP_NORESERVE, -1, 0) = 0x1187000
+  --- SIGSEGV {si_signo=SIGSEGV, si_code=SEGV_ACCERR, si_addr=0x2188310} ---
+  +++ killed by SIGSEGV +++
+
+Now, pgd_find_hole accounts for guest_loaddr in this scenario.
+
+Fixes: ad592e37dfcc ("linux-user: provide fallback pgd_find_hole for bare chroots")
+Signed-off-by: Vincent Fazio <vfazio@gmail.com>
+Reviewed-by: Laurent Vivier <laurent@vivier.eu>
+Message-Id: <20210131061948.15990-1-vfazio@xes-inc.com>
+[lv: updated it to check if ret == -1]
+Signed-off-by: Laurent Vivier <laurent@vivier.eu>
+---
+ linux-user/elfload.c | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/linux-user/elfload.c b/linux-user/elfload.c
+index e525901659..c6731013fd 100644
+--- a/linux-user/elfload.c
++++ b/linux-user/elfload.c
+@@ -2235,7 +2235,8 @@ static uintptr_t pgb_find_hole(uintptr_t guest_loaddr, uintptr_t guest_size,
+     brk = (uintptr_t)sbrk(0);
+ 
+     if (!maps) {
+-        return pgd_find_hole_fallback(guest_size, brk, align, offset);
++        ret = pgd_find_hole_fallback(guest_size, brk, align, offset);
++        return ret == -1 ? -1 : ret - guest_loaddr;
+     }
+ 
+     /* The first hole is before the first map entry. */
+-- 
+2.30.2
+

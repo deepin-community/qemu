@@ -108,7 +108,7 @@ static void report_divergance(ExecState *us, ExecState *them)
 
     /*
      * If we have diverged before did we get back on track or are we
-     * totally losing it?
+     * totally loosing it?
      */
     if (divergence_log) {
         DivergeState *last = (DivergeState *) divergence_log->data;
@@ -130,13 +130,11 @@ static void report_divergance(ExecState *us, ExecState *them)
         }
     }
     divergence_log = g_slist_prepend(divergence_log,
-                                     g_memdup2(&divrec, sizeof(divrec)));
+                                     g_memdup(&divrec, sizeof(divrec)));
 
     /* Output short log entry of going out of sync... */
     if (verbose || divrec.distance == 1 || diverged) {
-        g_string_printf(out,
-                        "@ 0x%016" PRIx64 " vs 0x%016" PRIx64
-                        " (%d/%d since last)\n",
+        g_string_printf(out, "@ %#016lx vs %#016lx (%d/%d since last)\n",
                         us->pc, them->pc, g_slist_length(divergence_log),
                         divrec.distance);
         qemu_plugin_outs(out->str);
@@ -146,9 +144,7 @@ static void report_divergance(ExecState *us, ExecState *them)
         int i;
         GSList *entry;
 
-        g_string_printf(out,
-                        "Δ insn_count @ 0x%016" PRIx64
-                        " (%ld) vs 0x%016" PRIx64 " (%ld)\n",
+        g_string_printf(out, "Δ insn_count @ %#016lx (%ld) vs %#016lx (%ld)\n",
                         us->pc, us->insn_count, them->pc, them->insn_count);
 
         for (entry = log, i = 0;
@@ -156,8 +152,7 @@ static void report_divergance(ExecState *us, ExecState *them)
              entry = g_slist_next(entry), i++) {
             ExecInfo *prev = (ExecInfo *) entry->data;
             g_string_append_printf(out,
-                                   "  previously @ 0x%016" PRIx64 "/%" PRId64
-                                   " (%ld insns)\n",
+                                   "  previously @ %#016lx/%ld (%ld insns)\n",
                                    prev->block->pc, prev->block->insns,
                                    prev->insn_count);
         }
@@ -245,7 +240,6 @@ static void vcpu_tb_trans(qemu_plugin_id_t id, struct qemu_plugin_tb *tb)
 static bool setup_socket(const char *path)
 {
     struct sockaddr_un sockaddr;
-    const gsize pathlen = sizeof(sockaddr.sun_path) - 1;
     int fd;
 
     fd = socket(AF_UNIX, SOCK_STREAM, 0);
@@ -255,12 +249,7 @@ static bool setup_socket(const char *path)
     }
 
     sockaddr.sun_family = AF_UNIX;
-    if (g_strlcpy(sockaddr.sun_path, path, pathlen) >= pathlen) {
-        perror("bad path");
-        close(fd);
-        return false;
-    }
-
+    g_strlcpy(sockaddr.sun_path, path, sizeof(sockaddr.sun_path) - 1);
     if (bind(fd, (struct sockaddr *)&sockaddr, sizeof(sockaddr)) < 0) {
         perror("bind socket");
         close(fd);
@@ -293,7 +282,6 @@ static bool connect_socket(const char *path)
 {
     int fd;
     struct sockaddr_un sockaddr;
-    const gsize pathlen = sizeof(sockaddr.sun_path) - 1;
 
     fd = socket(AF_UNIX, SOCK_STREAM, 0);
     if (fd < 0) {
@@ -302,11 +290,7 @@ static bool connect_socket(const char *path)
     }
 
     sockaddr.sun_family = AF_UNIX;
-    if (g_strlcpy(sockaddr.sun_path, path, pathlen) >= pathlen) {
-        perror("bad path");
-        close(fd);
-        return false;
-    }
+    g_strlcpy(sockaddr.sun_path, path, sizeof(sockaddr.sun_path) - 1);
 
     if (connect(fd, (struct sockaddr *)&sockaddr, sizeof(sockaddr)) < 0) {
         perror("failed to connect");
@@ -335,33 +319,20 @@ QEMU_PLUGIN_EXPORT int qemu_plugin_install(qemu_plugin_id_t id,
                                            int argc, char **argv)
 {
     int i;
-    g_autofree char *sock_path = NULL;
+
+    if (!argc || !argv[0]) {
+        qemu_plugin_outs("Need a socket path to talk to other instance.");
+        return -1;
+    }
 
     for (i = 0; i < argc; i++) {
         char *p = argv[i];
-        g_auto(GStrv) tokens = g_strsplit(p, "=", 2);
-
-        if (g_strcmp0(tokens[0], "verbose") == 0) {
-            if (!qemu_plugin_bool_parse(tokens[0], tokens[1], &verbose)) {
-                fprintf(stderr, "boolean argument parsing failed: %s\n", p);
-                return -1;
-            }
-        } else if (g_strcmp0(tokens[0], "sockpath") == 0) {
-            sock_path = tokens[1];
-        } else {
-            fprintf(stderr, "option parsing failed: %s\n", p);
+        if (strcmp(p, "verbose") == 0) {
+            verbose = true;
+        } else if (!setup_unix_socket(argv[0])) {
+            qemu_plugin_outs("Failed to setup socket for communications.");
             return -1;
         }
-    }
-
-    if (sock_path == NULL) {
-        fprintf(stderr, "Need a socket path to talk to other instance.\n");
-        return -1;
-    }
-
-    if (!setup_unix_socket(sock_path)) {
-        fprintf(stderr, "Failed to setup socket for communications.\n");
-        return -1;
     }
 
     our_id = id;

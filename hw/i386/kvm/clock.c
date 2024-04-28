@@ -14,15 +14,16 @@
  */
 
 #include "qemu/osdep.h"
+#include "cpu.h"
 #include "qemu/host-utils.h"
 #include "qemu/module.h"
 #include "sysemu/kvm.h"
 #include "sysemu/runstate.h"
 #include "sysemu/hw_accel.h"
-#include "kvm/kvm_i386.h"
+#include "kvm_i386.h"
 #include "migration/vmstate.h"
 #include "hw/sysbus.h"
-#include "hw/i386/kvm/clock.h"
+#include "hw/kvm/clock.h"
 #include "hw/qdev-properties.h"
 #include "qapi/error.h"
 
@@ -66,7 +67,7 @@ struct pvclock_vcpu_time_info {
 static uint64_t kvmclock_current_nsec(KVMClockState *s)
 {
     CPUState *cpu = first_cpu;
-    CPUX86State *env = cpu_env(cpu);
+    CPUX86State *env = cpu->env_ptr;
     hwaddr kvmclock_struct_pa;
     uint64_t migration_tsc = env->tsc;
     struct pvclock_vcpu_time_info time;
@@ -105,7 +106,7 @@ static void kvm_update_clock(KVMClockState *s)
 
     ret = kvm_vm_ioctl(kvm_state, KVM_GET_CLOCK, &data);
     if (ret < 0) {
-        fprintf(stderr, "KVM_GET_CLOCK failed: %s\n", strerror(-ret));
+        fprintf(stderr, "KVM_GET_CLOCK failed: %s\n", strerror(ret));
                 abort();
     }
     s->clock = data.clock;
@@ -161,7 +162,7 @@ static void do_kvmclock_ctrl(CPUState *cpu, run_on_cpu_data data)
     }
 }
 
-static void kvmclock_vm_state_change(void *opaque, bool running,
+static void kvmclock_vm_state_change(void *opaque, int running,
                                      RunState state)
 {
     KVMClockState *s = opaque;
@@ -189,7 +190,7 @@ static void kvmclock_vm_state_change(void *opaque, bool running,
         data.clock = s->clock;
         ret = kvm_vm_ioctl(kvm_state, KVM_SET_CLOCK, &data);
         if (ret < 0) {
-            fprintf(stderr, "KVM_SET_CLOCK failed: %s\n", strerror(-ret));
+            fprintf(stderr, "KVM_SET_CLOCK failed: %s\n", strerror(ret));
             abort();
         }
 
@@ -332,7 +333,9 @@ void kvmclock_create(bool create_always)
 {
     X86CPU *cpu = X86_CPU(first_cpu);
 
-    assert(kvm_enabled());
+    if (!kvm_enabled() || !kvm_has_adjust_clock())
+        return;
+
     if (create_always ||
         cpu->env.features[FEAT_KVM] & ((1ULL << KVM_FEATURE_CLOCKSOURCE) |
                                        (1ULL << KVM_FEATURE_CLOCKSOURCE2))) {

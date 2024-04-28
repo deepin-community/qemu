@@ -30,23 +30,18 @@ typedef struct NBDServerData {
 } NBDServerData;
 
 static NBDServerData *nbd_server;
-static int qemu_nbd_connections = -1; /* Non-negative if this is qemu-nbd */
+static bool is_qemu_nbd;
 
 static void nbd_update_server_watch(NBDServerData *s);
 
-void nbd_server_is_qemu_nbd(int max_connections)
+void nbd_server_is_qemu_nbd(bool value)
 {
-    qemu_nbd_connections = max_connections;
+    is_qemu_nbd = value;
 }
 
 bool nbd_server_is_running(void)
 {
-    return nbd_server || qemu_nbd_connections >= 0;
-}
-
-int nbd_server_max_connections(void)
-{
-    return nbd_server ? nbd_server->max_connections : qemu_nbd_connections;
+    return nbd_server || is_qemu_nbd;
 }
 
 static void nbd_blockdev_client_closed(NBDClient *client, bool ignored)
@@ -113,9 +108,9 @@ static QCryptoTLSCreds *nbd_get_tls_creds(const char *id, Error **errp)
         return NULL;
     }
 
-    if (!qcrypto_tls_creds_check_endpoint(creds,
-                                          QCRYPTO_TLS_CREDS_ENDPOINT_SERVER,
-                                          errp)) {
+    if (creds->endpoint != QCRYPTO_TLS_CREDS_ENDPOINT_SERVER) {
+        error_setg(errp,
+                   "Expecting TLS credentials with a server endpoint");
         return NULL;
     }
     object_ref(obj);
@@ -139,18 +134,19 @@ void nbd_server_start(SocketAddress *addr, const char *tls_creds,
     qio_net_listener_set_name(nbd_server->listener,
                               "nbd-listener");
 
-    /*
-     * Because this server is persistent, a backlog of SOMAXCONN is
-     * better than trying to size it to max_connections.
-     */
-    if (qio_net_listener_open_sync(nbd_server->listener, addr, SOMAXCONN,
-                                   errp) < 0) {
+    if (qio_net_listener_open_sync(nbd_server->listener, addr, 1, errp) < 0) {
         goto error;
     }
 
     if (tls_creds) {
         nbd_server->tlscreds = nbd_get_tls_creds(tls_creds, errp);
         if (!nbd_server->tlscreds) {
+            goto error;
+        }
+
+        /* TODO SOCKET_ADDRESS_TYPE_FD where fd has AF_INET or AF_INET6 */
+        if (addr->type != SOCKET_ADDRESS_TYPE_INET) {
+            error_setg(errp, "TLS is only supported with IPv4/IPv6");
             goto error;
         }
     }
@@ -173,8 +169,8 @@ void nbd_server_start_options(NbdServerOptions *arg, Error **errp)
 }
 
 void qmp_nbd_server_start(SocketAddressLegacy *addr,
-                          const char *tls_creds,
-                          const char *tls_authz,
+                          bool has_tls_creds, const char *tls_creds,
+                          bool has_tls_authz, const char *tls_authz,
                           bool has_max_connections, uint32_t max_connections,
                           Error **errp)
 {
@@ -200,7 +196,8 @@ void qmp_nbd_server_add(NbdServerAddOptions *arg, Error **errp)
      * block-export-add would default to the node-name, but we may have to use
      * the device name as a default here for compatibility.
      */
-    if (!arg->name) {
+    if (!arg->has_name) {
+        arg->has_name = true;
         arg->name = g_strdup(arg->device);
     }
 
@@ -214,15 +211,9 @@ void qmp_nbd_server_add(NbdServerAddOptions *arg, Error **errp)
     };
     QAPI_CLONE_MEMBERS(BlockExportOptionsNbdBase, &export_opts->u.nbd,
                        qapi_NbdServerAddOptions_base(arg));
-    if (arg->bitmap) {
-        BlockDirtyBitmapOrStr *el = g_new(BlockDirtyBitmapOrStr, 1);
-
-        *el = (BlockDirtyBitmapOrStr) {
-            .type = QTYPE_QSTRING,
-            .u.local = g_strdup(arg->bitmap),
-        };
+    if (arg->has_bitmap) {
         export_opts->u.nbd.has_bitmaps = true;
-        QAPI_LIST_PREPEND(export_opts->u.nbd.bitmaps, el);
+        QAPI_LIST_PREPEND(export_opts->u.nbd.bitmaps, g_strdup(arg->bitmap));
     }
 
     /*

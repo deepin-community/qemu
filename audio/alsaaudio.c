@@ -34,8 +34,6 @@
 #define AUDIO_CAP "alsa"
 #include "audio_int.h"
 
-#define DEBUG_ALSA 0
-
 struct pollhlp {
     snd_pcm_t *handle;
     struct pollfd *pfds;
@@ -72,7 +70,7 @@ struct alsa_params_obt {
     snd_pcm_uframes_t samples;
 };
 
-static void G_GNUC_PRINTF (2, 3) alsa_logerr (int err, const char *fmt, ...)
+static void GCC_FMT_ATTR (2, 3) alsa_logerr (int err, const char *fmt, ...)
 {
     va_list ap;
 
@@ -83,7 +81,7 @@ static void G_GNUC_PRINTF (2, 3) alsa_logerr (int err, const char *fmt, ...)
     AUD_log (AUDIO_CAP, "Reason: %s\n", snd_strerror (err));
 }
 
-static void G_GNUC_PRINTF (3, 4) alsa_logerr2 (
+static void GCC_FMT_ATTR (3, 4) alsa_logerr2 (
     int err,
     const char *typ,
     const char *fmt,
@@ -222,7 +220,11 @@ static int alsa_poll_helper (snd_pcm_t *handle, struct pollhlp *hlp, int mask)
         return -1;
     }
 
-    pfds = g_new0(struct pollfd, count);
+    pfds = audio_calloc ("alsa_poll_helper", count, sizeof (*pfds));
+    if (!pfds) {
+        dolog ("Could not initialize poll mode\n");
+        return -1;
+    }
 
     err = snd_pcm_poll_descriptors (handle, pfds, count);
     if (err < 0) {
@@ -276,28 +278,32 @@ static snd_pcm_format_t aud_to_alsafmt (AudioFormat fmt, int endianness)
     case AUDIO_FORMAT_S16:
         if (endianness) {
             return SND_PCM_FORMAT_S16_BE;
-        } else {
+        }
+        else {
             return SND_PCM_FORMAT_S16_LE;
         }
 
     case AUDIO_FORMAT_U16:
         if (endianness) {
             return SND_PCM_FORMAT_U16_BE;
-        } else {
+        }
+        else {
             return SND_PCM_FORMAT_U16_LE;
         }
 
     case AUDIO_FORMAT_S32:
         if (endianness) {
             return SND_PCM_FORMAT_S32_BE;
-        } else {
+        }
+        else {
             return SND_PCM_FORMAT_S32_LE;
         }
 
     case AUDIO_FORMAT_U32:
         if (endianness) {
             return SND_PCM_FORMAT_U32_BE;
-        } else {
+        }
+        else {
             return SND_PCM_FORMAT_U32_LE;
         }
 
@@ -445,7 +451,7 @@ static int alsa_open(bool in, struct alsa_params_req *req,
     snd_pcm_hw_params_t *hw_params;
     int err;
     unsigned int freq, nchannels;
-    const char *pcm_name = apdo->dev ?: "default";
+    const char *pcm_name = apdo->has_dev ? apdo->dev : "default";
     snd_pcm_uframes_t obt_buffer_size;
     const char *typ = in ? "ADC" : "DAC";
     snd_pcm_format_t obtfmt;
@@ -585,53 +591,21 @@ static int alsa_open(bool in, struct alsa_params_req *req,
 
     *handlep = handle;
 
-    if (DEBUG_ALSA || obtfmt != req->fmt ||
-        obt->nchannels != req->nchannels || obt->freq != req->freq) {
+    if (obtfmt != req->fmt ||
+         obt->nchannels != req->nchannels ||
+         obt->freq != req->freq) {
         dolog ("Audio parameters for %s\n", typ);
         alsa_dump_info(req, obt, obtfmt, apdo);
     }
 
+#ifdef DEBUG
+    alsa_dump_info(req, obt, obtfmt, pdo);
+#endif
     return 0;
 
  err:
     alsa_anal_close1 (&handle);
     return -1;
-}
-
-static size_t alsa_buffer_get_free(HWVoiceOut *hw)
-{
-    ALSAVoiceOut *alsa = (ALSAVoiceOut *)hw;
-    snd_pcm_sframes_t avail;
-    size_t alsa_free, generic_free, generic_in_use;
-
-    avail = snd_pcm_avail_update(alsa->handle);
-    if (avail < 0) {
-        if (avail == -EPIPE) {
-            if (!alsa_recover(alsa->handle)) {
-                avail = snd_pcm_avail_update(alsa->handle);
-            }
-        }
-        if (avail < 0) {
-            alsa_logerr(avail,
-                        "Could not obtain number of available frames\n");
-            avail = 0;
-        }
-    }
-
-    alsa_free = avail * hw->info.bytes_per_frame;
-    generic_free = audio_generic_buffer_get_free(hw);
-    generic_in_use = hw->samples * hw->info.bytes_per_frame - generic_free;
-    if (generic_in_use) {
-        /*
-         * This code can only be reached in the unlikely case that
-         * snd_pcm_avail_update() returned a larger number of frames
-         * than snd_pcm_writei() could write. Make sure that all
-         * remaining bytes in the generic buffer can be written.
-         */
-        alsa_free = alsa_free > generic_in_use ? alsa_free - generic_in_use : 0;
-    }
-
-    return alsa_free;
 }
 
 static size_t alsa_write(HWVoiceOut *hw, void *buf, size_t len)
@@ -748,7 +722,8 @@ static int alsa_voice_ctl (snd_pcm_t *handle, const char *typ, int ctl)
             alsa_logerr (err, "Could not stop %s\n", typ);
             return -1;
         }
-    } else {
+    }
+    else {
         err = snd_pcm_prepare (handle);
         if (err < 0) {
             alsa_logerr (err, "Could not prepare handle for %s\n", typ);
@@ -904,7 +879,7 @@ static void alsa_init_per_direction(AudiodevAlsaPerDirectionOptions *apdo)
     }
 }
 
-static void *alsa_audio_init(Audiodev *dev, Error **errp)
+static void *alsa_audio_init(Audiodev *dev)
 {
     AudiodevAlsaOptions *aopts;
     assert(dev->driver == AUDIODEV_DRIVER_ALSA);
@@ -913,23 +888,28 @@ static void *alsa_audio_init(Audiodev *dev, Error **errp)
     alsa_init_per_direction(aopts->in);
     alsa_init_per_direction(aopts->out);
 
-    /* don't set has_* so alsa_open can identify it wasn't set by the user */
+    /*
+     * need to define them, as otherwise alsa produces no sound
+     * doesn't set has_* so alsa_open can identify it wasn't set by the user
+     */
     if (!dev->u.alsa.out->has_period_length) {
-        /* 256 frames assuming 44100Hz */
-        dev->u.alsa.out->period_length = 5805;
+        /* 1024 frames assuming 44100Hz */
+        dev->u.alsa.out->period_length = 1024 * 1000000 / 44100;
     }
     if (!dev->u.alsa.out->has_buffer_length) {
         /* 4096 frames assuming 44100Hz */
-        dev->u.alsa.out->buffer_length = 92880;
+        dev->u.alsa.out->buffer_length = 4096ll * 1000000 / 44100;
     }
 
+    /*
+     * OptsVisitor sets unspecified optional fields to zero, but do not depend
+     * on it...
+     */
     if (!dev->u.alsa.in->has_period_length) {
-        /* 256 frames assuming 44100Hz */
-        dev->u.alsa.in->period_length = 5805;
+        dev->u.alsa.in->period_length = 0;
     }
     if (!dev->u.alsa.in->has_buffer_length) {
-        /* 4096 frames assuming 44100Hz */
-        dev->u.alsa.in->buffer_length = 92880;
+        dev->u.alsa.in->buffer_length = 0;
     }
 
     return dev;
@@ -943,14 +923,12 @@ static struct audio_pcm_ops alsa_pcm_ops = {
     .init_out = alsa_init_out,
     .fini_out = alsa_fini_out,
     .write    = alsa_write,
-    .buffer_get_free = alsa_buffer_get_free,
     .run_buffer_out = audio_generic_run_buffer_out,
     .enable_out = alsa_enable_out,
 
     .init_in  = alsa_init_in,
     .fini_in  = alsa_fini_in,
     .read     = alsa_read,
-    .run_buffer_in = audio_generic_run_buffer_in,
     .enable_in = alsa_enable_in,
 };
 
@@ -960,6 +938,7 @@ static struct audio_driver alsa_audio_driver = {
     .init           = alsa_audio_init,
     .fini           = alsa_audio_fini,
     .pcm_ops        = &alsa_pcm_ops,
+    .can_be_default = 1,
     .max_voices_out = INT_MAX,
     .max_voices_in  = INT_MAX,
     .voice_size_out = sizeof (ALSAVoiceOut),

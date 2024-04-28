@@ -26,6 +26,8 @@
 #include "qemu/osdep.h"
 #include <windows.h>
 #include <mmsystem.h>
+#include "qemu-common.h"
+#include "qemu-options.h"
 #include "sysemu/runstate.h"
 
 static BOOL WINAPI qemu_ctrl_handler(DWORD type)
@@ -59,4 +61,13 @@ void os_set_line_buffering(void)
 {
     setbuf(stdout, NULL);
     setbuf(stderr, NULL);
+}
+
+/*
+ * Parse OS specific command line options.
+ * return 0 if option handled, -1 otherwise
+ */
+int os_parse_cmd_args(int index, const char *optarg)
+{
+    return -1;
 }

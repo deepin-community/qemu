@@ -12,7 +12,7 @@ This work is licensed under the terms of the GNU GPL, version 2.
 See the COPYING file in the top-level directory.
 """
 
-from typing import List, Optional
+from typing import List
 
 from .common import c_enum_const, c_name, mcgen
 from .gen import QAPISchemaModularCVisitor, build_params, ifcontext
@@ -20,7 +20,6 @@ from .schema import (
     QAPISchema,
     QAPISchemaEnumMember,
     QAPISchemaFeature,
-    QAPISchemaIfCond,
     QAPISchemaObjectType,
 )
 from .source import QAPISourceInfo
@@ -28,7 +27,7 @@ from .types import gen_enum, gen_enum_lookup
 
 
 def build_event_send_proto(name: str,
-                           arg_type: Optional[QAPISchemaObjectType],
+                           arg_type: QAPISchemaObjectType,
                            boxed: bool) -> str:
     return 'void qapi_event_send_%(c_name)s(%(param)s)' % {
         'c_name': c_name(name.lower()),
@@ -36,7 +35,7 @@ def build_event_send_proto(name: str,
 
 
 def gen_event_send_decl(name: str,
-                        arg_type: Optional[QAPISchemaObjectType],
+                        arg_type: QAPISchemaObjectType,
                         boxed: bool) -> str:
     return mcgen('''
 
@@ -60,7 +59,7 @@ def gen_param_var(typ: QAPISchemaObjectType) -> str:
     for memb in typ.members:
         ret += sep
         sep = ', '
-        if memb.need_has():
+        if memb.optional:
             ret += 'has_' + c_name(memb.name) + sep
         if memb.type.name == 'str':
             # Cast away const added in build_params()
@@ -79,8 +78,7 @@ def gen_param_var(typ: QAPISchemaObjectType) -> str:
 
 
 def gen_event_send(name: str,
-                   arg_type: Optional[QAPISchemaObjectType],
-                   features: List[QAPISchemaFeature],
+                   arg_type: QAPISchemaObjectType,
                    boxed: bool,
                    event_enum_name: str,
                    event_emit: str) -> str:
@@ -101,23 +99,12 @@ def gen_event_send(name: str,
                 proto=build_event_send_proto(name, arg_type, boxed))
 
     if have_args:
-        assert arg_type is not None
         ret += mcgen('''
     QObject *obj;
     Visitor *v;
 ''')
         if not boxed:
             ret += gen_param_var(arg_type)
-
-    for f in features:
-        if f.is_special():
-            ret += mcgen('''
-
-    if (compat_policy.%(feat)s_output == COMPAT_POLICY_OUTPUT_HIDE) {
-        return;
-    }
-''',
-                         feat=f.name)
 
     ret += mcgen('''
 
@@ -127,9 +114,8 @@ def gen_event_send(name: str,
                  name=name)
 
     if have_args:
-        assert arg_type is not None
         ret += mcgen('''
-    v = qobject_output_visitor_new_qmp(&obj);
+    v = qobject_output_visitor_new(&obj);
 ''')
         if not arg_type.is_implicit():
             ret += mcgen('''
@@ -148,11 +134,7 @@ def gen_event_send(name: str,
         ret += mcgen('''
 
     visit_complete(v, &obj);
-    if (qdict_size(qobject_to(QDict, obj))) {
-        qdict_put_obj(qmp, "data", obj);
-    } else {
-        qobject_unref(obj);
-    }
+    qdict_put_obj(qmp, "data", obj);
 ''')
 
     ret += mcgen('''
@@ -192,10 +174,11 @@ class QAPISchemaGenEventVisitor(QAPISchemaModularCVisitor):
 #include "%(prefix)sqapi-emit-events.h"
 #include "%(events)s.h"
 #include "%(visit)s.h"
-#include "qapi/compat-policy.h"
 #include "qapi/error.h"
 #include "qapi/qmp/qdict.h"
+#include "qapi/qobject-output-visitor.h"
 #include "qapi/qmp-event.h"
+
 ''',
                              events=events, visit=visit,
                              prefix=self._prefix))
@@ -206,7 +189,7 @@ class QAPISchemaGenEventVisitor(QAPISchemaModularCVisitor):
                              types=types))
 
     def visit_end(self) -> None:
-        self._add_module('./emit', ' * QAPI Events emission')
+        self._add_system_module('emit', ' * QAPI Events emission')
         self._genc.preamble_add(mcgen('''
 #include "qemu/osdep.h"
 #include "%(prefix)sqapi-emit-events.h"
@@ -228,14 +211,14 @@ void %(event_emit)s(%(event_enum)s event, QDict *qdict);
 
     def visit_event(self,
                     name: str,
-                    info: Optional[QAPISourceInfo],
-                    ifcond: QAPISchemaIfCond,
+                    info: QAPISourceInfo,
+                    ifcond: List[str],
                     features: List[QAPISchemaFeature],
-                    arg_type: Optional[QAPISchemaObjectType],
+                    arg_type: QAPISchemaObjectType,
                     boxed: bool) -> None:
         with ifcontext(ifcond, self._genh, self._genc):
             self._genh.add(gen_event_send_decl(name, arg_type, boxed))
-            self._genc.add(gen_event_send(name, arg_type, features, boxed,
+            self._genc.add(gen_event_send(name, arg_type, boxed,
                                           self._event_enum_name,
                                           self._event_emit_name))
         # Note: we generate the enum member regardless of @ifcond, to

@@ -24,21 +24,12 @@
 #include "exec/exec-all.h"
 #include "cpu.h"
 #include "disas/dis-asm.h"
-#include "tcg/debug-assert.h"
-#include "hw/qdev-properties.h"
 
 static void avr_cpu_set_pc(CPUState *cs, vaddr value)
 {
     AVRCPU *cpu = AVR_CPU(cs);
 
     cpu->env.pc_w = value / 2; /* internally PC points to words */
-}
-
-static vaddr avr_cpu_get_pc(CPUState *cs)
-{
-    AVRCPU *cpu = AVR_CPU(cs);
-
-    return cpu->env.pc_w * 2;
 }
 
 static bool avr_cpu_has_work(CPUState *cs)
@@ -50,36 +41,22 @@ static bool avr_cpu_has_work(CPUState *cs)
             && cpu_interrupts_enabled(env);
 }
 
-static void avr_cpu_synchronize_from_tb(CPUState *cs,
-                                        const TranslationBlock *tb)
+static void avr_cpu_synchronize_from_tb(CPUState *cs, TranslationBlock *tb)
 {
     AVRCPU *cpu = AVR_CPU(cs);
     CPUAVRState *env = &cpu->env;
 
-    tcg_debug_assert(!(cs->tcg_cflags & CF_PCREL));
     env->pc_w = tb->pc / 2; /* internally PC points to words */
 }
 
-static void avr_restore_state_to_opc(CPUState *cs,
-                                     const TranslationBlock *tb,
-                                     const uint64_t *data)
+static void avr_cpu_reset(DeviceState *ds)
 {
-    AVRCPU *cpu = AVR_CPU(cs);
-    CPUAVRState *env = &cpu->env;
-
-    env->pc_w = data[0];
-}
-
-static void avr_cpu_reset_hold(Object *obj)
-{
-    CPUState *cs = CPU(obj);
+    CPUState *cs = CPU(ds);
     AVRCPU *cpu = AVR_CPU(cs);
     AVRCPUClass *mcc = AVR_CPU_GET_CLASS(cpu);
     CPUAVRState *env = &cpu->env;
 
-    if (mcc->parent_phases.hold) {
-        mcc->parent_phases.hold(obj);
-    }
+    mcc->parent_reset(ds);
 
     env->pc_w = 0;
     env->sregI = 1;
@@ -96,7 +73,7 @@ static void avr_cpu_reset_hold(Object *obj)
     env->rampY = 0;
     env->rampZ = 0;
     env->eind = 0;
-    env->sp = cpu->init_sp;
+    env->sp = 0;
 
     env->skip = 0;
 
@@ -148,22 +125,20 @@ static void avr_cpu_initfn(Object *obj)
 {
     AVRCPU *cpu = AVR_CPU(obj);
 
+    cpu_set_cpustate_pointers(cpu);
+
     /* Set the number of interrupts supported by the CPU. */
     qdev_init_gpio_in(DEVICE(cpu), avr_cpu_set_int,
                       sizeof(cpu->env.intsrc) * 8);
 }
-
-static Property avr_cpu_properties[] = {
-    DEFINE_PROP_UINT32("init-sp", AVRCPU, init_sp, 0),
-    DEFINE_PROP_END_OF_LIST()
-};
 
 static ObjectClass *avr_cpu_class_by_name(const char *cpu_model)
 {
     ObjectClass *oc;
 
     oc = object_class_by_name(cpu_model);
-    if (object_class_dynamic_cast(oc, TYPE_AVR_CPU) == NULL) {
+    if (object_class_dynamic_cast(oc, TYPE_AVR_CPU) == NULL ||
+        object_class_is_abstract(oc)) {
         oc = NULL;
     }
     return oc;
@@ -208,52 +183,35 @@ static void avr_cpu_dump_state(CPUState *cs, FILE *f, int flags)
     qemu_fprintf(f, "\n");
 }
 
-#include "hw/core/sysemu-cpu-ops.h"
-
-static const struct SysemuCPUOps avr_sysemu_ops = {
-    .get_phys_page_debug = avr_cpu_get_phys_page_debug,
-};
-
-#include "hw/core/tcg-cpu-ops.h"
-
-static const struct TCGCPUOps avr_tcg_ops = {
-    .initialize = avr_cpu_tcg_init,
-    .synchronize_from_tb = avr_cpu_synchronize_from_tb,
-    .restore_state_to_opc = avr_restore_state_to_opc,
-    .cpu_exec_interrupt = avr_cpu_exec_interrupt,
-    .tlb_fill = avr_cpu_tlb_fill,
-    .do_interrupt = avr_cpu_do_interrupt,
-};
-
 static void avr_cpu_class_init(ObjectClass *oc, void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(oc);
     CPUClass *cc = CPU_CLASS(oc);
     AVRCPUClass *mcc = AVR_CPU_CLASS(oc);
-    ResettableClass *rc = RESETTABLE_CLASS(oc);
 
-    device_class_set_parent_realize(dc, avr_cpu_realizefn, &mcc->parent_realize);
+    mcc->parent_realize = dc->realize;
+    dc->realize = avr_cpu_realizefn;
 
-    device_class_set_props(dc, avr_cpu_properties);
-
-    resettable_class_set_parent_phases(rc, NULL, avr_cpu_reset_hold, NULL,
-                                       &mcc->parent_phases);
+    device_class_set_parent_reset(dc, avr_cpu_reset, &mcc->parent_reset);
 
     cc->class_by_name = avr_cpu_class_by_name;
 
     cc->has_work = avr_cpu_has_work;
+    cc->do_interrupt = avr_cpu_do_interrupt;
+    cc->cpu_exec_interrupt = avr_cpu_exec_interrupt;
     cc->dump_state = avr_cpu_dump_state;
     cc->set_pc = avr_cpu_set_pc;
-    cc->get_pc = avr_cpu_get_pc;
-    dc->vmsd = &vms_avr_cpu;
-    cc->sysemu_ops = &avr_sysemu_ops;
+    cc->memory_rw_debug = avr_cpu_memory_rw_debug;
+    cc->get_phys_page_debug = avr_cpu_get_phys_page_debug;
+    cc->tlb_fill = avr_cpu_tlb_fill;
+    cc->vmsd = &vms_avr_cpu;
     cc->disas_set_info = avr_cpu_disas_set_info;
+    cc->tcg_initialize = avr_cpu_tcg_init;
+    cc->synchronize_from_tb = avr_cpu_synchronize_from_tb;
     cc->gdb_read_register = avr_cpu_gdb_read_register;
     cc->gdb_write_register = avr_cpu_gdb_write_register;
-    cc->gdb_adjust_breakpoint = avr_cpu_gdb_adjust_breakpoint;
     cc->gdb_num_core_regs = 35;
     cc->gdb_core_xml_file = "avr-cpu.xml";
-    cc->tcg_ops = &avr_tcg_ops;
 }
 
 /*
@@ -395,7 +353,6 @@ static const TypeInfo avr_cpu_type_info[] = {
         .name = TYPE_AVR_CPU,
         .parent = TYPE_CPU,
         .instance_size = sizeof(AVRCPU),
-        .instance_align = __alignof(AVRCPU),
         .instance_init = avr_cpu_initfn,
         .class_size = sizeof(AVRCPUClass),
         .class_init = avr_cpu_class_init,

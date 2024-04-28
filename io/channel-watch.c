@@ -115,24 +115,28 @@ static gboolean
 qio_channel_socket_source_check(GSource *source)
 {
     static struct timeval tv0;
+
     QIOChannelSocketSource *ssource = (QIOChannelSocketSource *)source;
+    WSANETWORKEVENTS ev;
     fd_set rfds, wfds, xfds;
 
     if (!ssource->condition) {
         return 0;
     }
 
+    WSAEnumNetworkEvents(ssource->socket, ssource->ioc->event, &ev);
+
     FD_ZERO(&rfds);
     FD_ZERO(&wfds);
     FD_ZERO(&xfds);
     if (ssource->condition & G_IO_IN) {
-        FD_SET(ssource->socket, &rfds);
+        FD_SET((SOCKET)ssource->socket, &rfds);
     }
     if (ssource->condition & G_IO_OUT) {
-        FD_SET(ssource->socket, &wfds);
+        FD_SET((SOCKET)ssource->socket, &wfds);
     }
     if (ssource->condition & G_IO_PRI) {
-        FD_SET(ssource->socket, &xfds);
+        FD_SET((SOCKET)ssource->socket, &xfds);
     }
     ssource->revents = 0;
     if (select(0, &rfds, &wfds, &xfds, &tv0) == 0) {
@@ -275,15 +279,17 @@ GSource *qio_channel_create_fd_watch(QIOChannel *ioc,
 
 #ifdef CONFIG_WIN32
 GSource *qio_channel_create_socket_watch(QIOChannel *ioc,
-                                         int sockfd,
+                                         int socket,
                                          GIOCondition condition)
 {
     GSource *source;
     QIOChannelSocketSource *ssource;
 
-    qemu_socket_select(sockfd, ioc->event,
-                       FD_READ | FD_ACCEPT | FD_CLOSE |
-                       FD_CONNECT | FD_WRITE | FD_OOB, NULL);
+#ifdef WIN32
+    WSAEventSelect(socket, ioc->event,
+                   FD_READ | FD_ACCEPT | FD_CLOSE |
+                   FD_CONNECT | FD_WRITE | FD_OOB);
+#endif
 
     source = g_source_new(&qio_channel_socket_source_funcs,
                           sizeof(QIOChannelSocketSource));
@@ -293,7 +299,7 @@ GSource *qio_channel_create_socket_watch(QIOChannel *ioc,
     object_ref(OBJECT(ioc));
 
     ssource->condition = condition;
-    ssource->socket = _get_osfhandle(sockfd);
+    ssource->socket = socket;
     ssource->revents = 0;
 
     ssource->fd.fd = (gintptr)ioc->event;

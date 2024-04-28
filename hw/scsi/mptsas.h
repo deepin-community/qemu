@@ -2,7 +2,7 @@
 #define MPTSAS_H
 
 #include "mpi.h"
-#include "hw/pci/pci_device.h"
+#include "qom/object.h"
 
 #define MPTSAS_NUM_PORTS 8
 #define MPTSAS_MAX_FRAMES 2048     /* Firmware limit at 65535 */
@@ -79,6 +79,7 @@ struct MPTSASState {
     uint16_t reply_frame_size;
 
     SCSIBus bus;
+    QTAILQ_HEAD(, MPTSASRequest) pending;
 };
 
 void mptsas_fix_scsi_io_endianness(MPIMsgSCSIIORequest *req);
