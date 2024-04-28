@@ -22,7 +22,7 @@
 
 /* Current version of the replay mechanism.
    Increase it when file format changes. */
-#define REPLAY_VERSION              0xe0200c
+#define REPLAY_VERSION              0xe0200a
 /* Size of replay log header */
 #define HEADER_SIZE                 (sizeof(uint32_t) + sizeof(uint64_t))
 
@@ -74,7 +74,7 @@ uint64_t replay_get_current_icount(void)
 int replay_get_instructions(void)
 {
     int res = 0;
-    g_assert(replay_mutex_locked());
+    replay_mutex_lock();
     if (replay_next_event_is(EVENT_INSTRUCTION)) {
         res = replay_state.instruction_count;
         if (replay_break_icount != -1LL) {
@@ -85,6 +85,7 @@ int replay_get_instructions(void)
             }
         }
     }
+    replay_mutex_unlock();
     return res;
 }
 
@@ -93,7 +94,28 @@ void replay_account_executed_instructions(void)
     if (replay_mode == REPLAY_MODE_PLAY) {
         g_assert(replay_mutex_locked());
         if (replay_state.instruction_count > 0) {
-            replay_advance_current_icount(replay_get_current_icount());
+            int count = (int)(replay_get_current_icount()
+                              - replay_state.current_icount);
+
+            /* Time can only go forward */
+            assert(count >= 0);
+
+            replay_state.instruction_count -= count;
+            replay_state.current_icount += count;
+            if (replay_state.instruction_count == 0) {
+                assert(replay_state.data_kind == EVENT_INSTRUCTION);
+                replay_finish_event();
+                /* Wake up iothread. This is required because
+                   timers will not expire until clock counters
+                   will be read from the log. */
+                qemu_notify_event();
+            }
+            /* Execution reached the break step */
+            if (replay_break_icount == replay_state.current_icount) {
+                /* Cannot make callback directly from the vCPU thread */
+                timer_mod_ns(replay_break_timer,
+                    qemu_clock_get_ns(QEMU_CLOCK_REALTIME));
+            }
         }
     }
 }
@@ -170,7 +192,23 @@ void replay_shutdown_request(ShutdownCause cause)
 
 bool replay_checkpoint(ReplayCheckpoint checkpoint)
 {
+    bool res = false;
+    static bool in_checkpoint;
     assert(EVENT_CHECKPOINT + checkpoint <= EVENT_CHECKPOINT_LAST);
+
+    if (!replay_file) {
+        return true;
+    }
+
+    if (in_checkpoint) {
+        /* If we are already in checkpoint, then there is no need
+           for additional synchronization.
+           Recursion occurs when HW event modifies timers.
+           Timer modification may invoke the checkpoint and
+           proceed to recursion. */
+        return true;
+    }
+    in_checkpoint = true;
 
     replay_save_instructions();
 
@@ -178,41 +216,39 @@ bool replay_checkpoint(ReplayCheckpoint checkpoint)
         g_assert(replay_mutex_locked());
         if (replay_next_event_is(EVENT_CHECKPOINT + checkpoint)) {
             replay_finish_event();
-        } else {
-            return false;
+        } else if (replay_state.data_kind != EVENT_ASYNC) {
+            res = false;
+            goto out;
         }
+        replay_read_events(checkpoint);
+        /* replay_read_events may leave some unread events.
+           Return false if not all of the events associated with
+           checkpoint were processed */
+        res = replay_state.data_kind != EVENT_ASYNC;
     } else if (replay_mode == REPLAY_MODE_RECORD) {
         g_assert(replay_mutex_locked());
         replay_put_event(EVENT_CHECKPOINT + checkpoint);
+        /* This checkpoint belongs to several threads.
+           Processing events from different threads is
+           non-deterministic */
+        if (checkpoint != CHECKPOINT_CLOCK_WARP_START
+            /* FIXME: this is temporary fix, other checkpoints
+                      may also be invoked from the different threads someday.
+                      Asynchronous event processing should be refactored
+                      to create additional replay event kind which is
+                      nailed to the one of the threads and which processes
+                      the event queue. */
+            && checkpoint != CHECKPOINT_CLOCK_VIRTUAL) {
+            replay_save_events(checkpoint);
+        }
+        res = true;
     }
-    return true;
+out:
+    in_checkpoint = false;
+    return res;
 }
 
-void replay_async_events(void)
-{
-    static bool processing = false;
-    /*
-     * If we are already processing the events, recursion may occur
-     * in case of incorrect implementation when HW event modifies timers.
-     * Timer modification may invoke the icount warp, event processing,
-     * and cause the recursion.
-     */
-    g_assert(!processing);
-    processing = true;
-
-    replay_save_instructions();
-
-    if (replay_mode == REPLAY_MODE_PLAY) {
-        g_assert(replay_mutex_locked());
-        replay_read_events();
-    } else if (replay_mode == REPLAY_MODE_RECORD) {
-        g_assert(replay_mutex_locked());
-        replay_save_events();
-    }
-    processing = false;
-}
-
-bool replay_has_event(void)
+bool replay_has_checkpoint(void)
 {
     bool res = false;
     if (replay_mode == REPLAY_MODE_PLAY) {
@@ -220,8 +256,6 @@ bool replay_has_event(void)
         replay_account_executed_instructions();
         res = EVENT_CHECKPOINT <= replay_state.data_kind
               && replay_state.data_kind <= EVENT_CHECKPOINT_LAST;
-        res = res || (EVENT_ASYNC <= replay_state.data_kind
-                     && replay_state.data_kind <= EVENT_ASYNC_LAST);
     }
     return res;
 }
@@ -365,22 +399,21 @@ void replay_finish(void)
         fclose(replay_file);
         replay_file = NULL;
     }
-    g_free(replay_filename);
-    replay_filename = NULL;
+    if (replay_filename) {
+        g_free(replay_filename);
+        replay_filename = NULL;
+    }
 
     g_free(replay_snapshot);
     replay_snapshot = NULL;
 
-    replay_finish_events();
     replay_mode = REPLAY_MODE_NONE;
+
+    replay_finish_events();
 }
 
-void replay_add_blocker(const char *feature)
+void replay_add_blocker(Error *reason)
 {
-    Error *reason = NULL;
-
-    error_setg(&reason, "Record/replay feature is not supported for '%s'",
-               feature);
     replay_blockers = g_slist_prepend(replay_blockers, reason);
 }
 

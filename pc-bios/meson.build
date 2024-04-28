@@ -1,5 +1,8 @@
-roms = []
-if unpack_edk2_blobs
+if 'arm-softmmu' in target_dirs or \
+    'aarch64-softmmu' in target_dirs or \
+    'i386-softmmu' in target_dirs or \
+    'x86_64-softmmu' in target_dirs
+  bzip2 = find_program('bzip2', required: true)
   fds = [
     'edk2-aarch64-code.fd',
     'edk2-arm-code.fd',
@@ -12,10 +15,9 @@ if unpack_edk2_blobs
   ]
 
   foreach f : fds
-    roms += custom_target(f,
-                  build_by_default: have_system,
+    custom_target(f,
                   output: f,
-                  input: files('@0@.bz2'.format(f)),
+                  input: '@0@.bz2'.format(f),
                   capture: true,
                   install: get_option('install_blobs'),
                   install_dir: qemu_datadir,
@@ -23,11 +25,12 @@ if unpack_edk2_blobs
   endforeach
 endif
 
-blobs = [
+blobs = files(
   'bios.bin',
   'bios-256k.bin',
   'bios-microvm.bin',
   'qboot.rom',
+  'sgabios.bin',
   'vgabios.bin',
   'vgabios-cirrus.bin',
   'vgabios-stdvga.bin',
@@ -57,8 +60,11 @@ blobs = [
   'efi-e1000e.rom',
   'efi-vmxnet3.rom',
   'qemu-nsis.bmp',
+  'bamboo.dtb',
+  'canyonlands.dtb',
+  'petalogix-s3adsp1800.dtb',
+  'petalogix-ml605.dtb',
   'multiboot.bin',
-  'multiboot_dma.bin',
   'linuxboot.bin',
   'linuxboot_dma.bin',
   'kvmvapic.bin',
@@ -75,31 +81,10 @@ blobs = [
   'hppa-firmware.img',
   'opensbi-riscv32-generic-fw_dynamic.bin',
   'opensbi-riscv64-generic-fw_dynamic.bin',
+  'opensbi-riscv32-generic-fw_dynamic.elf',
+  'opensbi-riscv64-generic-fw_dynamic.elf',
   'npcm7xx_bootrom.bin',
-  'vof.bin',
-  'vof-nvram.bin',
-]
-
-dtc = find_program('dtc', required: false)
-foreach f : [
-  'bamboo.dts',
-  'canyonlands.dts',
-  'petalogix-s3adsp1800.dts',
-  'petalogix-ml605.dts',
-]
-  out = fs.replace_suffix(f, '.dtb')
-  if dtc.found()
-    custom_target(f,
-        build_by_default: have_system,
-        input: files(f),
-        output: out,
-        install: get_option('install_blobs'),
-        install_dir: qemu_datadir,
-        command: [ dtc, '-I', 'dts', '-O', 'dtb', '-o', '@OUTPUT@', '@INPUT0@' ])
-  else
-    blobs += out
-  endif
-endforeach
+)
 
 if get_option('install_blobs')
   install_data(blobs, install_dir: qemu_datadir)

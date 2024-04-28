@@ -83,8 +83,8 @@ typedef struct QSPCallSite QSPCallSite;
 struct QSPEntry {
     void *thread_ptr;
     const QSPCallSite *callsite;
-    aligned_uint64_t n_acqs;
-    aligned_uint64_t ns;
+    uint64_t n_acqs;
+    uint64_t ns;
     unsigned int n_objs; /* count of coalesced objs; only used for reporting */
 };
 typedef struct QSPEntry QSPEntry;
@@ -144,7 +144,7 @@ uint32_t do_qsp_callsite_hash(const QSPCallSite *callsite, uint64_t ab)
     uint32_t e = callsite->line;
     uint32_t f = callsite->type;
 
-    return qemu_xxhash8(ab, cd, 0, e, f);
+    return qemu_xxhash6(ab, cd, e, f);
 }
 
 static inline

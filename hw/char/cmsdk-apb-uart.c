@@ -27,7 +27,6 @@
 #include "chardev/char-serial.h"
 #include "hw/char/cmsdk-apb-uart.h"
 #include "hw/irq.h"
-#include "hw/qdev-properties-system.h"
 
 REG32(DATA, 0)
 REG32(STATE, 4)
@@ -191,7 +190,7 @@ static uint64_t uart_read(void *opaque, hwaddr offset, unsigned size)
 /* Try to send tx data, and arrange to be called back later if
  * we can't (ie the char backend is busy/blocking).
  */
-static gboolean uart_transmit(void *do_not_use, GIOCondition cond, void *opaque)
+static gboolean uart_transmit(GIOChannel *chan, GIOCondition cond, void *opaque)
 {
     CMSDKAPBUART *s = CMSDK_APB_UART(opaque);
     int ret;
@@ -199,7 +198,7 @@ static gboolean uart_transmit(void *do_not_use, GIOCondition cond, void *opaque)
     s->watch_tag = 0;
 
     if (!(s->ctrl & R_CTRL_TX_EN_MASK) || !(s->state & R_STATE_TXFULL_MASK)) {
-        return G_SOURCE_REMOVE;
+        return FALSE;
     }
 
     ret = qemu_chr_fe_write(&s->chr, &s->txbuf, 1);
@@ -215,7 +214,7 @@ static gboolean uart_transmit(void *do_not_use, GIOCondition cond, void *opaque)
         }
         /* Transmit pending */
         trace_cmsdk_apb_uart_tx_pending();
-        return G_SOURCE_REMOVE;
+        return FALSE;
     }
 
 buffer_drained:
@@ -227,7 +226,7 @@ buffer_drained:
         s->intstatus |= R_INTSTATUS_TX_MASK;
     }
     cmsdk_apb_uart_update(s);
-    return G_SOURCE_REMOVE;
+    return FALSE;
 }
 
 static void uart_cancel_transmit(CMSDKAPBUART *s)

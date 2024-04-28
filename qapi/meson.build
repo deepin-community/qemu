@@ -2,41 +2,32 @@ util_ss.add(files(
   'opts-visitor.c',
   'qapi-clone-visitor.c',
   'qapi-dealloc-visitor.c',
-  'qapi-forward-visitor.c',
   'qapi-util.c',
   'qapi-visit-core.c',
+  'qmp-dispatch.c',
+  'qmp-event.c',
+  'qmp-registry.c',
   'qobject-input-visitor.c',
   'qobject-output-visitor.c',
   'string-input-visitor.c',
   'string-output-visitor.c',
 ))
-if have_system
-  util_ss.add(files('qapi-type-helpers.c'))
-endif
-if have_system or have_tools or have_ga
-  util_ss.add(files(
-    'qmp-dispatch.c',
-    'qmp-event.c',
-    'qmp-registry.c',
-  ))
-endif
 
 qapi_all_modules = [
+  'acpi',
+  'audio',
   'authz',
   'block',
   'block-core',
   'block-export',
   'char',
   'common',
-  'compat',
   'control',
   'crypto',
-  'cxl',
   'dump',
   'error',
   'introspect',
   'job',
-  'machine-common',
   'machine',
   'machine-target',
   'migration',
@@ -44,33 +35,34 @@ qapi_all_modules = [
   'misc-target',
   'net',
   'pragma',
+  'qdev',
+  'pci',
   'qom',
+  'rdma',
   'replay',
+  'rocker',
   'run-state',
   'sockets',
-  'stats',
+  'tpm',
   'trace',
   'transaction',
-  'virtio',
-  'yank',
+  'ui',
 ]
-if have_system
-  qapi_all_modules += [
-    'acpi',
-    'audio',
-    'cryptodev',
-    'qdev',
-    'pci',
-    'rdma',
-    'rocker',
-    'tpm',
-  ]
-endif
-if have_system or have_tools
-  qapi_all_modules += [
-    'ui',
-  ]
-endif
+
+qapi_storage_daemon_modules = [
+  'block-core',
+  'block-export',
+  'char',
+  'common',
+  'control',
+  'crypto',
+  'introspect',
+  'job',
+  'qom',
+  'sockets',
+  'pragma',
+  'transaction',
+]
 
 qapi_nonmodule_outputs = [
   'qapi-introspect.c', 'qapi-introspect.h',
@@ -97,16 +89,11 @@ foreach module : qapi_all_modules
     'qapi-types-@0@.h'.format(module),
     'qapi-visit-@0@.c'.format(module),
     'qapi-visit-@0@.h'.format(module),
+    'qapi-events-@0@.c'.format(module),
+    'qapi-events-@0@.h'.format(module),
+    'qapi-commands-@0@.c'.format(module),
+    'qapi-commands-@0@.h'.format(module),
   ]
-  if have_system or have_tools
-    qapi_module_outputs += [
-      'qapi-events-@0@.c'.format(module),
-      'qapi-events-@0@.h'.format(module),
-      'qapi-commands-@0@.c'.format(module),
-      'qapi-commands-@0@.h'.format(module),
-      'qapi-commands-@0@.trace-events'.format(module),
-    ]
-  endif
   if module.endswith('-target')
     qapi_specific_outputs += qapi_module_outputs
   else
@@ -128,9 +115,6 @@ foreach output : qapi_util_outputs
   if output.endswith('.h')
     genh += qapi_files[i]
   endif
-  if output.endswith('.trace-events')
-    qapi_trace_events += qapi_files[i]
-  endif
   util_ss.add(qapi_files[i])
   i = i + 1
 endforeach
@@ -139,9 +123,6 @@ foreach output : qapi_specific_outputs + qapi_nonmodule_outputs
   if output.endswith('.h')
     genh += qapi_files[i]
   endif
-  if output.endswith('.trace-events')
-    qapi_trace_events += qapi_files[i]
-  endif
-  specific_ss.add(when: 'CONFIG_SYSTEM_ONLY', if_true: qapi_files[i])
+  specific_ss.add(when: 'CONFIG_SOFTMMU', if_true: qapi_files[i])
   i = i + 1
 endforeach

@@ -20,7 +20,7 @@
 #include "qemu/osdep.h"
 #include "qemu/host-utils.h"
 #include "cpu.h"
-#include "exec/helper-proto-common.h"
+#include "exec/helper-proto.h"
 #include "tcg/tcg-gvec-desc.h"
 
 
@@ -550,17 +550,6 @@ void HELPER(gvec_ands)(void *d, void *a, uint64_t b, uint32_t desc)
     clear_high(d, oprsz, desc);
 }
 
-void HELPER(gvec_andcs)(void *d, void *a, uint64_t b, uint32_t desc)
-{
-    intptr_t oprsz = simd_oprsz(desc);
-    intptr_t i;
-
-    for (i = 0; i < oprsz; i += sizeof(uint64_t)) {
-        *(uint64_t *)(d + i) = *(uint64_t *)(a + i) & ~b;
-    }
-    clear_high(d, oprsz, desc);
-}
-
 void HELPER(gvec_xors)(void *d, void *a, uint64_t b, uint32_t desc)
 {
     intptr_t oprsz = simd_oprsz(desc);
@@ -1042,32 +1031,6 @@ DO_CMP2(64)
 #undef DO_CMP1
 #undef DO_CMP2
 
-#define DO_CMP1(NAME, TYPE, OP)                                            \
-void HELPER(NAME)(void *d, void *a, uint64_t b64, uint32_t desc)           \
-{                                                                          \
-    intptr_t oprsz = simd_oprsz(desc);                                     \
-    TYPE inv = simd_data(desc), b = b64;                                   \
-    for (intptr_t i = 0; i < oprsz; i += sizeof(TYPE)) {                   \
-        *(TYPE *)(d + i) = -((*(TYPE *)(a + i) OP b) ^ inv);               \
-    }                                                                      \
-    clear_high(d, oprsz, desc);                                            \
-}
-
-#define DO_CMP2(SZ) \
-    DO_CMP1(gvec_eqs##SZ, uint##SZ##_t, ==)    \
-    DO_CMP1(gvec_lts##SZ, int##SZ##_t, <)      \
-    DO_CMP1(gvec_les##SZ, int##SZ##_t, <=)     \
-    DO_CMP1(gvec_ltus##SZ, uint##SZ##_t, <)    \
-    DO_CMP1(gvec_leus##SZ, uint##SZ##_t, <=)
-
-DO_CMP2(8)
-DO_CMP2(16)
-DO_CMP2(32)
-DO_CMP2(64)
-
-#undef DO_CMP1
-#undef DO_CMP2
-
 void HELPER(gvec_ssadd8)(void *d, void *a, void *b, uint32_t desc)
 {
     intptr_t oprsz = simd_oprsz(desc);
@@ -1110,8 +1073,9 @@ void HELPER(gvec_ssadd32)(void *d, void *a, void *b, uint32_t desc)
     for (i = 0; i < oprsz; i += sizeof(int32_t)) {
         int32_t ai = *(int32_t *)(a + i);
         int32_t bi = *(int32_t *)(b + i);
-        int32_t di;
-        if (sadd32_overflow(ai, bi, &di)) {
+        int32_t di = ai + bi;
+        if (((di ^ ai) &~ (ai ^ bi)) < 0) {
+            /* Signed overflow.  */
             di = (di < 0 ? INT32_MAX : INT32_MIN);
         }
         *(int32_t *)(d + i) = di;
@@ -1127,8 +1091,9 @@ void HELPER(gvec_ssadd64)(void *d, void *a, void *b, uint32_t desc)
     for (i = 0; i < oprsz; i += sizeof(int64_t)) {
         int64_t ai = *(int64_t *)(a + i);
         int64_t bi = *(int64_t *)(b + i);
-        int64_t di;
-        if (sadd64_overflow(ai, bi, &di)) {
+        int64_t di = ai + bi;
+        if (((di ^ ai) &~ (ai ^ bi)) < 0) {
+            /* Signed overflow.  */
             di = (di < 0 ? INT64_MAX : INT64_MIN);
         }
         *(int64_t *)(d + i) = di;
@@ -1178,8 +1143,9 @@ void HELPER(gvec_sssub32)(void *d, void *a, void *b, uint32_t desc)
     for (i = 0; i < oprsz; i += sizeof(int32_t)) {
         int32_t ai = *(int32_t *)(a + i);
         int32_t bi = *(int32_t *)(b + i);
-        int32_t di;
-        if (ssub32_overflow(ai, bi, &di)) {
+        int32_t di = ai - bi;
+        if (((di ^ ai) & (ai ^ bi)) < 0) {
+            /* Signed overflow.  */
             di = (di < 0 ? INT32_MAX : INT32_MIN);
         }
         *(int32_t *)(d + i) = di;
@@ -1195,8 +1161,9 @@ void HELPER(gvec_sssub64)(void *d, void *a, void *b, uint32_t desc)
     for (i = 0; i < oprsz; i += sizeof(int64_t)) {
         int64_t ai = *(int64_t *)(a + i);
         int64_t bi = *(int64_t *)(b + i);
-        int64_t di;
-        if (ssub64_overflow(ai, bi, &di)) {
+        int64_t di = ai - bi;
+        if (((di ^ ai) & (ai ^ bi)) < 0) {
+            /* Signed overflow.  */
             di = (di < 0 ? INT64_MAX : INT64_MIN);
         }
         *(int64_t *)(d + i) = di;
@@ -1242,8 +1209,8 @@ void HELPER(gvec_usadd32)(void *d, void *a, void *b, uint32_t desc)
     for (i = 0; i < oprsz; i += sizeof(uint32_t)) {
         uint32_t ai = *(uint32_t *)(a + i);
         uint32_t bi = *(uint32_t *)(b + i);
-        uint32_t di;
-        if (uadd32_overflow(ai, bi, &di)) {
+        uint32_t di = ai + bi;
+        if (di < ai) {
             di = UINT32_MAX;
         }
         *(uint32_t *)(d + i) = di;
@@ -1259,8 +1226,8 @@ void HELPER(gvec_usadd64)(void *d, void *a, void *b, uint32_t desc)
     for (i = 0; i < oprsz; i += sizeof(uint64_t)) {
         uint64_t ai = *(uint64_t *)(a + i);
         uint64_t bi = *(uint64_t *)(b + i);
-        uint64_t di;
-        if (uadd64_overflow(ai, bi, &di)) {
+        uint64_t di = ai + bi;
+        if (di < ai) {
             di = UINT64_MAX;
         }
         *(uint64_t *)(d + i) = di;
@@ -1306,8 +1273,8 @@ void HELPER(gvec_ussub32)(void *d, void *a, void *b, uint32_t desc)
     for (i = 0; i < oprsz; i += sizeof(uint32_t)) {
         uint32_t ai = *(uint32_t *)(a + i);
         uint32_t bi = *(uint32_t *)(b + i);
-        uint32_t di;
-        if (usub32_overflow(ai, bi, &di)) {
+        uint32_t di = ai - bi;
+        if (ai < bi) {
             di = 0;
         }
         *(uint32_t *)(d + i) = di;
@@ -1323,8 +1290,8 @@ void HELPER(gvec_ussub64)(void *d, void *a, void *b, uint32_t desc)
     for (i = 0; i < oprsz; i += sizeof(uint64_t)) {
         uint64_t ai = *(uint64_t *)(a + i);
         uint64_t bi = *(uint64_t *)(b + i);
-        uint64_t di;
-        if (usub64_overflow(ai, bi, &di)) {
+        uint64_t di = ai - bi;
+        if (ai < bi) {
             di = 0;
         }
         *(uint64_t *)(d + i) = di;

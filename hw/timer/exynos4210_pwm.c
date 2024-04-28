@@ -257,7 +257,7 @@ static uint64_t exynos4210_pwm_read(void *opaque, hwaddr offset,
 
     default:
         qemu_log_mask(LOG_GUEST_ERROR,
-                      "exynos4210.pwm: bad read offset " HWADDR_FMT_plx,
+                      "exynos4210.pwm: bad read offset " TARGET_FMT_plx,
                       offset);
         break;
     }
@@ -352,7 +352,7 @@ static void exynos4210_pwm_write(void *opaque, hwaddr offset,
 
     default:
         qemu_log_mask(LOG_GUEST_ERROR,
-                      "exynos4210.pwm: bad write offset " HWADDR_FMT_plx,
+                      "exynos4210.pwm: bad write offset " TARGET_FMT_plx,
                       offset);
         break;
 
@@ -400,7 +400,7 @@ static void exynos4210_pwm_init(Object *obj)
         sysbus_init_irq(dev, &s->timer[i].irq);
         s->timer[i].ptimer = ptimer_init(exynos4210_pwm_tick,
                                          &s->timer[i],
-                                         PTIMER_POLICY_LEGACY);
+                                         PTIMER_POLICY_DEFAULT);
         s->timer[i].id = i;
         s->timer[i].parent = s;
     }
@@ -408,16 +408,6 @@ static void exynos4210_pwm_init(Object *obj)
     memory_region_init_io(&s->iomem, obj, &exynos4210_pwm_ops, s,
                           "exynos4210-pwm", EXYNOS4210_PWM_REG_MEM_SIZE);
     sysbus_init_mmio(dev, &s->iomem);
-}
-
-static void exynos4210_pwm_finalize(Object *obj)
-{
-    Exynos4210PWMState *s = EXYNOS4210_PWM(obj);
-    int i;
-
-    for (i = 0; i < EXYNOS4210_PWM_TIMERS_NUM; i++) {
-        ptimer_free(s->timer[i].ptimer);
-    }
 }
 
 static void exynos4210_pwm_class_init(ObjectClass *klass, void *data)
@@ -433,7 +423,6 @@ static const TypeInfo exynos4210_pwm_info = {
     .parent        = TYPE_SYS_BUS_DEVICE,
     .instance_size = sizeof(Exynos4210PWMState),
     .instance_init = exynos4210_pwm_init,
-    .instance_finalize = exynos4210_pwm_finalize,
     .class_init    = exynos4210_pwm_class_init,
 };
 

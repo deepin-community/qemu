@@ -3,7 +3,11 @@
 \ -------------------------------------------------------------------------
 
 : decode-unit-scsi ( str len -- id lun )
-  2 parse-nhex
+  ascii , left-split
+  ( addr-R len-R addr-L len-L )
+  parse-hex
+  -rot parse-hex
+  swap
 ;
 
 : encode-unit-scsi ( id lun -- str len)

@@ -33,6 +33,7 @@
 #include "cpu-models.h"
 #include "kvm_ppc.h"
 #include "migration/vmstate.h"
+#include "sysemu/qtest.h"
 #include "sysemu/tcg.h"
 
 #include "hw/ppc/spapr.h"
@@ -95,12 +96,12 @@ static void spapr_cap_set_bool(Object *obj, Visitor *v, const char *name,
 }
 
 
-static void spapr_cap_get_string(Object *obj, Visitor *v, const char *name,
-                                 void *opaque, Error **errp)
+static void  spapr_cap_get_string(Object *obj, Visitor *v, const char *name,
+                                  void *opaque, Error **errp)
 {
     SpaprCapabilityInfo *cap = opaque;
     SpaprMachineState *spapr = SPAPR_MACHINE(obj);
-    g_autofree char *val = NULL;
+    char *val = NULL;
     uint8_t value = spapr_get_cap(spapr, cap->index);
 
     if (value >= cap->possible->num) {
@@ -111,6 +112,7 @@ static void spapr_cap_get_string(Object *obj, Visitor *v, const char *name,
     val = g_strdup(cap->possible->vals[value]);
 
     visit_type_str(v, name, &val, errp);
+    g_free(val);
 }
 
 static void spapr_cap_set_string(Object *obj, Visitor *v, const char *name,
@@ -119,7 +121,7 @@ static void spapr_cap_set_string(Object *obj, Visitor *v, const char *name,
     SpaprCapabilityInfo *cap = opaque;
     SpaprMachineState *spapr = SPAPR_MACHINE(obj);
     uint8_t i;
-    g_autofree char *val = NULL;
+    char *val;
 
     if (!visit_type_str(v, name, &val, errp)) {
         return;
@@ -127,18 +129,20 @@ static void spapr_cap_set_string(Object *obj, Visitor *v, const char *name,
 
     if (!strcmp(val, "?")) {
         error_setg(errp, "%s", cap->possible->help);
-        return;
+        goto out;
     }
     for (i = 0; i < cap->possible->num; i++) {
         if (!strcasecmp(val, cap->possible->vals[i])) {
             spapr->cmd_line_caps[cap->index] = true;
             spapr->eff.caps[cap->index] = i;
-            return;
+            goto out;
         }
     }
 
     error_setg(errp, "Invalid capability mode \"%s\" for cap-%s", val,
                cap->name);
+out:
+    g_free(val);
 }
 
 static void spapr_cap_get_pagesize(Object *obj, Visitor *v, const char *name,
@@ -368,65 +372,6 @@ static bool spapr_pagesize_cb(void *opaque, uint32_t seg_pshift,
     return true;
 }
 
-static void ppc_hash64_filter_pagesizes(PowerPCCPU *cpu,
-                                 bool (*cb)(void *, uint32_t, uint32_t),
-                                 void *opaque)
-{
-    PPCHash64Options *opts = cpu->hash64_opts;
-    int i;
-    int n = 0;
-    bool ci_largepage = false;
-
-    assert(opts);
-
-    n = 0;
-    for (i = 0; i < ARRAY_SIZE(opts->sps); i++) {
-        PPCHash64SegmentPageSizes *sps = &opts->sps[i];
-        int j;
-        int m = 0;
-
-        assert(n <= i);
-
-        if (!sps->page_shift) {
-            break;
-        }
-
-        for (j = 0; j < ARRAY_SIZE(sps->enc); j++) {
-            PPCHash64PageSize *ps = &sps->enc[j];
-
-            assert(m <= j);
-            if (!ps->page_shift) {
-                break;
-            }
-
-            if (cb(opaque, sps->page_shift, ps->page_shift)) {
-                if (ps->page_shift >= 16) {
-                    ci_largepage = true;
-                }
-                sps->enc[m++] = *ps;
-            }
-        }
-
-        /* Clear rest of the row */
-        for (j = m; j < ARRAY_SIZE(sps->enc); j++) {
-            memset(&sps->enc[j], 0, sizeof(sps->enc[j]));
-        }
-
-        if (m) {
-            n++;
-        }
-    }
-
-    /* Clear the rest of the table */
-    for (i = n; i < ARRAY_SIZE(opts->sps); i++) {
-        memset(&opts->sps[i], 0, sizeof(opts->sps[i]));
-    }
-
-    if (!ci_largepage) {
-        opts->flags &= ~PPC_HASH64_CI_LARGEPAGE;
-    }
-}
-
 static void cap_hpt_maxpagesize_cpu_apply(SpaprMachineState *spapr,
                                           PowerPCCPU *cpu,
                                           uint8_t val, Error **errp)
@@ -441,23 +386,19 @@ static void cap_nested_kvm_hv_apply(SpaprMachineState *spapr,
 {
     ERRP_GUARD();
     PowerPCCPU *cpu = POWERPC_CPU(first_cpu);
-    CPUPPCState *env = &cpu->env;
 
     if (!val) {
         /* capability disabled by default */
         return;
     }
 
-    if (!(env->insns_flags2 & PPC2_ISA300)) {
-        error_setg(errp, "Nested-HV only supported on POWER9 and later");
+    if (tcg_enabled()) {
+        error_setg(errp, "No Nested KVM-HV support in TCG");
         error_append_hint(errp, "Try appending -machine cap-nested-hv=off\n");
-        return;
-    }
-
-    if (kvm_enabled()) {
+    } else if (kvm_enabled()) {
         if (!ppc_check_compat(cpu, CPU_POWERPC_LOGICAL_3_00, 0,
                               spapr->max_compat_pvr)) {
-            error_setg(errp, "Nested-HV only supported on POWER9 and later");
+            error_setg(errp, "Nested KVM-HV only supported on POWER9");
             error_append_hint(errp,
                               "Try appending -machine max-cpu-compat=power9\n");
             return;
@@ -465,27 +406,13 @@ static void cap_nested_kvm_hv_apply(SpaprMachineState *spapr,
 
         if (!kvmppc_has_cap_nested_kvm_hv()) {
             error_setg(errp,
-                       "KVM implementation does not support Nested-HV");
+                       "KVM implementation does not support Nested KVM-HV");
             error_append_hint(errp,
                               "Try appending -machine cap-nested-hv=off\n");
         } else if (kvmppc_set_cap_nested_kvm_hv(val) < 0) {
                 error_setg(errp, "Error enabling cap-nested-hv with KVM");
                 error_append_hint(errp,
                                   "Try appending -machine cap-nested-hv=off\n");
-        }
-    } else if (tcg_enabled()) {
-        MachineState *ms = MACHINE(spapr);
-        unsigned int smp_threads = ms->smp.threads;
-
-        /*
-         * Nested-HV vCPU env state to L2, so SMT-shared SPR updates, for
-         * example, do not necessarily update the correct SPR value on sibling
-         * threads that are in a different guest/host context.
-         */
-        if (smp_threads > 1) {
-            error_setg(errp, "TCG does not support nested-HV with SMT");
-            error_append_hint(errp, "Try appending -machine cap-nested-hv=off "
-                                    "or use threads=1 with -smp\n");
         }
     }
 }
@@ -567,7 +494,7 @@ static void cap_ccf_assist_apply(SpaprMachineState *spapr, uint8_t val,
              * instruction is a harmless no-op.  It won't correctly
              * implement the cache count flush *but* if we have
              * count-cache-disabled in the host, that flush is
-             * unnecessary.  So, specifically allow this case.  This
+             * unnnecessary.  So, specifically allow this case.  This
              * allows us to have better performance on POWER9 DD2.3,
              * while still working on POWER9 DD2.2 and POWER8 host
              * cpus.
@@ -593,64 +520,6 @@ static void cap_fwnmi_apply(SpaprMachineState *spapr, uint8_t val,
             error_setg(errp,
 "Firmware Assisted Non-Maskable Interrupts(FWNMI) not supported by KVM.");
             error_append_hint(errp, "Try appending -machine cap-fwnmi=off\n");
-        }
-    }
-}
-
-static void cap_rpt_invalidate_apply(SpaprMachineState *spapr,
-                                     uint8_t val, Error **errp)
-{
-    ERRP_GUARD();
-
-    if (!val) {
-        /* capability disabled by default */
-        return;
-    }
-
-    if (tcg_enabled()) {
-        error_setg(errp, "No H_RPT_INVALIDATE support in TCG");
-        error_append_hint(errp,
-                          "Try appending -machine cap-rpt-invalidate=off\n");
-    } else if (kvm_enabled()) {
-        if (!kvmppc_has_cap_mmu_radix()) {
-            error_setg(errp, "H_RPT_INVALIDATE only supported on Radix");
-            return;
-        }
-
-        if (!kvmppc_has_cap_rpt_invalidate()) {
-            error_setg(errp,
-                       "KVM implementation does not support H_RPT_INVALIDATE");
-            error_append_hint(errp,
-                              "Try appending -machine cap-rpt-invalidate=off\n");
-        } else {
-            kvmppc_enable_h_rpt_invalidate();
-        }
-    }
-}
-
-static void cap_ail_mode_3_apply(SpaprMachineState *spapr,
-                                     uint8_t val, Error **errp)
-{
-    ERRP_GUARD();
-    PowerPCCPU *cpu = POWERPC_CPU(first_cpu);
-    PowerPCCPUClass *pcc = POWERPC_CPU_GET_CLASS(cpu);
-
-    if (!val) {
-        return;
-    }
-
-    if (tcg_enabled()) {
-        /* AIL-3 is only supported on POWER8 and above CPUs. */
-        if (!(pcc->insns_flags2 & PPC2_ISA207S)) {
-            error_setg(errp, "TCG only supports cap-ail-mode-3 on POWER8 and later CPUs");
-            error_append_hint(errp, "Try appending -machine cap-ail-mode-3=off\n");
-            return;
-        }
-    } else if (kvm_enabled()) {
-        if (!kvmppc_supports_ail_3()) {
-            error_setg(errp, "KVM implementation does not support cap-ail-mode-3");
-            error_append_hint(errp, "Try appending -machine cap-ail-mode-3=off\n");
-            return;
         }
     }
 }
@@ -763,24 +632,6 @@ SpaprCapabilityInfo capability_table[SPAPR_CAP_NUM] = {
         .type = "bool",
         .apply = cap_fwnmi_apply,
     },
-    [SPAPR_CAP_RPT_INVALIDATE] = {
-        .name = "rpt-invalidate",
-        .description = "Allow H_RPT_INVALIDATE",
-        .index = SPAPR_CAP_RPT_INVALIDATE,
-        .get = spapr_cap_get_bool,
-        .set = spapr_cap_set_bool,
-        .type = "bool",
-        .apply = cap_rpt_invalidate_apply,
-    },
-    [SPAPR_CAP_AIL_MODE_3] = {
-        .name = "ail-mode-3",
-        .description = "Alternate Interrupt Location (AIL) mode 3 support",
-        .index = SPAPR_CAP_AIL_MODE_3,
-        .get = spapr_cap_get_bool,
-        .set = spapr_cap_set_bool,
-        .type = "bool",
-        .apply = cap_ail_mode_3_apply,
-    },
 };
 
 static SpaprCapabilities default_caps_with_cpu(SpaprMachineState *spapr,
@@ -800,7 +651,6 @@ static SpaprCapabilities default_caps_with_cpu(SpaprMachineState *spapr,
                                0, spapr->max_compat_pvr)) {
         caps.caps[SPAPR_CAP_HTM] = SPAPR_CAP_OFF;
         caps.caps[SPAPR_CAP_CFPC] = SPAPR_CAP_BROKEN;
-        caps.caps[SPAPR_CAP_AIL_MODE_3] = SPAPR_CAP_OFF;
     }
 
     if (!ppc_type_check_compat(cputype, CPU_POWERPC_LOGICAL_2_06_PLUS,
@@ -922,7 +772,6 @@ SPAPR_CAP_MIG_STATE(nested_kvm_hv, SPAPR_CAP_NESTED_KVM_HV);
 SPAPR_CAP_MIG_STATE(large_decr, SPAPR_CAP_LARGE_DECREMENTER);
 SPAPR_CAP_MIG_STATE(ccf_assist, SPAPR_CAP_CCF_ASSIST);
 SPAPR_CAP_MIG_STATE(fwnmi, SPAPR_CAP_FWNMI);
-SPAPR_CAP_MIG_STATE(rpt_invalidate, SPAPR_CAP_RPT_INVALIDATE);
 
 void spapr_caps_init(SpaprMachineState *spapr)
 {
@@ -981,13 +830,16 @@ void spapr_caps_add_properties(SpaprMachineClass *smc)
 
     for (i = 0; i < ARRAY_SIZE(capability_table); i++) {
         SpaprCapabilityInfo *cap = &capability_table[i];
-        g_autofree char *name = g_strdup_printf("cap-%s", cap->name);
-        g_autofree char *desc = g_strdup_printf("%s", cap->description);
+        char *name = g_strdup_printf("cap-%s", cap->name);
+        char *desc;
 
         object_class_property_add(klass, name, cap->type,
                                   cap->get, cap->set,
                                   NULL, cap);
 
+        desc = g_strdup_printf("%s", cap->description);
         object_class_property_set_description(klass, name, desc);
+        g_free(name);
+        g_free(desc);
     }
 }

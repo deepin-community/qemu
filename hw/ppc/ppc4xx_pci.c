@@ -16,21 +16,19 @@
  * Authors: Hollis Blanchard <hollisb@us.ibm.com>
  */
 
-/*
- * This file implements emulation of the 32-bit PCI controller found in some
- * 4xx SoCs, such as the 440EP.
- */
+/* This file implements emulation of the 32-bit PCI controller found in some
+ * 4xx SoCs, such as the 440EP. */
 
 #include "qemu/osdep.h"
-#include "qemu/log.h"
 #include "hw/irq.h"
 #include "hw/ppc/ppc.h"
 #include "hw/ppc/ppc4xx.h"
 #include "migration/vmstate.h"
 #include "qemu/module.h"
 #include "sysemu/reset.h"
-#include "hw/pci/pci_device.h"
+#include "hw/pci/pci.h"
 #include "hw/pci/pci_host.h"
+#include "exec/address-spaces.h"
 #include "trace.h"
 #include "qom/object.h"
 
@@ -46,19 +44,17 @@ struct PCITargetMap {
     uint32_t la;
 };
 
-OBJECT_DECLARE_SIMPLE_TYPE(PPC4xxPCIState, PPC4xx_PCI_HOST)
+OBJECT_DECLARE_SIMPLE_TYPE(PPC4xxPCIState, PPC4xx_PCI_HOST_BRIDGE)
 
 #define PPC4xx_PCI_NR_PMMS 3
 #define PPC4xx_PCI_NR_PTMS 2
-
-#define PPC4xx_PCI_NUM_DEVS 5
 
 struct PPC4xxPCIState {
     PCIHostState parent_obj;
 
     struct PCIMasterMap pmm[PPC4xx_PCI_NR_PMMS];
     struct PCITargetMap ptm[PPC4xx_PCI_NR_PTMS];
-    qemu_irq irq[PPC4xx_PCI_NUM_DEVS];
+    qemu_irq irq[PCI_NUM_PINS];
 
     MemoryRegion container;
     MemoryRegion iomem;
@@ -67,10 +63,8 @@ struct PPC4xxPCIState {
 #define PCIC0_CFGADDR       0x0
 #define PCIC0_CFGDATA       0x4
 
-/*
- * PLB Memory Map (PMM) registers specify which PLB addresses are translated to
- * PCI accesses.
- */
+/* PLB Memory Map (PMM) registers specify which PLB addresses are translated to
+ * PCI accesses. */
 #define PCIL0_PMM0LA        0x0
 #define PCIL0_PMM0MA        0x4
 #define PCIL0_PMM0PCILA     0x8
@@ -84,10 +78,8 @@ struct PPC4xxPCIState {
 #define PCIL0_PMM2PCILA     0x28
 #define PCIL0_PMM2PCIHA     0x2c
 
-/*
- * PCI Target Map (PTM) registers specify which PCI addresses are translated to
- * PLB accesses.
- */
+/* PCI Target Map (PTM) registers specify which PCI addresses are translated to
+ * PLB accesses. */
 #define PCIL0_PTM1MS        0x30
 #define PCIL0_PTM1LA        0x34
 #define PCIL0_PTM2MS        0x38
@@ -102,10 +94,9 @@ static void ppc4xx_pci_reg_write4(void *opaque, hwaddr offset,
 {
     struct PPC4xxPCIState *pci = opaque;
 
-    /*
-     * We ignore all target attempts at PCI configuration, effectively
-     * assuming a bidirectional 1:1 mapping of PLB and PCI space.
-     */
+    /* We ignore all target attempts at PCI configuration, effectively
+     * assuming a bidirectional 1:1 mapping of PLB and PCI space. */
+
     switch (offset) {
     case PCIL0_PMM0LA:
         pci->pmm[0].la = value;
@@ -160,9 +151,8 @@ static void ppc4xx_pci_reg_write4(void *opaque, hwaddr offset,
         break;
 
     default:
-        qemu_log_mask(LOG_GUEST_ERROR,
-                     "%s: unhandled PCI internal register 0x%" HWADDR_PRIx "\n",
-                     __func__, offset);
+        printf("%s: unhandled PCI internal register 0x%lx\n", __func__,
+               (unsigned long)offset);
         break;
     }
 }
@@ -227,9 +217,8 @@ static uint64_t ppc4xx_pci_reg_read4(void *opaque, hwaddr offset,
         break;
 
     default:
-        qemu_log_mask(LOG_GUEST_ERROR,
-                      "%s: invalid PCI internal register 0x%" HWADDR_PRIx "\n",
-                      __func__, offset);
+        printf("%s: invalid PCI internal register 0x%lx\n", __func__,
+               (unsigned long)offset);
         value = 0;
     }
 
@@ -250,17 +239,15 @@ static void ppc4xx_pci_reset(void *opaque)
     memset(pci->ptm, 0, sizeof(pci->ptm));
 }
 
-/*
- * On Bamboo, all pins from each slot are tied to a single board IRQ.
- * This may need further refactoring for other boards.
- */
+/* On Bamboo, all pins from each slot are tied to a single board IRQ. This
+ * may need further refactoring for other boards. */
 static int ppc4xx_pci_map_irq(PCIDevice *pci_dev, int irq_num)
 {
-    int slot = PCI_SLOT(pci_dev->devfn);
+    int slot = pci_dev->devfn >> 3;
 
     trace_ppc4xx_pci_map_irq(pci_dev->devfn, irq_num, slot);
 
-    return slot > 0 ? slot - 1 : PPC4xx_PCI_NUM_DEVS - 1;
+    return slot - 1;
 }
 
 static void ppc4xx_pci_set_irq(void *opaque, int irq_num, int level)
@@ -268,7 +255,7 @@ static void ppc4xx_pci_set_irq(void *opaque, int irq_num, int level)
     qemu_irq *pci_irqs = opaque;
 
     trace_ppc4xx_pci_set_irq(irq_num);
-    assert(irq_num >= 0 && irq_num < PPC4xx_PCI_NUM_DEVS);
+    assert(irq_num >= 0);
     qemu_set_irq(pci_irqs[irq_num], level);
 }
 
@@ -321,7 +308,7 @@ static void ppc4xx_pcihost_realize(DeviceState *dev, Error **errp)
     int i;
 
     h = PCI_HOST_BRIDGE(dev);
-    s = PPC4xx_PCI_HOST(dev);
+    s = PPC4xx_PCI_HOST_BRIDGE(dev);
 
     for (i = 0; i < ARRAY_SIZE(s->irq); i++) {
         sysbus_init_irq(sbd, &s->irq[i]);
@@ -333,7 +320,7 @@ static void ppc4xx_pcihost_realize(DeviceState *dev, Error **errp)
                               TYPE_PCI_BUS);
     h->bus = b;
 
-    pci_create_simple(b, 0, TYPE_PPC4xx_HOST_BRIDGE);
+    pci_create_simple(b, 0, "ppc4xx-host-bridge");
 
     /* XXX split into 2 memory regions, one for config space, one for regs */
     memory_region_init(&s->container, OBJECT(s), "pci-container", PCI_ALL_SIZE);
@@ -367,7 +354,7 @@ static void ppc4xx_host_bridge_class_init(ObjectClass *klass, void *data)
 }
 
 static const TypeInfo ppc4xx_host_bridge_info = {
-    .name          = TYPE_PPC4xx_HOST_BRIDGE,
+    .name          = "ppc4xx-host-bridge",
     .parent        = TYPE_PCI_DEVICE,
     .instance_size = sizeof(PCIDevice),
     .class_init    = ppc4xx_host_bridge_class_init,
@@ -386,7 +373,7 @@ static void ppc4xx_pcihost_class_init(ObjectClass *klass, void *data)
 }
 
 static const TypeInfo ppc4xx_pcihost_info = {
-    .name          = TYPE_PPC4xx_PCI_HOST,
+    .name          = TYPE_PPC4xx_PCI_HOST_BRIDGE,
     .parent        = TYPE_PCI_HOST_BRIDGE,
     .instance_size = sizeof(PPC4xxPCIState),
     .class_init    = ppc4xx_pcihost_class_init,

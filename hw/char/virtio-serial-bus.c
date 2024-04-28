@@ -28,6 +28,7 @@
 #include "qemu/error-report.h"
 #include "qemu/queue.h"
 #include "hw/qdev-properties.h"
+#include "hw/sysbus.h"
 #include "trace.h"
 #include "hw/virtio/virtio-serial.h"
 #include "hw/virtio/virtio-access.h"
@@ -740,6 +741,7 @@ static void virtio_serial_post_load_timer_cb(void *opaque)
         }
     }
     g_free(s->post_load->connected);
+    timer_del(s->post_load->timer);
     timer_free(s->post_load->timer);
     g_free(s->post_load);
     s->post_load = NULL;
@@ -985,8 +987,7 @@ static void virtser_port_device_realize(DeviceState *dev, Error **errp)
         return;
     }
 
-    port->bh = qemu_bh_new_guarded(flush_queued_data_bh, port,
-                                   &dev->mem_reentrancy_guard);
+    port->bh = qemu_bh_new(flush_queued_data_bh, port);
     port->elem = NULL;
 }
 
@@ -1045,18 +1046,21 @@ static void virtio_serial_device_realize(DeviceState *dev, Error **errp)
                             VIRTIO_CONSOLE_F_EMERG_WRITE)) {
         config_size = offsetof(struct virtio_console_config, emerg_wr);
     }
-    virtio_init(vdev, VIRTIO_ID_CONSOLE, config_size);
+    virtio_init(vdev, "virtio-serial", VIRTIO_ID_CONSOLE,
+                config_size);
 
     /* Spawn a new virtio-serial bus on which the ports will ride as devices */
-    qbus_init(&vser->bus, sizeof(vser->bus), TYPE_VIRTIO_SERIAL_BUS,
-              dev, vdev->bus_name);
+    qbus_create_inplace(&vser->bus, sizeof(vser->bus), TYPE_VIRTIO_SERIAL_BUS,
+                        dev, vdev->bus_name);
     qbus_set_hotplug_handler(BUS(&vser->bus), OBJECT(vser));
     vser->bus.vser = vser;
     QTAILQ_INIT(&vser->ports);
 
     vser->bus.max_nr_ports = vser->serial.max_virtserial_ports;
-    vser->ivqs = g_new(VirtQueue *, vser->serial.max_virtserial_ports);
-    vser->ovqs = g_new(VirtQueue *, vser->serial.max_virtserial_ports);
+    vser->ivqs = g_malloc(vser->serial.max_virtserial_ports
+                          * sizeof(VirtQueue *));
+    vser->ovqs = g_malloc(vser->serial.max_virtserial_ports
+                          * sizeof(VirtQueue *));
 
     /* Add a queue for host to guest transfers for port 0 (backward compat) */
     vser->ivqs[0] = virtio_add_queue(vdev, 128, handle_input);
@@ -1134,6 +1138,7 @@ static void virtio_serial_device_unrealize(DeviceState *dev)
     g_free(vser->ports_map);
     if (vser->post_load) {
         g_free(vser->post_load->connected);
+        timer_del(vser->post_load->timer);
         timer_free(vser->post_load->timer);
         g_free(vser->post_load);
     }

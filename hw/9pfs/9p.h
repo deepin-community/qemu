@@ -100,8 +100,8 @@ typedef enum P9ProtoVersion {
     V9FS_PROTO_2000L = 0x02,
 } P9ProtoVersion;
 
-/*
- * Minimum message size supported by this 9pfs server.
+/**
+ * @brief Minimum message size supported by this 9pfs server.
  *
  * A client establishes a session by sending a Tversion request along with a
  * 'msize' parameter which suggests the server a maximum message size ever to be
@@ -203,7 +203,7 @@ typedef struct V9fsDir {
     QemuMutex readdir_mutex_L;
 } V9fsDir;
 
-static inline void coroutine_fn v9fs_readdir_lock(V9fsDir *dir)
+static inline void v9fs_readdir_lock(V9fsDir *dir)
 {
     if (dir->proto_version == V9FS_PROTO_2000U) {
         qemu_co_mutex_lock(&dir->readdir_mutex_u);
@@ -212,7 +212,7 @@ static inline void coroutine_fn v9fs_readdir_lock(V9fsDir *dir)
     }
 }
 
-static inline void coroutine_fn v9fs_readdir_unlock(V9fsDir *dir)
+static inline void v9fs_readdir_unlock(V9fsDir *dir)
 {
     if (dir->proto_version == V9FS_PROTO_2000U) {
         qemu_co_mutex_unlock(&dir->readdir_mutex_u);
@@ -231,7 +231,7 @@ static inline void v9fs_readdir_init(P9ProtoVersion proto_version, V9fsDir *dir)
     }
 }
 
-/*
+/**
  * Type for 9p fs drivers' (a.k.a. 9p backends) result of readdir requests,
  * which is a chained list of directory entries.
  */
@@ -279,9 +279,9 @@ struct V9fsFidState {
     int open_flags;
     uid_t uid;
     int ref;
-    bool clunked;
-    QSIMPLEQ_ENTRY(V9fsFidState) next;
-    QSLIST_ENTRY(V9fsFidState) reclaim_next;
+    int clunked;
+    V9fsFidState *next;
+    V9fsFidState *rclm_lst;
 };
 
 typedef enum AffixType_t {
@@ -289,8 +289,8 @@ typedef enum AffixType_t {
     AffixType_Suffix, /* A.k.a. postfix. */
 } AffixType_t;
 
-/*
- * Unique affix of variable length.
+/**
+ * @brief Unique affix of variable length.
  *
  * An affix is (currently) either a suffix or a prefix, which is either
  * going to be prepended (prefix) or appended (suffix) with some other
@@ -304,7 +304,7 @@ typedef struct VariLenAffix {
     AffixType_t type; /* Whether this affix is a suffix or a prefix. */
     uint64_t value; /* Actual numerical value of this affix. */
     /*
-     * Length of the affix, that is how many (of the lowest) bits of ``value``
+     * Lenght of the affix, that is how many (of the lowest) bits of @c value
      * must be used for appending/prepending this affix to its final resulting,
      * unique number.
      */
@@ -339,7 +339,7 @@ typedef struct {
 struct V9fsState {
     QLIST_HEAD(, V9fsPDU) free_list;
     QLIST_HEAD(, V9fsPDU) active_list;
-    GHashTable *fids;
+    V9fsFidState *fid_list;
     FileOperations *ops;
     FsContext ctx;
     char *tag;
@@ -355,7 +355,7 @@ struct V9fsState {
     int32_t root_fid;
     Error *migration_blocker;
     V9fsConf fsconf;
-    struct stat root_st;
+    V9fsQID root_qid;
     dev_t dev_id;
     struct qht qpd_table;
     struct qht qpp_table;
@@ -424,24 +424,21 @@ typedef struct V9fsGetlock
 extern int open_fd_hw;
 extern int total_open_fd;
 
-static inline void coroutine_fn
-v9fs_path_write_lock(V9fsState *s)
+static inline void v9fs_path_write_lock(V9fsState *s)
 {
     if (s->ctx.export_flags & V9FS_PATHNAME_FSCONTEXT) {
         qemu_co_rwlock_wrlock(&s->rename_lock);
     }
 }
 
-static inline void coroutine_fn
-v9fs_path_read_lock(V9fsState *s)
+static inline void v9fs_path_read_lock(V9fsState *s)
 {
     if (s->ctx.export_flags & V9FS_PATHNAME_FSCONTEXT) {
         qemu_co_rwlock_rdlock(&s->rename_lock);
     }
 }
 
-static inline void coroutine_fn
-v9fs_path_unlock(V9fsState *s)
+static inline void v9fs_path_unlock(V9fsState *s)
 {
     if (s->ctx.export_flags & V9FS_PATHNAME_FSCONTEXT) {
         qemu_co_rwlock_unlock(&s->rename_lock);

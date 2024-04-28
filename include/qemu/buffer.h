@@ -49,7 +49,7 @@ struct Buffer {
  * to identify in debug traces.
  */
 void buffer_init(Buffer *buffer, const char *name, ...)
-        G_GNUC_PRINTF(2, 3);
+        GCC_FMT_ATTR(2, 3);
 
 /**
  * buffer_shrink:

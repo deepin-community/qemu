@@ -22,7 +22,7 @@
 
 #include "exec/hwaddr.h"
 #include "hw/sysbus.h"
-#include "hw/pci/pci_device.h"
+#include "hw/pci/pci.h"
 #include "hw/pci/pcie_host.h"
 #include "qom/object.h"
 
@@ -49,12 +49,8 @@ struct GPEXHost {
 
     MemoryRegion io_ioport;
     MemoryRegion io_mmio;
-    MemoryRegion io_ioport_window;
-    MemoryRegion io_mmio_window;
     qemu_irq irq[GPEX_NUM_IRQS];
     int irq_num[GPEX_NUM_IRQS];
-
-    bool allow_unmapped_accesses;
 };
 
 struct GPEXConfig {
@@ -63,7 +59,6 @@ struct GPEXConfig {
     MemMapEntry mmio64;
     MemMapEntry pio;
     int         irq;
-    PCIBus      *bus;
 };
 
 int gpex_set_irq_num(GPEXHost *s, int index, int gsi);

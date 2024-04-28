@@ -14,16 +14,14 @@
 
 #include "qemu/osdep.h"
 #include "cpu.h"
-#include "s390x-internal.h"
+#include "internal.h"
+#include "exec/address-spaces.h"
 #include "hw/watchdog/wdt_diag288.h"
 #include "sysemu/cpus.h"
 #include "hw/s390x/ipl.h"
 #include "hw/s390x/s390-virtio-ccw.h"
-#include "sysemu/kvm.h"
-#include "kvm/kvm_s390x.h"
-#include "target/s390x/kvm/pv.h"
-#include "qemu/error-report.h"
-
+#include "hw/s390x/pv.h"
+#include "kvm_s390x.h"
 
 int handle_diag_288(CPUS390XState *env, uint64_t r1, uint64_t r3)
 {
@@ -77,7 +75,7 @@ void handle_diag_308(CPUS390XState *env, uint64_t r1, uint64_t r3, uintptr_t ra)
 {
     bool valid;
     CPUState *cs = env_cpu(env);
-    S390CPU *cpu = env_archcpu(env);
+    S390CPU *cpu = S390_CPU(cs);
     uint64_t addr =  env->regs[r1];
     uint64_t subcode = env->regs[r3];
     IplParameterBlock *iplb;
@@ -171,7 +169,7 @@ out:
             return;
         }
 
-        if (kvm_enabled() && kvm_s390_get_hpage_1m()) {
+        if (kvm_s390_get_hpage_1m()) {
             error_report("Protected VMs can currently not be backed with "
                          "huge pages");
             env->regs[r1 + 1] = DIAG_308_RC_INVAL_FOR_PV;

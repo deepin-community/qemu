@@ -25,7 +25,6 @@
 #include "qemu/osdep.h"
 #include "hw/irq.h"
 #include "hw/qdev-properties.h"
-#include "hw/qdev-properties-system.h"
 #include "hw/sysbus.h"
 #include "chardev/char-fe.h"
 #include "qemu/log.h"
@@ -50,7 +49,7 @@
 #define STAT_TR_IDLE 22
 #define STAT_TR_RDY  24
 
-#define TYPE_ETRAX_FS_SERIAL "etraxfs-serial"
+#define TYPE_ETRAX_FS_SERIAL "etraxfs,serial"
 typedef struct ETRAXSerial ETRAXSerial;
 DECLARE_INSTANCE_CHECKER(ETRAXSerial, ETRAX_SERIAL,
                          TYPE_ETRAX_FS_SERIAL)
@@ -113,7 +112,7 @@ ser_read(void *opaque, hwaddr addr, unsigned int size)
             break;
         default:
             r = s->regs[addr];
-            D(qemu_log("%s " HWADDR_FMT_plx "=%x\n", __func__, addr, r));
+            D(qemu_log("%s " TARGET_FMT_plx "=%x\n", __func__, addr, r));
             break;
     }
     return r;
@@ -127,7 +126,7 @@ ser_write(void *opaque, hwaddr addr,
     uint32_t value = val64;
     unsigned char ch = val64;
 
-    D(qemu_log("%s " HWADDR_FMT_plx "=%x\n",  __func__, addr, value));
+    D(qemu_log("%s " TARGET_FMT_plx "=%x\n",  __func__, addr, value));
     addr >>= 2;
     switch (addr)
     {

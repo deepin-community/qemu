@@ -19,7 +19,7 @@
 #include "hw/ppc/e500-ccsr.h"
 #include "hw/qdev-properties.h"
 #include "migration/vmstate.h"
-#include "hw/pci/pci_device.h"
+#include "hw/pci/pci.h"
 #include "hw/pci/pci_host.h"
 #include "qemu/bswap.h"
 #include "qemu/module.h"
@@ -189,7 +189,7 @@ static uint64_t pci_reg_read4(void *opaque, hwaddr addr,
         break;
     }
 
-    pci_debug("%s: win:%lx(addr:" HWADDR_FMT_plx ") -> value:%x\n", __func__,
+    pci_debug("%s: win:%lx(addr:" TARGET_FMT_plx ") -> value:%x\n", __func__,
               win, addr, value);
     return value;
 }
@@ -268,7 +268,7 @@ static void pci_reg_write4(void *opaque, hwaddr addr,
 
     win = addr & 0xfe0;
 
-    pci_debug("%s: value:%x -> win:%lx(addr:" HWADDR_FMT_plx ")\n",
+    pci_debug("%s: value:%x -> win:%lx(addr:" TARGET_FMT_plx ")\n",
               __func__, (unsigned)value, win, addr);
 
     switch (win) {
@@ -342,7 +342,7 @@ static const MemoryRegionOps e500_pci_reg_ops = {
 
 static int mpc85xx_pci_map_irq(PCIDevice *pci_dev, int pin)
 {
-    int devno = PCI_SLOT(pci_dev->devfn);
+    int devno = pci_dev->devfn >> 3;
     int ret;
 
     ret = ppce500_pci_map_irq_slot(devno, pin);
@@ -415,6 +415,7 @@ static const VMStateDescription vmstate_ppce500_pci = {
     }
 };
 
+#include "exec/address-spaces.h"
 
 static void e500_pcihost_bridge_realize(PCIDevice *d, Error **errp)
 {
@@ -434,10 +435,6 @@ static AddressSpace *e500_pcihost_set_iommu(PCIBus *bus, void *opaque,
 
     return &s->bm_as;
 }
-
-static const PCIIOMMUOps ppce500_iommu_ops = {
-    .get_address_space = e500_pcihost_set_iommu,
-};
 
 static void e500_pcihost_realize(DeviceState *dev, Error **errp)
 {
@@ -473,7 +470,7 @@ static void e500_pcihost_realize(DeviceState *dev, Error **errp)
     memory_region_init(&s->bm, OBJECT(s), "bm-e500", UINT64_MAX);
     memory_region_add_subregion(&s->bm, 0x0, &s->busmem);
     address_space_init(&s->bm_as, &s->bm, "pci-bm");
-    pci_setup_iommu(b, &ppce500_iommu_ops, s);
+    pci_setup_iommu(b, e500_pcihost_set_iommu, s);
 
     pci_create_simple(b, 0, "e500-host-bridge");
 

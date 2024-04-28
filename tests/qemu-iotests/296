@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# group: rw
 #
 # Test case for encryption key management versus image sharing
 #
@@ -42,8 +41,8 @@ class Secret:
         return  [ "secret,id=" + self._id + ",data=" + self._secret]
 
     def to_qmp_object(self):
-        return { "qom-type" : "secret", "id": self.id(),
-                 "data": self.secret() }
+        return { "qom_type" : "secret", "id": self.id(),
+                 "props": { "data": self.secret() } }
 
 ################################################################################
 
@@ -61,8 +60,10 @@ class EncryptionSetupTestCase(iotests.QMPTestCase):
         # create the secrets and load 'em into the VMs
         self.secrets = [ Secret(i) for i in range(0, 4) ]
         for secret in self.secrets:
-            self.vm1.cmd("object-add", secret.to_qmp_object())
-            self.vm2.cmd("object-add", secret.to_qmp_object())
+            result = self.vm1.qmp("object-add", **secret.to_qmp_object())
+            self.assert_qmp(result, 'return', {})
+            result = self.vm2.qmp("object-add", **secret.to_qmp_object())
+            self.assert_qmp(result, 'return', {})
 
     # test case shutdown
     def tearDown(self):
@@ -74,7 +75,7 @@ class EncryptionSetupTestCase(iotests.QMPTestCase):
     # create the encrypted block device using qemu-img
     def createImg(self, file, secret):
 
-        iotests.qemu_img(
+        output = iotests.qemu_img_pipe(
             'create',
             '--object', *secret.to_cmdline_object(),
             '-f', iotests.imgfmt,
@@ -82,7 +83,8 @@ class EncryptionSetupTestCase(iotests.QMPTestCase):
             '-o', 'iter-time=10',
             file,
             '1M')
-        iotests.log('')
+
+        iotests.log(output, filters=[iotests.filter_test_dir])
 
     # attempts to add a key using qemu-img
     def addKey(self, file, secret, new_secret):
@@ -96,7 +98,7 @@ class EncryptionSetupTestCase(iotests.QMPTestCase):
                 }
             }
 
-        output = iotests.qemu_img(
+        output = iotests.qemu_img_pipe(
             'amend',
             '--object', *secret.to_cmdline_object(),
             '--object', *new_secret.to_cmdline_object(),
@@ -105,9 +107,8 @@ class EncryptionSetupTestCase(iotests.QMPTestCase):
             '-o', 'new-secret=' + new_secret.id(),
             '-o', 'iter-time=10',
 
-            "json:" + json.dumps(image_options),
-            check=False  # Expected to fail. Log output.
-        ).stdout
+            "json:" + json.dumps(image_options)
+            )
 
         iotests.log(output, filters=[iotests.filter_test_dir])
 
@@ -116,9 +117,10 @@ class EncryptionSetupTestCase(iotests.QMPTestCase):
     def openImageQmp(self, vm, id, file, secret,
                      readOnly = False, reOpen = False):
 
-        command = 'blockdev-reopen' if reOpen else 'blockdev-add'
+        command = 'x-blockdev-reopen' if reOpen else 'blockdev-add'
 
-        opts = {
+        result = vm.qmp(command, **
+            {
                 'driver': iotests.imgfmt,
                 'node-name': id,
                 'read-only': readOnly,
@@ -128,17 +130,15 @@ class EncryptionSetupTestCase(iotests.QMPTestCase):
                     'filename': test_img,
                 }
             }
-
-        if reOpen:
-            vm.cmd(command, options=[opts])
-        else:
-            vm.cmd(command, opts)
+        )
+        self.assert_qmp(result, 'return', {})
 
 
     ###########################################################################
     # add virtio-blk consumer for a block device
     def addImageUser(self, vm, id, disk_id, share_rw=False):
-        result = vm.qmp('device_add', {
+        result = vm.qmp('device_add', **
+            {
                 'driver': 'virtio-blk',
                 'id': id,
                 'drive': disk_id,
@@ -150,7 +150,8 @@ class EncryptionSetupTestCase(iotests.QMPTestCase):
 
     # close the encrypted block device
     def closeImageQmp(self, vm, id):
-        vm.cmd('blockdev-del', {'node-name': id})
+        result = vm.qmp('blockdev-del', **{ 'node-name': id })
+        self.assert_qmp(result, 'return', {})
 
     ###########################################################################
 
@@ -168,13 +169,9 @@ class EncryptionSetupTestCase(iotests.QMPTestCase):
             },
         }
 
-        result = vm.qmp('x-blockdev-amend', args)
-        iotests.log(result)
-        # Run the job only if it was created
-        event = ('JOB_STATUS_CHANGE',
-                 {'data': {'id': 'job0', 'status': 'created'}})
-        if vm.events_wait([event], timeout=0.0) is not None:
-            vm.run_job('job0')
+        result = vm.qmp('x-blockdev-amend', **args)
+        assert result['return'] == {}
+        vm.run_job('job0')
 
     # test that when the image opened by two qemu processes,
     # neither of them can update the encryption keys

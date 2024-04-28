@@ -12,7 +12,6 @@
 
 #include "qemu/osdep.h"
 #include "hw/qdev-properties.h"
-#include "hw/qdev-properties-system.h"
 #include "qapi/error.h"
 #include "qapi/visitor.h"
 #include "qapi/qapi-types-block.h"
@@ -22,7 +21,6 @@
 #include "qemu/ctype.h"
 #include "qemu/cutils.h"
 #include "qemu/units.h"
-#include "qemu/uuid.h"
 #include "qemu/error-report.h"
 #include "qdev-prop-internal.h"
 
@@ -32,17 +30,15 @@
 #include "sysemu/blockdev.h"
 #include "net/net.h"
 #include "hw/pci/pci.h"
-#include "hw/pci/pcie.h"
-#include "hw/i386/x86.h"
 #include "util/block-helpers.h"
 
-static bool check_prop_still_unset(Object *obj, const char *name,
+static bool check_prop_still_unset(DeviceState *dev, const char *name,
                                    const void *old_val, const char *new_val,
-                                   bool allow_override, Error **errp)
+                                   Error **errp)
 {
-    const GlobalProperty *prop = qdev_find_global_prop(obj, name);
+    const GlobalProperty *prop = qdev_find_global_prop(dev, name);
 
-    if (!old_val || (!prop && allow_override)) {
+    if (!old_val) {
         return true;
     }
 
@@ -63,8 +59,9 @@ static bool check_prop_still_unset(Object *obj, const char *name,
 static void get_drive(Object *obj, Visitor *v, const char *name, void *opaque,
                       Error **errp)
 {
+    DeviceState *dev = DEVICE(obj);
     Property *prop = opaque;
-    void **ptr = object_field_prop_ptr(obj, prop);
+    void **ptr = qdev_get_prop_ptr(dev, prop);
     const char *value;
     char *p;
 
@@ -90,39 +87,26 @@ static void set_drive_helper(Object *obj, Visitor *v, const char *name,
 {
     DeviceState *dev = DEVICE(obj);
     Property *prop = opaque;
-    void **ptr = object_field_prop_ptr(obj, prop);
+    void **ptr = qdev_get_prop_ptr(dev, prop);
     char *str;
     BlockBackend *blk;
     bool blk_created = false;
     int ret;
-    BlockDriverState *bs;
-    AioContext *ctx;
+
+    if (dev->realized) {
+        qdev_prop_set_after_realize(dev, name, errp);
+        return;
+    }
 
     if (!visit_type_str(v, name, &str, errp)) {
         return;
     }
 
-    if (!check_prop_still_unset(obj, name, *ptr, str, true, errp)) {
-        return;
-    }
-
-    if (*ptr) {
-        /* BlockBackend already exists. So, we want to change attached node */
-        blk = *ptr;
-        ctx = blk_get_aio_context(blk);
-        bs = bdrv_lookup_bs(NULL, str, errp);
-        if (!bs) {
-            return;
-        }
-
-        if (ctx != bdrv_get_aio_context(bs)) {
-            error_setg(errp, "Different aio context is not supported for new "
-                       "node");
-        }
-
-        aio_context_acquire(ctx);
-        blk_replace_bs(blk, bs, errp);
-        aio_context_release(ctx);
+    /*
+     * TODO Should this really be an error?  If no, the old value
+     * needs to be released before we store the new one.
+     */
+    if (!check_prop_still_unset(dev, name, *ptr, str, errp)) {
         return;
     }
 
@@ -134,7 +118,7 @@ static void set_drive_helper(Object *obj, Visitor *v, const char *name,
 
     blk = blk_by_name(str);
     if (!blk) {
-        bs = bdrv_lookup_bs(NULL, str, NULL);
+        BlockDriverState *bs = bdrv_lookup_bs(NULL, str, NULL);
         if (bs) {
             /*
              * If the device supports iothreads, it will make sure to move the
@@ -143,15 +127,12 @@ static void set_drive_helper(Object *obj, Visitor *v, const char *name,
              * aware of iothreads require their BlockBackends to be in the main
              * AioContext.
              */
-            ctx = bdrv_get_aio_context(bs);
-            blk = blk_new(iothread ? ctx : qemu_get_aio_context(),
-                          0, BLK_PERM_ALL);
+            AioContext *ctx = iothread ? bdrv_get_aio_context(bs) :
+                                         qemu_get_aio_context();
+            blk = blk_new(ctx, 0, BLK_PERM_ALL);
             blk_created = true;
 
-            aio_context_acquire(ctx);
             ret = blk_insert_bs(blk, bs, errp);
-            aio_context_release(ctx);
-
             if (ret < 0) {
                 goto fail;
             }
@@ -159,7 +140,7 @@ static void set_drive_helper(Object *obj, Visitor *v, const char *name,
     }
     if (!blk) {
         error_setg(errp, "Property '%s.%s' can't find value '%s'",
-                   object_get_typename(OBJECT(dev)), name, str);
+                   object_get_typename(OBJECT(dev)), prop->name, str);
         goto fail;
     }
     if (blk_attach_dev(blk, dev) < 0) {
@@ -204,7 +185,7 @@ static void release_drive(Object *obj, const char *name, void *opaque)
 {
     DeviceState *dev = DEVICE(obj);
     Property *prop = opaque;
-    BlockBackend **ptr = object_field_prop_ptr(obj, prop);
+    BlockBackend **ptr = qdev_get_prop_ptr(dev, prop);
 
     if (*ptr) {
         AioContext *ctx = blk_get_aio_context(*ptr);
@@ -219,7 +200,6 @@ static void release_drive(Object *obj, const char *name, void *opaque)
 const PropertyInfo qdev_prop_drive = {
     .name  = "str",
     .description = "Node name or ID of a block device to use as a backend",
-    .realized_set_allowed = true,
     .get   = get_drive,
     .set   = set_drive,
     .release = release_drive,
@@ -228,7 +208,6 @@ const PropertyInfo qdev_prop_drive = {
 const PropertyInfo qdev_prop_drive_iothread = {
     .name  = "str",
     .description = "Node name or ID of a block device to use as a backend",
-    .realized_set_allowed = true,
     .get   = get_drive,
     .set   = set_drive_iothread,
     .release = release_drive,
@@ -239,7 +218,8 @@ const PropertyInfo qdev_prop_drive_iothread = {
 static void get_chr(Object *obj, Visitor *v, const char *name, void *opaque,
                     Error **errp)
 {
-    CharBackend *be = object_field_prop_ptr(obj, opaque);
+    DeviceState *dev = DEVICE(obj);
+    CharBackend *be = qdev_get_prop_ptr(dev, opaque);
     char *p;
 
     p = g_strdup(be->chr && be->chr->label ? be->chr->label : "");
@@ -250,10 +230,16 @@ static void get_chr(Object *obj, Visitor *v, const char *name, void *opaque,
 static void set_chr(Object *obj, Visitor *v, const char *name, void *opaque,
                     Error **errp)
 {
+    DeviceState *dev = DEVICE(obj);
     Property *prop = opaque;
-    CharBackend *be = object_field_prop_ptr(obj, prop);
+    CharBackend *be = qdev_get_prop_ptr(dev, prop);
     Chardev *s;
     char *str;
+
+    if (dev->realized) {
+        qdev_prop_set_after_realize(dev, name, errp);
+        return;
+    }
 
     if (!visit_type_str(v, name, &str, errp)) {
         return;
@@ -263,7 +249,7 @@ static void set_chr(Object *obj, Visitor *v, const char *name, void *opaque,
      * TODO Should this really be an error?  If no, the old value
      * needs to be released before we store the new one.
      */
-    if (!check_prop_still_unset(obj, name, be->chr, str, false, errp)) {
+    if (!check_prop_still_unset(dev, name, be->chr, str, errp)) {
         return;
     }
 
@@ -276,18 +262,19 @@ static void set_chr(Object *obj, Visitor *v, const char *name, void *opaque,
     s = qemu_chr_find(str);
     if (s == NULL) {
         error_setg(errp, "Property '%s.%s' can't find value '%s'",
-                   object_get_typename(obj), name, str);
+                   object_get_typename(obj), prop->name, str);
     } else if (!qemu_chr_fe_init(be, s, errp)) {
         error_prepend(errp, "Property '%s.%s' can't take value '%s': ",
-                      object_get_typename(obj), name, str);
+                      object_get_typename(obj), prop->name, str);
     }
     g_free(str);
 }
 
 static void release_chr(Object *obj, const char *name, void *opaque)
 {
+    DeviceState *dev = DEVICE(obj);
     Property *prop = opaque;
-    CharBackend *be = object_field_prop_ptr(obj, prop);
+    CharBackend *be = qdev_get_prop_ptr(dev, prop);
 
     qemu_chr_fe_deinit(be, false);
 }
@@ -310,8 +297,9 @@ const PropertyInfo qdev_prop_chr = {
 static void get_mac(Object *obj, Visitor *v, const char *name, void *opaque,
                     Error **errp)
 {
+    DeviceState *dev = DEVICE(obj);
     Property *prop = opaque;
-    MACAddr *mac = object_field_prop_ptr(obj, prop);
+    MACAddr *mac = qdev_get_prop_ptr(dev, prop);
     char buffer[2 * 6 + 5 + 1];
     char *p = buffer;
 
@@ -325,11 +313,17 @@ static void get_mac(Object *obj, Visitor *v, const char *name, void *opaque,
 static void set_mac(Object *obj, Visitor *v, const char *name, void *opaque,
                     Error **errp)
 {
+    DeviceState *dev = DEVICE(obj);
     Property *prop = opaque;
-    MACAddr *mac = object_field_prop_ptr(obj, prop);
+    MACAddr *mac = qdev_get_prop_ptr(dev, prop);
     int i, pos;
     char *str;
     const char *p;
+
+    if (dev->realized) {
+        qdev_prop_set_after_realize(dev, name, errp);
+        return;
+    }
 
     if (!visit_type_str(v, name, &str, errp)) {
         return;
@@ -362,7 +356,7 @@ static void set_mac(Object *obj, Visitor *v, const char *name, void *opaque,
     return;
 
 inval:
-    error_set_from_qdev_prop_error(errp, EINVAL, obj, name, str);
+    error_set_from_qdev_prop_error(errp, EINVAL, dev, prop, str);
     g_free(str);
 }
 
@@ -387,8 +381,9 @@ void qdev_prop_set_macaddr(DeviceState *dev, const char *name,
 static void get_netdev(Object *obj, Visitor *v, const char *name,
                        void *opaque, Error **errp)
 {
+    DeviceState *dev = DEVICE(obj);
     Property *prop = opaque;
-    NICPeers *peers_ptr = object_field_prop_ptr(obj, prop);
+    NICPeers *peers_ptr = qdev_get_prop_ptr(dev, prop);
     char *p = g_strdup(peers_ptr->ncs[0] ? peers_ptr->ncs[0]->name : "");
 
     visit_type_str(v, name, &p, errp);
@@ -398,12 +393,18 @@ static void get_netdev(Object *obj, Visitor *v, const char *name,
 static void set_netdev(Object *obj, Visitor *v, const char *name,
                        void *opaque, Error **errp)
 {
+    DeviceState *dev = DEVICE(obj);
     Property *prop = opaque;
-    NICPeers *peers_ptr = object_field_prop_ptr(obj, prop);
+    NICPeers *peers_ptr = qdev_get_prop_ptr(dev, prop);
     NetClientState **ncs = peers_ptr->ncs;
     NetClientState *peers[MAX_QUEUE_NUM];
     int queues, err = 0, i = 0;
     char *str;
+
+    if (dev->realized) {
+        qdev_prop_set_after_realize(dev, name, errp);
+        return;
+    }
 
     if (!visit_type_str(v, name, &str, errp)) {
         return;
@@ -433,14 +434,8 @@ static void set_netdev(Object *obj, Visitor *v, const char *name,
          * TODO Should this really be an error?  If no, the old value
          * needs to be released before we store the new one.
          */
-        if (!check_prop_still_unset(obj, name, ncs[i], str, false, errp)) {
+        if (!check_prop_still_unset(dev, name, ncs[i], str, errp)) {
             goto out;
-        }
-
-        if (peers[i]->info->check_peer_type) {
-            if (!peers[i]->info->check_peer_type(peers[i], obj->class, errp)) {
-                goto out;
-            }
         }
 
         ncs[i] = peers[i];
@@ -450,7 +445,7 @@ static void set_netdev(Object *obj, Visitor *v, const char *name,
     peers_ptr->queues = queues;
 
 out:
-    error_set_from_qdev_prop_error(errp, err, obj, prop->name, str);
+    error_set_from_qdev_prop_error(errp, err, dev, prop, str);
     g_free(str);
 }
 
@@ -466,8 +461,9 @@ const PropertyInfo qdev_prop_netdev = {
 static void get_audiodev(Object *obj, Visitor *v, const char* name,
                          void *opaque, Error **errp)
 {
+    DeviceState *dev = DEVICE(obj);
     Property *prop = opaque;
-    QEMUSoundCard *card = object_field_prop_ptr(obj, prop);
+    QEMUSoundCard *card = qdev_get_prop_ptr(dev, prop);
     char *p = g_strdup(audio_get_id(card));
 
     visit_type_str(v, name, &p, errp);
@@ -477,19 +473,33 @@ static void get_audiodev(Object *obj, Visitor *v, const char* name,
 static void set_audiodev(Object *obj, Visitor *v, const char* name,
                          void *opaque, Error **errp)
 {
+    DeviceState *dev = DEVICE(obj);
     Property *prop = opaque;
-    QEMUSoundCard *card = object_field_prop_ptr(obj, prop);
+    QEMUSoundCard *card = qdev_get_prop_ptr(dev, prop);
     AudioState *state;
-    g_autofree char *str = NULL;
+    int err = 0;
+    char *str;
+
+    if (dev->realized) {
+        qdev_prop_set_after_realize(dev, name, errp);
+        return;
+    }
 
     if (!visit_type_str(v, name, &str, errp)) {
         return;
     }
 
-    state = audio_state_by_name(str, errp);
-    if (state) {
-        card->state = state;
+    state = audio_state_by_name(str);
+
+    if (!state) {
+        err = -ENOENT;
+        goto out;
     }
+    card->state = state;
+
+out:
+    error_set_from_qdev_prop_error(errp, err, dev, prop, str);
+    g_free(str);
 }
 
 const PropertyInfo qdev_prop_audiodev = {
@@ -555,38 +565,13 @@ void qdev_set_nic_properties(DeviceState *dev, NICInfo *nd)
 
 /* --- lost tick policy --- */
 
-static void qdev_propinfo_set_losttickpolicy(Object *obj, Visitor *v,
-                                             const char *name, void *opaque,
-                                             Error **errp)
-{
-    Property *prop = opaque;
-    int *ptr = object_field_prop_ptr(obj, prop);
-    int value;
-
-    if (!visit_type_enum(v, name, &value, prop->info->enum_table, errp)) {
-        return;
-    }
-
-    if (value == LOST_TICK_POLICY_SLEW) {
-        MachineState *ms = MACHINE(qdev_get_machine());
-
-        if (!object_dynamic_cast(OBJECT(ms), TYPE_X86_MACHINE)) {
-            error_setg(errp,
-                       "the 'slew' policy is only available for x86 machines");
-            return;
-        }
-    }
-
-    *ptr = value;
-}
-
 QEMU_BUILD_BUG_ON(sizeof(LostTickPolicy) != sizeof(int));
 
 const PropertyInfo qdev_prop_losttickpolicy = {
     .name  = "LostTickPolicy",
     .enum_table  = &LostTickPolicy_lookup,
     .get   = qdev_propinfo_get_enum,
-    .set   = qdev_propinfo_set_losttickpolicy,
+    .set   = qdev_propinfo_set_enum,
     .set_default_value = qdev_propinfo_set_default_value_enum,
 };
 
@@ -597,9 +582,14 @@ static void set_blocksize(Object *obj, Visitor *v, const char *name,
 {
     DeviceState *dev = DEVICE(obj);
     Property *prop = opaque;
-    uint32_t *ptr = object_field_prop_ptr(obj, prop);
+    uint32_t *ptr = qdev_get_prop_ptr(dev, prop);
     uint64_t value;
     Error *local_err = NULL;
+
+    if (dev->realized) {
+        qdev_prop_set_after_realize(dev, name, errp);
+        return;
+    }
 
     if (!visit_type_size(v, name, &value, errp)) {
         return;
@@ -673,20 +663,6 @@ const PropertyInfo qdev_prop_multifd_compression = {
     .set_default_value = qdev_propinfo_set_default_value_enum,
 };
 
-/* --- MigMode --- */
-
-QEMU_BUILD_BUG_ON(sizeof(MigMode) != sizeof(int));
-
-const PropertyInfo qdev_prop_mig_mode = {
-    .name = "MigMode",
-    .description = "mig_mode values, "
-                   "normal,cpr-reboot",
-    .enum_table = &MigMode_lookup,
-    .get = qdev_propinfo_get_enum,
-    .set = qdev_propinfo_set_enum,
-    .set_default_value = qdev_propinfo_set_default_value_enum,
-};
-
 /* --- Reserved Region --- */
 
 /*
@@ -698,14 +674,15 @@ const PropertyInfo qdev_prop_mig_mode = {
 static void get_reserved_region(Object *obj, Visitor *v, const char *name,
                                 void *opaque, Error **errp)
 {
+    DeviceState *dev = DEVICE(obj);
     Property *prop = opaque;
-    ReservedRegion *rr = object_field_prop_ptr(obj, prop);
+    ReservedRegion *rr = qdev_get_prop_ptr(dev, prop);
     char buffer[64];
     char *p = buffer;
     int rc;
 
     rc = snprintf(buffer, sizeof(buffer), "0x%"PRIx64":0x%"PRIx64":%u",
-                  range_lob(&rr->range), range_upb(&rr->range), rr->type);
+                  rr->low, rr->high, rr->type);
     assert(rc < sizeof(buffer));
 
     visit_type_str(v, name, &p, errp);
@@ -714,18 +691,26 @@ static void get_reserved_region(Object *obj, Visitor *v, const char *name,
 static void set_reserved_region(Object *obj, Visitor *v, const char *name,
                                 void *opaque, Error **errp)
 {
+    DeviceState *dev = DEVICE(obj);
     Property *prop = opaque;
-    ReservedRegion *rr = object_field_prop_ptr(obj, prop);
+    ReservedRegion *rr = qdev_get_prop_ptr(dev, prop);
+    Error *local_err = NULL;
     const char *endptr;
-    uint64_t lob, upb;
     char *str;
     int ret;
 
-    if (!visit_type_str(v, name, &str, errp)) {
+    if (dev->realized) {
+        qdev_prop_set_after_realize(dev, name, errp);
         return;
     }
 
-    ret = qemu_strtou64(str, &endptr, 16, &lob);
+    visit_type_str(v, name, &str, &local_err);
+    if (local_err) {
+        error_propagate(errp, local_err);
+        return;
+    }
+
+    ret = qemu_strtou64(str, &endptr, 16, &rr->low);
     if (ret) {
         error_setg(errp, "start address of '%s'"
                    " must be a hexadecimal integer", name);
@@ -735,7 +720,7 @@ static void set_reserved_region(Object *obj, Visitor *v, const char *name,
         goto separator_error;
     }
 
-    ret = qemu_strtou64(endptr + 1, &endptr, 16, &upb);
+    ret = qemu_strtou64(endptr + 1, &endptr, 16, &rr->high);
     if (ret) {
         error_setg(errp, "end address of '%s'"
                    " must be a hexadecimal integer", name);
@@ -744,8 +729,6 @@ static void set_reserved_region(Object *obj, Visitor *v, const char *name,
     if (*endptr != ':') {
         goto separator_error;
     }
-
-    range_set_bounds(&rr->range, lob, upb);
 
     ret = qemu_strtoui(endptr + 1, &endptr, 10, &rr->type);
     if (ret) {
@@ -776,10 +759,16 @@ const PropertyInfo qdev_prop_reserved_region = {
 static void set_pci_devfn(Object *obj, Visitor *v, const char *name,
                           void *opaque, Error **errp)
 {
+    DeviceState *dev = DEVICE(obj);
     Property *prop = opaque;
-    int32_t value, *ptr = object_field_prop_ptr(obj, prop);
+    int32_t value, *ptr = qdev_get_prop_ptr(dev, prop);
     unsigned int slot, fn, n;
     char *str;
+
+    if (dev->realized) {
+        qdev_prop_set_after_realize(dev, name, errp);
+        return;
+    }
 
     if (!visit_type_str(v, name, &str, NULL)) {
         if (!visit_type_int32(v, name, &value, errp)) {
@@ -787,7 +776,7 @@ static void set_pci_devfn(Object *obj, Visitor *v, const char *name,
         }
         if (value < -1 || value > 255) {
             error_setg(errp, QERR_INVALID_PARAMETER_VALUE,
-                       name ? name : "null", "a value between -1 and 255");
+                       name ? name : "null", "pci_devfn");
             return;
         }
         *ptr = value;
@@ -808,14 +797,14 @@ static void set_pci_devfn(Object *obj, Visitor *v, const char *name,
     return;
 
 invalid:
-    error_set_from_qdev_prop_error(errp, EINVAL, obj, name, str);
+    error_set_from_qdev_prop_error(errp, EINVAL, dev, prop, str);
     g_free(str);
 }
 
-static int print_pci_devfn(Object *obj, Property *prop, char *dest,
+static int print_pci_devfn(DeviceState *dev, Property *prop, char *dest,
                            size_t len)
 {
-    int32_t *ptr = object_field_prop_ptr(obj, prop);
+    int32_t *ptr = qdev_get_prop_ptr(dev, prop);
 
     if (*ptr == -1) {
         return snprintf(dest, len, "<unset>");
@@ -838,8 +827,9 @@ const PropertyInfo qdev_prop_pci_devfn = {
 static void get_pci_host_devaddr(Object *obj, Visitor *v, const char *name,
                                  void *opaque, Error **errp)
 {
+    DeviceState *dev = DEVICE(obj);
     Property *prop = opaque;
-    PCIHostDeviceAddress *addr = object_field_prop_ptr(obj, prop);
+    PCIHostDeviceAddress *addr = qdev_get_prop_ptr(dev, prop);
     char buffer[] = "ffff:ff:ff.f";
     char *p = buffer;
     int rc = 0;
@@ -864,13 +854,19 @@ static void get_pci_host_devaddr(Object *obj, Visitor *v, const char *name,
 static void set_pci_host_devaddr(Object *obj, Visitor *v, const char *name,
                                  void *opaque, Error **errp)
 {
+    DeviceState *dev = DEVICE(obj);
     Property *prop = opaque;
-    PCIHostDeviceAddress *addr = object_field_prop_ptr(obj, prop);
+    PCIHostDeviceAddress *addr = qdev_get_prop_ptr(dev, prop);
     char *str, *p;
     char *e;
     unsigned long val;
     unsigned long dom = 0, bus = 0;
     unsigned int slot = 0, func = 0;
+
+    if (dev->realized) {
+        qdev_prop_set_after_realize(dev, name, errp);
+        return;
+    }
 
     if (!visit_type_str(v, name, &str, errp)) {
         return;
@@ -926,7 +922,7 @@ static void set_pci_host_devaddr(Object *obj, Visitor *v, const char *name,
     return;
 
 inval:
-    error_set_from_qdev_prop_error(errp, EINVAL, obj, name, str);
+    error_set_from_qdev_prop_error(errp, EINVAL, dev, prop, str);
     g_free(str);
 }
 
@@ -954,8 +950,9 @@ const PropertyInfo qdev_prop_off_auto_pcibar = {
 static void get_prop_pcielinkspeed(Object *obj, Visitor *v, const char *name,
                                    void *opaque, Error **errp)
 {
+    DeviceState *dev = DEVICE(obj);
     Property *prop = opaque;
-    PCIExpLinkSpeed *p = object_field_prop_ptr(obj, prop);
+    PCIExpLinkSpeed *p = qdev_get_prop_ptr(dev, prop);
     int speed;
 
     switch (*p) {
@@ -976,17 +973,23 @@ static void get_prop_pcielinkspeed(Object *obj, Visitor *v, const char *name,
         abort();
     }
 
-    visit_type_enum(v, name, &speed, prop->info->enum_table, errp);
+    visit_type_enum(v, prop->name, &speed, prop->info->enum_table, errp);
 }
 
 static void set_prop_pcielinkspeed(Object *obj, Visitor *v, const char *name,
                                    void *opaque, Error **errp)
 {
+    DeviceState *dev = DEVICE(obj);
     Property *prop = opaque;
-    PCIExpLinkSpeed *p = object_field_prop_ptr(obj, prop);
+    PCIExpLinkSpeed *p = qdev_get_prop_ptr(dev, prop);
     int speed;
 
-    if (!visit_type_enum(v, name, &speed, prop->info->enum_table,
+    if (dev->realized) {
+        qdev_prop_set_after_realize(dev, name, errp);
+        return;
+    }
+
+    if (!visit_type_enum(v, prop->name, &speed, prop->info->enum_table,
                          errp)) {
         return;
     }
@@ -1024,8 +1027,9 @@ const PropertyInfo qdev_prop_pcie_link_speed = {
 static void get_prop_pcielinkwidth(Object *obj, Visitor *v, const char *name,
                                    void *opaque, Error **errp)
 {
+    DeviceState *dev = DEVICE(obj);
     Property *prop = opaque;
-    PCIExpLinkWidth *p = object_field_prop_ptr(obj, prop);
+    PCIExpLinkWidth *p = qdev_get_prop_ptr(dev, prop);
     int width;
 
     switch (*p) {
@@ -1055,17 +1059,23 @@ static void get_prop_pcielinkwidth(Object *obj, Visitor *v, const char *name,
         abort();
     }
 
-    visit_type_enum(v, name, &width, prop->info->enum_table, errp);
+    visit_type_enum(v, prop->name, &width, prop->info->enum_table, errp);
 }
 
 static void set_prop_pcielinkwidth(Object *obj, Visitor *v, const char *name,
                                    void *opaque, Error **errp)
 {
+    DeviceState *dev = DEVICE(obj);
     Property *prop = opaque;
-    PCIExpLinkWidth *p = object_field_prop_ptr(obj, prop);
+    PCIExpLinkWidth *p = qdev_get_prop_ptr(dev, prop);
     int width;
 
-    if (!visit_type_enum(v, name, &width, prop->info->enum_table,
+    if (dev->realized) {
+        qdev_prop_set_after_realize(dev, name, errp);
+        return;
+    }
+
+    if (!visit_type_enum(v, prop->name, &width, prop->info->enum_table,
                          errp)) {
         return;
     }
@@ -1104,68 +1114,5 @@ const PropertyInfo qdev_prop_pcie_link_width = {
     .enum_table = &PCIELinkWidth_lookup,
     .get = get_prop_pcielinkwidth,
     .set = set_prop_pcielinkwidth,
-    .set_default_value = qdev_propinfo_set_default_value_enum,
-};
-
-/* --- UUID --- */
-
-static void get_uuid(Object *obj, Visitor *v, const char *name, void *opaque,
-                     Error **errp)
-{
-    Property *prop = opaque;
-    QemuUUID *uuid = object_field_prop_ptr(obj, prop);
-    char buffer[UUID_STR_LEN];
-    char *p = buffer;
-
-    qemu_uuid_unparse(uuid, buffer);
-
-    visit_type_str(v, name, &p, errp);
-}
-
-#define UUID_VALUE_AUTO        "auto"
-
-static void set_uuid(Object *obj, Visitor *v, const char *name, void *opaque,
-                    Error **errp)
-{
-    Property *prop = opaque;
-    QemuUUID *uuid = object_field_prop_ptr(obj, prop);
-    char *str;
-
-    if (!visit_type_str(v, name, &str, errp)) {
-        return;
-    }
-
-    if (!strcmp(str, UUID_VALUE_AUTO)) {
-        qemu_uuid_generate(uuid);
-    } else if (qemu_uuid_parse(str, uuid) < 0) {
-        error_set_from_qdev_prop_error(errp, EINVAL, obj, name, str);
-    }
-    g_free(str);
-}
-
-static void set_default_uuid_auto(ObjectProperty *op, const Property *prop)
-{
-    object_property_set_default_str(op, UUID_VALUE_AUTO);
-}
-
-const PropertyInfo qdev_prop_uuid = {
-    .name  = "str",
-    .description = "UUID (aka GUID) or \"" UUID_VALUE_AUTO
-        "\" for random value (default)",
-    .get   = get_uuid,
-    .set   = set_uuid,
-    .set_default_value = set_default_uuid_auto,
-};
-
-/* --- s390 cpu entitlement policy --- */
-
-QEMU_BUILD_BUG_ON(sizeof(CpuS390Entitlement) != sizeof(int));
-
-const PropertyInfo qdev_prop_cpus390entitlement = {
-    .name  = "CpuS390Entitlement",
-    .description = "low/medium (default)/high",
-    .enum_table  = &CpuS390Entitlement_lookup,
-    .get   = qdev_propinfo_get_enum,
-    .set   = qdev_propinfo_set_enum,
     .set_default_value = qdev_propinfo_set_default_value_enum,
 };

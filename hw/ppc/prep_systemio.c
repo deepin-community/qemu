@@ -23,7 +23,6 @@
  */
 
 #include "qemu/osdep.h"
-#include "qemu/log.h"
 #include "hw/irq.h"
 #include "hw/isa/isa.h"
 #include "hw/qdev-properties.h"
@@ -39,7 +38,7 @@
 #define TYPE_PREP_SYSTEMIO "prep-systemio"
 OBJECT_DECLARE_SIMPLE_TYPE(PrepSystemIoState, PREP_SYSTEMIO)
 
-/* Bit as defined in PowerPC Reference Platform v1.1, sect. 6.1.5, p. 132 */
+/* Bit as defined in PowerPC Reference Plaform v1.1, sect. 6.1.5, p. 132 */
 #define PREP_BIT(n) (1 << (7 - (n)))
 
 struct PrepSystemIoState {
@@ -236,15 +235,8 @@ static uint64_t ppc_parity_error_readl(void *opaque, hwaddr addr,
     return val;
 }
 
-static void ppc_parity_error_writel(void *opaque, hwaddr addr,
-                                    uint64_t data, unsigned size)
-{
-    qemu_log_mask(LOG_GUEST_ERROR, "%s: invalid access\n", __func__);
-}
-
 static const MemoryRegionOps ppc_parity_error_ops = {
     .read = ppc_parity_error_readl,
-    .write = ppc_parity_error_writel,
     .valid = {
         .min_access_size = 4,
         .max_access_size = 4,
@@ -262,7 +254,7 @@ static void prep_systemio_realize(DeviceState *dev, Error **errp)
     qemu_set_irq(s->non_contiguous_io_map_irq,
                  s->iomap_type & PORT0850_IOMAP_NONCONTIGUOUS);
     cpu = POWERPC_CPU(first_cpu);
-    s->softreset_irq = qdev_get_gpio_in(DEVICE(cpu), PPC6xx_INPUT_HRESET);
+    s->softreset_irq = cpu->env.irq_inputs[PPC6xx_INPUT_HRESET];
 
     isa_register_portio_list(isa, &s->portio, 0x0, ppc_io800_port_list, s,
                              "systemio800");
@@ -300,7 +292,7 @@ static void prep_systemio_class_initfn(ObjectClass *klass, void *data)
     device_class_set_props(dc, prep_systemio_properties);
 }
 
-static const TypeInfo prep_systemio800_info = {
+static TypeInfo prep_systemio800_info = {
     .name          = TYPE_PREP_SYSTEMIO,
     .parent        = TYPE_ISA_DEVICE,
     .instance_size = sizeof(PrepSystemIoState),

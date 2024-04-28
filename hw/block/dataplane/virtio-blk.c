@@ -19,6 +19,7 @@
 #include "qemu/main-loop.h"
 #include "qemu/thread.h"
 #include "qemu/error-report.h"
+#include "hw/virtio/virtio-access.h"
 #include "hw/virtio/virtio-blk.h"
 #include "virtio-blk.h"
 #include "block/aio.h"
@@ -31,6 +32,9 @@ struct VirtIOBlockDataPlane {
 
     VirtIOBlkConf *conf;
     VirtIODevice *vdev;
+    QEMUBH *bh;                     /* bh for guest notification */
+    unsigned long *batch_notify_vqs;
+    bool batch_notifications;
 
     /* Note that these EventNotifiers are assigned by value.  This is
      * fine as long as you do not call event_notifier_cleanup on them
@@ -44,7 +48,36 @@ struct VirtIOBlockDataPlane {
 /* Raise an interrupt to signal guest, if necessary */
 void virtio_blk_data_plane_notify(VirtIOBlockDataPlane *s, VirtQueue *vq)
 {
-    virtio_notify_irqfd(s->vdev, vq);
+    if (s->batch_notifications) {
+        set_bit(virtio_get_queue_index(vq), s->batch_notify_vqs);
+        qemu_bh_schedule(s->bh);
+    } else {
+        virtio_notify_irqfd(s->vdev, vq);
+    }
+}
+
+static void notify_guest_bh(void *opaque)
+{
+    VirtIOBlockDataPlane *s = opaque;
+    unsigned nvqs = s->conf->num_queues;
+    unsigned long bitmap[BITS_TO_LONGS(nvqs)];
+    unsigned j;
+
+    memcpy(bitmap, s->batch_notify_vqs, sizeof(bitmap));
+    memset(s->batch_notify_vqs, 0, sizeof(bitmap));
+
+    for (j = 0; j < nvqs; j += BITS_PER_LONG) {
+        unsigned long bits = bitmap[j / BITS_PER_LONG];
+
+        while (bits != 0) {
+            unsigned i = j + ctzl(bits);
+            VirtQueue *vq = virtio_get_queue(s->vdev, i);
+
+            virtio_notify_irqfd(s->vdev, vq);
+
+            bits &= bits - 1; /* clear right-most bit */
+        }
+    }
 }
 
 /* Context: QEMU global mutex held */
@@ -94,6 +127,8 @@ bool virtio_blk_data_plane_create(VirtIODevice *vdev, VirtIOBlkConf *conf,
     } else {
         s->ctx = qemu_get_aio_context();
     }
+    s->bh = aio_bh_new(s->ctx, notify_guest_bh, s);
+    s->batch_notify_vqs = bitmap_new(conf->num_queues);
 
     *dataplane = s;
 
@@ -111,10 +146,23 @@ void virtio_blk_data_plane_destroy(VirtIOBlockDataPlane *s)
 
     vblk = VIRTIO_BLK(s->vdev);
     assert(!vblk->dataplane_started);
+    g_free(s->batch_notify_vqs);
+    qemu_bh_delete(s->bh);
     if (s->iothread) {
         object_unref(OBJECT(s->iothread));
     }
     g_free(s);
+}
+
+static bool virtio_blk_data_plane_handle_output(VirtIODevice *vdev,
+                                                VirtQueue *vq)
+{
+    VirtIOBlock *s = (VirtIOBlock *)vdev;
+
+    assert(s->dataplane);
+    assert(s->dataplane_started);
+
+    return virtio_blk_handle_vq(s, vq);
 }
 
 /* Context: QEMU global mutex held */
@@ -124,7 +172,6 @@ int virtio_blk_data_plane_start(VirtIODevice *vdev)
     VirtIOBlockDataPlane *s = vblk->dataplane;
     BusState *qbus = BUS(qdev_get_parent_bus(DEVICE(vblk)));
     VirtioBusClass *k = VIRTIO_BUS_GET_CLASS(qbus);
-    AioContext *old_context;
     unsigned i;
     unsigned nvqs = s->conf->num_queues;
     Error *local_err = NULL;
@@ -136,6 +183,12 @@ int virtio_blk_data_plane_start(VirtIODevice *vdev)
 
     s->starting = true;
 
+    if (!virtio_vdev_has_feature(vdev, VIRTIO_RING_F_EVENT_IDX)) {
+        s->batch_notifications = true;
+    } else {
+        s->batch_notifications = false;
+    }
+
     /* Set up guest notifier (irq) */
     r = k->set_guest_notifiers(qbus->parent, nvqs, true);
     if (r != 0) {
@@ -144,48 +197,31 @@ int virtio_blk_data_plane_start(VirtIODevice *vdev)
         goto fail_guest_notifiers;
     }
 
-    /*
-     * Batch all the host notifiers in a single transaction to avoid
-     * quadratic time complexity in address_space_update_ioeventfds().
-     */
-    memory_region_transaction_begin();
-
     /* Set up virtqueue notify */
     for (i = 0; i < nvqs; i++) {
         r = virtio_bus_set_host_notifier(VIRTIO_BUS(qbus), i, true);
         if (r != 0) {
-            int j = i;
-
             fprintf(stderr, "virtio-blk failed to set host notifier (%d)\n", r);
             while (i--) {
                 virtio_bus_set_host_notifier(VIRTIO_BUS(qbus), i, false);
+                virtio_bus_cleanup_host_notifier(VIRTIO_BUS(qbus), i);
             }
-
-            /*
-             * The transaction expects the ioeventfds to be open when it
-             * commits. Do it now, before the cleanup loop.
-             */
-            memory_region_transaction_commit();
-
-            while (j--) {
-                virtio_bus_cleanup_host_notifier(VIRTIO_BUS(qbus), j);
-            }
-            goto fail_host_notifiers;
+            goto fail_guest_notifiers;
         }
     }
 
-    memory_region_transaction_commit();
-
+    s->starting = false;
+    vblk->dataplane_started = true;
     trace_virtio_blk_data_plane_start(s);
 
-    old_context = blk_get_aio_context(s->conf->conf.blk);
-    aio_context_acquire(old_context);
     r = blk_set_aio_context(s->conf->conf.blk, s->ctx, &local_err);
-    aio_context_release(old_context);
     if (r < 0) {
         error_report_err(local_err);
-        goto fail_aio_context;
+        goto fail_guest_notifiers;
     }
+
+    /* Process queued requests before the ones in vring */
+    virtio_blk_process_queued_requests(vblk, false);
 
     /* Kick right away to begin processing requests already in vring */
     for (i = 0; i < nvqs; i++) {
@@ -194,47 +230,26 @@ int virtio_blk_data_plane_start(VirtIODevice *vdev)
         event_notifier_set(virtio_queue_get_host_notifier(vq));
     }
 
-    /*
-     * These fields must be visible to the IOThread when it processes the
-     * virtqueue, otherwise it will think dataplane has not started yet.
-     *
-     * Make sure ->dataplane_started is false when blk_set_aio_context() is
-     * called above so that draining does not cause the host notifier to be
-     * detached/attached prematurely.
-     */
-    s->starting = false;
-    vblk->dataplane_started = true;
-    smp_wmb(); /* paired with aio_notify_accept() on the read side */
-
     /* Get this show started by hooking up our callbacks */
-    if (!blk_in_drain(s->conf->conf.blk)) {
-        aio_context_acquire(s->ctx);
-        for (i = 0; i < nvqs; i++) {
-            VirtQueue *vq = virtio_get_queue(s->vdev, i);
+    aio_context_acquire(s->ctx);
+    for (i = 0; i < nvqs; i++) {
+        VirtQueue *vq = virtio_get_queue(s->vdev, i);
 
-            virtio_queue_aio_attach_host_notifier(vq, s->ctx);
-        }
-        aio_context_release(s->ctx);
+        virtio_queue_aio_set_host_notifier_handler(vq, s->ctx,
+                virtio_blk_data_plane_handle_output);
     }
+    aio_context_release(s->ctx);
     return 0;
 
-  fail_aio_context:
-    memory_region_transaction_begin();
-
-    for (i = 0; i < nvqs; i++) {
-        virtio_bus_set_host_notifier(VIRTIO_BUS(qbus), i, false);
-    }
-
-    memory_region_transaction_commit();
-
-    for (i = 0; i < nvqs; i++) {
-        virtio_bus_cleanup_host_notifier(VIRTIO_BUS(qbus), i);
-    }
-  fail_host_notifiers:
-    k->set_guest_notifiers(qbus->parent, nvqs, false);
   fail_guest_notifiers:
+    /*
+     * If we failed to set up the guest notifiers queued requests will be
+     * processed on the main context.
+     */
+    virtio_blk_process_queued_requests(vblk, false);
     vblk->dataplane_disabled = true;
     s->starting = false;
+    vblk->dataplane_started = true;
     return -ENOSYS;
 }
 
@@ -249,15 +264,8 @@ static void virtio_blk_data_plane_stop_bh(void *opaque)
 
     for (i = 0; i < s->conf->num_queues; i++) {
         VirtQueue *vq = virtio_get_queue(s->vdev, i);
-        EventNotifier *host_notifier = virtio_queue_get_host_notifier(vq);
 
-        virtio_queue_aio_detach_host_notifier(vq, s->ctx);
-
-        /*
-         * Test and clear notifier after disabling event, in case poll callback
-         * didn't have time to run.
-         */
-        virtio_queue_host_notifier_read(host_notifier);
+        virtio_queue_aio_set_host_notifier_handler(vq, s->ctx, NULL);
     }
 }
 
@@ -284,51 +292,26 @@ void virtio_blk_data_plane_stop(VirtIODevice *vdev)
     s->stopping = true;
     trace_virtio_blk_data_plane_stop(s);
 
-    if (!blk_in_drain(s->conf->conf.blk)) {
-        aio_wait_bh_oneshot(s->ctx, virtio_blk_data_plane_stop_bh, s);
-    }
-
-    /*
-     * Batch all the host notifiers in a single transaction to avoid
-     * quadratic time complexity in address_space_update_ioeventfds().
-     */
-    memory_region_transaction_begin();
-
-    for (i = 0; i < nvqs; i++) {
-        virtio_bus_set_host_notifier(VIRTIO_BUS(qbus), i, false);
-    }
-
-    /*
-     * The transaction expects the ioeventfds to be open when it
-     * commits. Do it now, before the cleanup loop.
-     */
-    memory_region_transaction_commit();
-
-    for (i = 0; i < nvqs; i++) {
-        virtio_bus_cleanup_host_notifier(VIRTIO_BUS(qbus), i);
-    }
-
-    /*
-     * Set ->dataplane_started to false before draining so that host notifiers
-     * are not detached/attached anymore.
-     */
-    vblk->dataplane_started = false;
-
     aio_context_acquire(s->ctx);
+    aio_wait_bh_oneshot(s->ctx, virtio_blk_data_plane_stop_bh, s);
 
-    /* Wait for virtio_blk_dma_restart_bh() and in flight I/O to complete */
-    blk_drain(s->conf->conf.blk);
-
-    /*
-     * Try to switch bs back to the QEMU main loop. If other users keep the
-     * BlockBackend in the iothread, that's ok
-     */
+    /* Drain and try to switch bs back to the QEMU main loop. If other users
+     * keep the BlockBackend in the iothread, that's ok */
     blk_set_aio_context(s->conf->conf.blk, qemu_get_aio_context(), NULL);
 
     aio_context_release(s->ctx);
 
+    for (i = 0; i < nvqs; i++) {
+        virtio_bus_set_host_notifier(VIRTIO_BUS(qbus), i, false);
+        virtio_bus_cleanup_host_notifier(VIRTIO_BUS(qbus), i);
+    }
+
+    qemu_bh_cancel(s->bh);
+    notify_guest_bh(s); /* final chance to notify guest */
+
     /* Clean up guest notifier (irq) */
     k->set_guest_notifiers(qbus->parent, nvqs, false);
 
+    vblk->dataplane_started = false;
     s->stopping = false;
 }

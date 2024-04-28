@@ -15,17 +15,18 @@ This work is licensed under the terms of the GNU GPL, version 2.
 
 from typing import List, Optional
 
-from .common import c_enum_const, c_name, mcgen
-from .gen import (
-    QAPISchemaModularCVisitor,
-    gen_special_features,
-    ifcontext,
+from .common import (
+    c_enum_const,
+    c_name,
+    gen_endif,
+    gen_if,
+    mcgen,
 )
+from .gen import QAPISchemaModularCVisitor, ifcontext
 from .schema import (
     QAPISchema,
     QAPISchemaEnumMember,
     QAPISchemaFeature,
-    QAPISchemaIfCond,
     QAPISchemaObjectType,
     QAPISchemaObjectTypeMember,
     QAPISchemaType,
@@ -42,8 +43,6 @@ objects_seen = set()
 def gen_enum_lookup(name: str,
                     members: List[QAPISchemaEnumMember],
                     prefix: Optional[str] = None) -> str:
-    max_index = c_enum_const(name, '_MAX', prefix)
-    feats = ''
     ret = mcgen('''
 
 const QEnumLookup %(c_name)s_lookup = {
@@ -51,35 +50,20 @@ const QEnumLookup %(c_name)s_lookup = {
 ''',
                 c_name=c_name(name))
     for memb in members:
-        ret += memb.ifcond.gen_if()
+        ret += gen_if(memb.ifcond)
         index = c_enum_const(name, memb.name, prefix)
         ret += mcgen('''
         [%(index)s] = "%(name)s",
 ''',
                      index=index, name=memb.name)
-        ret += memb.ifcond.gen_endif()
-
-        special_features = gen_special_features(memb.features)
-        if special_features != '0':
-            feats += mcgen('''
-        [%(index)s] = %(special_features)s,
-''',
-                           index=index, special_features=special_features)
-
-    if feats:
-        ret += mcgen('''
-    },
-    .special_features = (const unsigned char[%(max_index)s]) {
-''',
-                     max_index=max_index)
-        ret += feats
+        ret += gen_endif(memb.ifcond)
 
     ret += mcgen('''
     },
     .size = %(max_index)s
 };
 ''',
-                 max_index=max_index)
+                 max_index=c_enum_const(name, '_MAX', prefix))
     return ret
 
 
@@ -96,12 +80,12 @@ typedef enum %(c_name)s {
                 c_name=c_name(name))
 
     for memb in enum_members:
-        ret += memb.ifcond.gen_if()
+        ret += gen_if(memb.ifcond)
         ret += mcgen('''
     %(c_enum)s,
 ''',
                      c_enum=c_enum_const(name, memb.name, prefix))
-        ret += memb.ifcond.gen_endif()
+        ret += gen_endif(memb.ifcond)
 
     ret += mcgen('''
 } %(c_name)s;
@@ -141,8 +125,8 @@ struct %(c_name)s {
 def gen_struct_members(members: List[QAPISchemaObjectTypeMember]) -> str:
     ret = ''
     for memb in members:
-        ret += memb.ifcond.gen_if()
-        if memb.need_has():
+        ret += gen_if(memb.ifcond)
+        if memb.optional:
             ret += mcgen('''
     bool has_%(c_name)s;
 ''',
@@ -151,11 +135,11 @@ def gen_struct_members(members: List[QAPISchemaObjectTypeMember]) -> str:
     %(c_type)s %(c_name)s;
 ''',
                      c_type=memb.type.c_type(), c_name=c_name(memb.name))
-        ret += memb.ifcond.gen_endif()
+        ret += gen_endif(memb.ifcond)
     return ret
 
 
-def gen_object(name: str, ifcond: QAPISchemaIfCond,
+def gen_object(name: str, ifcond: List[str],
                base: Optional[QAPISchemaObjectType],
                members: List[QAPISchemaObjectTypeMember],
                variants: Optional[QAPISchemaVariants]) -> str:
@@ -174,7 +158,7 @@ def gen_object(name: str, ifcond: QAPISchemaIfCond,
     ret += mcgen('''
 
 ''')
-    ret += ifcond.gen_if()
+    ret += gen_if(ifcond)
     ret += mcgen('''
 struct %(c_name)s {
 ''',
@@ -208,7 +192,7 @@ struct %(c_name)s {
     ret += mcgen('''
 };
 ''')
-    ret += ifcond.gen_endif()
+    ret += gen_endif(ifcond)
 
     return ret
 
@@ -235,13 +219,13 @@ def gen_variants(variants: QAPISchemaVariants) -> str:
     for var in variants.variants:
         if var.type.name == 'q_empty':
             continue
-        ret += var.ifcond.gen_if()
+        ret += gen_if(var.ifcond)
         ret += mcgen('''
         %(c_type)s %(c_name)s;
 ''',
                      c_type=var.type.c_unboxed_type(),
                      c_name=c_name(var.name))
-        ret += var.ifcond.gen_endif()
+        ret += gen_endif(var.ifcond)
 
     ret += mcgen('''
     } u;
@@ -287,7 +271,7 @@ class QAPISchemaGenTypeVisitor(QAPISchemaModularCVisitor):
             prefix, 'qapi-types', ' * Schema-defined QAPI types',
             ' * Built-in QAPI types', __doc__)
 
-    def _begin_builtin_module(self) -> None:
+    def _begin_system_module(self, name: None) -> None:
         self._genc.preamble_add(mcgen('''
 #include "qemu/osdep.h"
 #include "qapi/dealloc-visitor.h"
@@ -323,7 +307,7 @@ class QAPISchemaGenTypeVisitor(QAPISchemaModularCVisitor):
     def visit_enum_type(self,
                         name: str,
                         info: Optional[QAPISourceInfo],
-                        ifcond: QAPISchemaIfCond,
+                        ifcond: List[str],
                         features: List[QAPISchemaFeature],
                         members: List[QAPISchemaEnumMember],
                         prefix: Optional[str]) -> None:
@@ -334,7 +318,7 @@ class QAPISchemaGenTypeVisitor(QAPISchemaModularCVisitor):
     def visit_array_type(self,
                          name: str,
                          info: Optional[QAPISourceInfo],
-                         ifcond: QAPISchemaIfCond,
+                         ifcond: List[str],
                          element_type: QAPISchemaType) -> None:
         with ifcontext(ifcond, self._genh, self._genc):
             self._genh.preamble_add(gen_fwd_object_or_array(name))
@@ -344,7 +328,7 @@ class QAPISchemaGenTypeVisitor(QAPISchemaModularCVisitor):
     def visit_object_type(self,
                           name: str,
                           info: Optional[QAPISourceInfo],
-                          ifcond: QAPISchemaIfCond,
+                          ifcond: List[str],
                           features: List[QAPISchemaFeature],
                           base: Optional[QAPISchemaObjectType],
                           members: List[QAPISchemaObjectTypeMember],
@@ -366,8 +350,8 @@ class QAPISchemaGenTypeVisitor(QAPISchemaModularCVisitor):
 
     def visit_alternate_type(self,
                              name: str,
-                             info: Optional[QAPISourceInfo],
-                             ifcond: QAPISchemaIfCond,
+                             info: QAPISourceInfo,
+                             ifcond: List[str],
                              features: List[QAPISchemaFeature],
                              variants: QAPISchemaVariants) -> None:
         with ifcontext(ifcond, self._genh):

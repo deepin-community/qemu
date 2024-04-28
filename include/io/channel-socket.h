@@ -47,8 +47,6 @@ struct QIOChannelSocket {
     socklen_t localAddrLen;
     struct sockaddr_storage remoteAddr;
     socklen_t remoteAddrLen;
-    ssize_t zero_copy_queued;
-    ssize_t zero_copy_sent;
 };
 
 
@@ -124,7 +122,7 @@ void qio_channel_socket_connect_async(QIOChannelSocket *ioc,
  * qio_channel_socket_listen_sync:
  * @ioc: the socket channel object
  * @addr: the address to listen to
- * @num: the expected amount of connections
+ * @num: the expected ammount of connections
  * @errp: pointer to a NULL-initialized error object
  *
  * Attempt to listen to the address @addr. This method
@@ -141,7 +139,7 @@ int qio_channel_socket_listen_sync(QIOChannelSocket *ioc,
  * qio_channel_socket_listen_async:
  * @ioc: the socket channel object
  * @addr: the address to listen to
- * @num: the expected amount of connections
+ * @num: the expected ammount of connections
  * @callback: the function to invoke on completion
  * @opaque: user data to pass to @callback
  * @destroy: the function to free @opaque

@@ -11,13 +11,14 @@
  *
  */
 
-#ifndef QTEST_FUZZ_H
-#define QTEST_FUZZ_H
+#ifndef FUZZER_H_
+#define FUZZER_H_
 
+#include "qemu/osdep.h"
 #include "qemu/units.h"
 #include "qapi/error.h"
 
-#include "tests/qtest/libqtest.h"
+#include "tests/qtest/libqos/libqtest.h"
 
 /**
  * A libfuzzer fuzzing target
@@ -49,13 +50,13 @@ typedef struct FuzzTarget {
 
 
     /*
-     * Returns the arguments that are passed to qemu/system init(). Freed by
+     * Returns the arguments that are passed to qemu/softmmu init(). Freed by
      * the caller.
      */
     GString *(*get_init_cmdline)(struct FuzzTarget *);
 
     /*
-     * will run once, prior to running qemu/system init.
+     * will run once, prior to running qemu/softmmu init.
      * eg: set up shared-memory for communication with the child-process
      * Can be NULL
      */
@@ -103,7 +104,7 @@ typedef struct FuzzTarget {
 } FuzzTarget;
 
 void flush_events(QTestState *);
-void fuzz_reset(QTestState *);
+void reboot(QTestState *);
 
 /* Use the QTest ASCII protocol or call address_space API directly?*/
 void fuzz_qtest_set_serialize(bool option);
@@ -122,3 +123,4 @@ int LLVMFuzzerTestOneInput(const unsigned char *Data, size_t Size);
 int LLVMFuzzerInitialize(int *argc, char ***argv, char ***envp);
 
 #endif
+

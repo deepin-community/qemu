@@ -12,16 +12,16 @@
 
 #include "qemu/osdep.h"
 #include "qapi/error.h"
-#include "exec/address-spaces.h"
 #include "sysemu/kvm.h"
 #include "net/net.h"
 #include "hw/virtio/virtio.h"
 #include "migration/qemu-file-types.h"
 #include "hw/virtio/virtio-net.h"
+#include "hw/sysbus.h"
 #include "qemu/bitops.h"
 #include "qemu/error-report.h"
-#include "qemu/log.h"
 #include "qemu/module.h"
+#include "hw/virtio/virtio-access.h"
 #include "hw/virtio/virtio-bus.h"
 #include "hw/s390x/adapter.h"
 #include "hw/s390x/s390_flic.h"
@@ -32,11 +32,8 @@
 #include "trace.h"
 #include "hw/s390x/css-bridge.h"
 #include "hw/s390x/s390-virtio-ccw.h"
-#include "sysemu/replay.h"
 
 #define NR_CLASSIC_INDICATOR_BITS 64
-
-bool have_virtio_ccw = true;
 
 static int virtio_ccw_dev_post_load(void *opaque, int version_id)
 {
@@ -236,7 +233,6 @@ static int virtio_ccw_set_vqs(SubchDev *sch, VqInfoBlock *info,
                 return -EINVAL;
             }
             virtio_queue_set_num(vdev, index, num);
-            virtio_init_region_cache(vdev, index);
         } else if (virtio_queue_get_num(vdev, index) > num) {
             /* Fail if we don't have a big enough queue. */
             return -EINVAL;
@@ -249,11 +245,12 @@ static int virtio_ccw_set_vqs(SubchDev *sch, VqInfoBlock *info,
     return 0;
 }
 
-static void virtio_ccw_reset_virtio(VirtioCcwDevice *dev)
+static void virtio_ccw_reset_virtio(VirtioCcwDevice *dev, VirtIODevice *vdev)
 {
     CcwDevice *ccw_dev = CCW_DEVICE(dev);
 
-    virtio_bus_reset(&dev->bus);
+    virtio_ccw_stop_ioeventfd(dev);
+    virtio_reset(vdev);
     if (dev->indicators) {
         release_indicator(&dev->routes.adapter, dev->indicators);
         dev->indicators = NULL;
@@ -289,20 +286,14 @@ static int virtio_ccw_handle_set_vq(SubchDev *sch, CCW1 ccw, bool check_len,
         return -EFAULT;
     }
     if (is_legacy) {
-        ret = ccw_dstream_read(&sch->cds, linfo);
-        if (ret) {
-            return ret;
-        }
+        ccw_dstream_read(&sch->cds, linfo);
         linfo.queue = be64_to_cpu(linfo.queue);
         linfo.align = be32_to_cpu(linfo.align);
         linfo.index = be16_to_cpu(linfo.index);
         linfo.num = be16_to_cpu(linfo.num);
         ret = virtio_ccw_set_vqs(sch, NULL, &linfo);
     } else {
-        ret = ccw_dstream_read(&sch->cds, info);
-        if (ret) {
-            return ret;
-        }
+        ccw_dstream_read(&sch->cds, info);
         info.desc = be64_to_cpu(info.desc);
         info.index = be16_to_cpu(info.index);
         info.num = be16_to_cpu(info.num);
@@ -336,20 +327,13 @@ static int virtio_ccw_cb(SubchDev *sch, CCW1 ccw)
                                    ccw.cmd_code);
     check_len = !((ccw.flags & CCW_FLAG_SLI) && !(ccw.flags & CCW_FLAG_DC));
 
-    if (dev->revision < 0 && ccw.cmd_code != CCW_CMD_SET_VIRTIO_REV) {
-        if (dev->force_revision_1) {
-            /*
-             * virtio-1 drivers must start with negotiating to a revision >= 1,
-             * so post a command reject for all other commands
-             */
-            return -ENOSYS;
-        } else {
-            /*
-             * If the driver issues any command that is not SET_VIRTIO_REV,
-             * we'll have to operate the device in legacy mode.
-             */
-            dev->revision = 0;
-        }
+    if (dev->force_revision_1 && dev->revision < 0 &&
+        ccw.cmd_code != CCW_CMD_SET_VIRTIO_REV) {
+        /*
+         * virtio-1 drivers must start with negotiating to a revision >= 1,
+         * so post a command reject for all other commands
+         */
+        return -ENOSYS;
     }
 
     /* Look at the command. */
@@ -358,7 +342,7 @@ static int virtio_ccw_cb(SubchDev *sch, CCW1 ccw)
         ret = virtio_ccw_handle_set_vq(sch, ccw, check_len, dev->revision < 1);
         break;
     case CCW_CMD_VDEV_RESET:
-        virtio_ccw_reset_virtio(dev);
+        virtio_ccw_reset_virtio(dev, vdev);
         ret = 0;
         break;
     case CCW_CMD_READ_FEAT:
@@ -378,10 +362,7 @@ static int virtio_ccw_cb(SubchDev *sch, CCW1 ccw)
             VirtioDeviceClass *vdc = VIRTIO_DEVICE_GET_CLASS(vdev);
 
             ccw_dstream_advance(&sch->cds, sizeof(features.features));
-            ret = ccw_dstream_read(&sch->cds, features.index);
-            if (ret) {
-                break;
-            }
+            ccw_dstream_read(&sch->cds, features.index);
             if (features.index == 0) {
                 if (dev->revision >= 1) {
                     /* Don't offer legacy features for modern devices. */
@@ -402,10 +383,9 @@ static int virtio_ccw_cb(SubchDev *sch, CCW1 ccw)
             }
             ccw_dstream_rewind(&sch->cds);
             features.features = cpu_to_le32(features.features);
-            ret = ccw_dstream_write(&sch->cds, features.features);
-            if (!ret) {
-                sch->curr_status.scsw.count = ccw.count - sizeof(features);
-            }
+            ccw_dstream_write(&sch->cds, features.features);
+            sch->curr_status.scsw.count = ccw.count - sizeof(features);
+            ret = 0;
         }
         break;
     case CCW_CMD_WRITE_FEAT:
@@ -422,10 +402,7 @@ static int virtio_ccw_cb(SubchDev *sch, CCW1 ccw)
         if (!ccw.cda) {
             ret = -EFAULT;
         } else {
-            ret = ccw_dstream_read(&sch->cds, features);
-            if (ret) {
-                break;
-            }
+            ccw_dstream_read(&sch->cds, features);
             features.features = le32_to_cpu(features.features);
             if (features.index == 0) {
                 virtio_set_features(vdev,
@@ -468,10 +445,9 @@ static int virtio_ccw_cb(SubchDev *sch, CCW1 ccw)
             ret = -EFAULT;
         } else {
             virtio_bus_get_vdev_config(&dev->bus, vdev->config);
-            ret = ccw_dstream_write_buf(&sch->cds, vdev->config, len);
-            if (ret) {
-                sch->curr_status.scsw.count = ccw.count - len;
-            }
+            ccw_dstream_write_buf(&sch->cds, vdev->config, len);
+            sch->curr_status.scsw.count = ccw.count - len;
+            ret = 0;
         }
         break;
     case CCW_CMD_WRITE_CONF:
@@ -526,16 +502,13 @@ static int virtio_ccw_cb(SubchDev *sch, CCW1 ccw)
         if (!ccw.cda) {
             ret = -EFAULT;
         } else {
-            ret = ccw_dstream_read(&sch->cds, status);
-            if (ret) {
-                break;
-            }
+            ccw_dstream_read(&sch->cds, status);
             if (!(status & VIRTIO_CONFIG_S_DRIVER_OK)) {
                 virtio_ccw_stop_ioeventfd(dev);
             }
             if (virtio_set_status(vdev, status) == 0) {
                 if (vdev->status == 0) {
-                    virtio_ccw_reset_virtio(dev);
+                    virtio_ccw_reset_virtio(dev, vdev);
                 }
                 if (status & VIRTIO_CONFIG_S_DRIVER_OK) {
                     virtio_ccw_start_ioeventfd(dev);
@@ -572,10 +545,7 @@ static int virtio_ccw_cb(SubchDev *sch, CCW1 ccw)
         if (!ccw.cda) {
             ret = -EFAULT;
         } else {
-            ret = ccw_dstream_read(&sch->cds, indicators);
-            if (ret) {
-                break;
-            }
+            ccw_dstream_read(&sch->cds, indicators);
             indicators = be64_to_cpu(indicators);
             dev->indicators = get_indicator(indicators, sizeof(uint64_t));
             sch->curr_status.scsw.count = ccw.count - sizeof(indicators);
@@ -596,10 +566,7 @@ static int virtio_ccw_cb(SubchDev *sch, CCW1 ccw)
         if (!ccw.cda) {
             ret = -EFAULT;
         } else {
-            ret = ccw_dstream_read(&sch->cds, indicators);
-            if (ret) {
-                break;
-            }
+            ccw_dstream_read(&sch->cds, indicators);
             indicators = be64_to_cpu(indicators);
             dev->indicators2 = get_indicator(indicators, sizeof(uint64_t));
             sch->curr_status.scsw.count = ccw.count - sizeof(indicators);
@@ -620,10 +587,7 @@ static int virtio_ccw_cb(SubchDev *sch, CCW1 ccw)
         if (!ccw.cda) {
             ret = -EFAULT;
         } else {
-            ret = ccw_dstream_read(&sch->cds, vq_config.index);
-            if (ret) {
-                break;
-            }
+            ccw_dstream_read(&sch->cds, vq_config.index);
             vq_config.index = be16_to_cpu(vq_config.index);
             if (vq_config.index >= VIRTIO_QUEUE_MAX) {
                 ret = -EINVAL;
@@ -632,10 +596,9 @@ static int virtio_ccw_cb(SubchDev *sch, CCW1 ccw)
             vq_config.num_max = virtio_queue_get_num(vdev,
                                                      vq_config.index);
             vq_config.num_max = cpu_to_be16(vq_config.num_max);
-            ret = ccw_dstream_write(&sch->cds, vq_config.num_max);
-            if (!ret) {
-                sch->curr_status.scsw.count = ccw.count - sizeof(vq_config);
-            }
+            ccw_dstream_write(&sch->cds, vq_config.num_max);
+            sch->curr_status.scsw.count = ccw.count - sizeof(vq_config);
+            ret = 0;
         }
         break;
     case CCW_CMD_SET_IND_ADAPTER:
@@ -692,10 +655,7 @@ static int virtio_ccw_cb(SubchDev *sch, CCW1 ccw)
             ret = -EFAULT;
             break;
         }
-        ret = ccw_dstream_read_buf(&sch->cds, &revinfo, 4);
-        if (ret < 0) {
-            break;
-        }
+        ccw_dstream_read_buf(&sch->cds, &revinfo, 4);
         revinfo.revision = be16_to_cpu(revinfo.revision);
         revinfo.length = be16_to_cpu(revinfo.length);
         if (ccw.count < len + revinfo.length ||
@@ -755,7 +715,6 @@ static void virtio_ccw_device_realize(VirtioCcwDevice *dev, Error **errp)
     sch->id.reserved = 0xff;
     sch->id.cu_type = VIRTIO_CCW_CU_TYPE;
     sch->do_subchannel_work = do_subchannel_work_virtual;
-    sch->irb_cb = build_irb_virtual;
     ccw_dev->sch = sch;
     dev->indicators = NULL;
     dev->revision = -1;
@@ -768,8 +727,7 @@ static void virtio_ccw_device_realize(VirtioCcwDevice *dev, Error **errp)
         sch->cssid, sch->ssid, sch->schid, sch->devno,
         ccw_dev->devno.valid ? "user-configured" : "auto-configured");
 
-    /* fd-based ioevents can't be synchronized in record/replay */
-    if (replay_mode != REPLAY_MODE_NONE) {
+    if (kvm_enabled() && !kvm_eventfds_enabled()) {
         dev->flags &= ~VIRTIO_CCW_FLAG_USE_IOEVENTFD;
     }
 
@@ -916,9 +874,10 @@ static void virtio_ccw_notify(DeviceState *d, uint16_t vector)
 static void virtio_ccw_reset(DeviceState *d)
 {
     VirtioCcwDevice *dev = VIRTIO_CCW_DEVICE(d);
+    VirtIODevice *vdev = virtio_bus_get_device(&dev->bus);
     VirtIOCCWDeviceClass *vdc = VIRTIO_CCW_DEVICE_GET_CLASS(dev);
 
-    virtio_ccw_reset_virtio(dev);
+    virtio_ccw_reset_virtio(dev, vdev);
     if (vdc->parent_reset) {
         vdc->parent_reset(d);
     }
@@ -1237,6 +1196,7 @@ static void virtio_ccw_device_class_init(ObjectClass *klass, void *data)
     k->unplug = virtio_ccw_busdev_unplug;
     dc->realize = virtio_ccw_busdev_realize;
     dc->unrealize = virtio_ccw_busdev_unrealize;
+    dc->bus_type = TYPE_VIRTUAL_CSS_BUS;
     device_class_set_parent_reset(dc, virtio_ccw_reset, &vdc->parent_reset);
 }
 
@@ -1257,7 +1217,8 @@ static void virtio_ccw_bus_new(VirtioBusState *bus, size_t bus_size,
     DeviceState *qdev = DEVICE(dev);
     char virtio_bus_name[] = "virtio-bus";
 
-    qbus_init(bus, bus_size, TYPE_VIRTIO_CCW_BUS, qdev, virtio_bus_name);
+    qbus_create_inplace(bus, bus_size, TYPE_VIRTIO_CCW_BUS,
+                        qdev, virtio_bus_name);
 }
 
 static void virtio_ccw_bus_class_init(ObjectClass *klass, void *data)

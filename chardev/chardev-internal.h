@@ -21,7 +21,6 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
-
 #ifndef CHARDEV_INTERNAL_H
 #define CHARDEV_INTERNAL_H
 
@@ -65,4 +64,4 @@ void mux_chr_send_all_event(Chardev *chr, QEMUChrEvent event);
 
 Object *get_chardevs_root(void);
 
-#endif /* CHARDEV_INTERNAL_H */
+#endif /* CHAR_MUX_H */

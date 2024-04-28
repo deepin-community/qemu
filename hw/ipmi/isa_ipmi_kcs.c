@@ -23,6 +23,7 @@
  */
 
 #include "qemu/osdep.h"
+#include "qemu/log.h"
 #include "qemu/module.h"
 #include "qapi/error.h"
 #include "hw/irq.h"
@@ -31,7 +32,6 @@
 #include "hw/qdev-properties.h"
 #include "migration/vmstate.h"
 #include "qom/object.h"
-#include "hw/acpi/ipmi.h"
 
 #define TYPE_ISA_IPMI_KCS "isa-ipmi-kcs"
 OBJECT_DECLARE_SIMPLE_TYPE(ISAIPMIKCSDevice, ISA_IPMI_KCS)
@@ -67,24 +67,6 @@ static void isa_ipmi_kcs_lower_irq(IPMIKCS *ik)
     qemu_irq_lower(iik->irq);
 }
 
-static bool vmstate_kcs_before_version2(void *opaque, int version)
-{
-    return version <= 1;
-}
-
-static const VMStateDescription vmstate_ISAIPMIKCSDevice = {
-    .name = TYPE_IPMI_INTERFACE,
-    .version_id = 2,
-    .minimum_version_id = 1,
-    .fields      = (VMStateField[]) {
-        VMSTATE_VSTRUCT_TEST(kcs, ISAIPMIKCSDevice, vmstate_kcs_before_version2,
-                             0, vmstate_IPMIKCS, IPMIKCS, 1),
-        VMSTATE_VSTRUCT_V(kcs, ISAIPMIKCSDevice, 2, vmstate_IPMIKCS,
-                          IPMIKCS, 2),
-        VMSTATE_END_OF_LIST()
-    }
-};
-
 static void ipmi_isa_realize(DeviceState *dev, Error **errp)
 {
     Error *err = NULL;
@@ -110,7 +92,7 @@ static void ipmi_isa_realize(DeviceState *dev, Error **errp)
     }
 
     if (iik->isairq > 0) {
-        iik->irq = isa_get_irq(isadev, iik->isairq);
+        isa_init_irq(isadev, &iik->irq, iik->isairq);
         iik->kcs.use_irq = 1;
         iik->kcs.raise_irq = isa_ipmi_kcs_raise_irq;
         iik->kcs.lower_irq = isa_ipmi_kcs_lower_irq;
@@ -119,6 +101,31 @@ static void ipmi_isa_realize(DeviceState *dev, Error **errp)
     qdev_set_legacy_instance_id(dev, iik->kcs.io_base, iik->kcs.io_length);
 
     isa_register_ioport(isadev, &iik->kcs.io, iik->kcs.io_base);
+}
+
+static bool vmstate_kcs_before_version2(void *opaque, int version)
+{
+    return version <= 1;
+}
+
+static const VMStateDescription vmstate_ISAIPMIKCSDevice = {
+    .name = TYPE_IPMI_INTERFACE,
+    .version_id = 2,
+    .minimum_version_id = 1,
+    .fields      = (VMStateField[]) {
+        VMSTATE_VSTRUCT_TEST(kcs, ISAIPMIKCSDevice, vmstate_kcs_before_version2,
+                             0, vmstate_IPMIKCS, IPMIKCS, 1),
+        VMSTATE_VSTRUCT_V(kcs, ISAIPMIKCSDevice, 2, vmstate_IPMIKCS,
+                          IPMIKCS, 2),
+        VMSTATE_END_OF_LIST()
+    }
+};
+
+static void isa_ipmi_kcs_init(Object *obj)
+{
+    ISAIPMIKCSDevice *iik = ISA_IPMI_KCS(obj);
+
+    ipmi_bmc_find_and_link(obj, (Object **) &iik->kcs.bmc);
 
     /*
      * Version 1 had an incorrect name, it clashed with the BT
@@ -126,13 +133,6 @@ static void ipmi_isa_realize(DeviceState *dev, Error **errp)
      * version.
      */
     vmstate_register(NULL, 0, &vmstate_ISAIPMIKCSDevice, iik);
-}
-
-static void isa_ipmi_kcs_init(Object *obj)
-{
-    ISAIPMIKCSDevice *iik = ISA_IPMI_KCS(obj);
-
-    ipmi_bmc_find_and_link(obj, (Object **) &iik->kcs.bmc);
 }
 
 static void *isa_ipmi_kcs_get_backend_data(IPMIInterface *ii)
@@ -152,7 +152,6 @@ static void isa_ipmi_kcs_class_init(ObjectClass *oc, void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(oc);
     IPMIInterfaceClass *iic = IPMI_INTERFACE_CLASS(oc);
-    AcpiDevAmlIfClass *adevc = ACPI_DEV_AML_IF_CLASS(oc);
 
     dc->realize = ipmi_isa_realize;
     device_class_set_props(dc, ipmi_isa_properties);
@@ -160,7 +159,6 @@ static void isa_ipmi_kcs_class_init(ObjectClass *oc, void *data)
     iic->get_backend_data = isa_ipmi_kcs_get_backend_data;
     ipmi_kcs_class_init(iic);
     iic->get_fwinfo = isa_ipmi_kcs_get_fwinfo;
-    adevc->build_dev_aml = build_ipmi_dev_aml;
 }
 
 static const TypeInfo isa_ipmi_kcs_info = {
@@ -171,7 +169,6 @@ static const TypeInfo isa_ipmi_kcs_info = {
     .class_init    = isa_ipmi_kcs_class_init,
     .interfaces = (InterfaceInfo[]) {
         { TYPE_IPMI_INTERFACE },
-        { TYPE_ACPI_DEV_AML_IF },
         { }
     }
 };

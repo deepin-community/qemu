@@ -10,8 +10,8 @@
 #include "hw/display/edid.h"
 
 static qemu_edid_info info = {
-    .prefx = 1280,
-    .prefy = 800,
+    .prefx = 1024,
+    .prefy = 768,
 };
 
 static void usage(FILE *out)
@@ -41,8 +41,7 @@ static void usage(FILE *out)
 int main(int argc, char *argv[])
 {
     FILE *outfile = NULL;
-    uint8_t blob[512];
-    size_t size;
+    uint8_t blob[256];
     uint32_t dpi = 100;
     int rc;
 
@@ -92,10 +91,6 @@ int main(int argc, char *argv[])
                 fprintf(stderr, "not a number: %s\n", optarg);
                 exit(1);
             }
-            if (dpi == 0) {
-                fprintf(stderr, "cannot be zero: %s\n", optarg);
-                exit(1);
-            }
             break;
         case 'v':
             info.vendor = optarg;
@@ -124,8 +119,7 @@ int main(int argc, char *argv[])
 
     memset(blob, 0, sizeof(blob));
     qemu_edid_generate(blob, sizeof(blob), &info);
-    size = qemu_edid_size(blob);
-    fwrite(blob, size, 1, outfile);
+    fwrite(blob, sizeof(blob), 1, outfile);
     fflush(outfile);
 
     exit(0);

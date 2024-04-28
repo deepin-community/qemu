@@ -157,14 +157,14 @@ static uint16_t tsc2005_read(TSC2005State *s, int reg)
         s->reset = true;
         return ret;
 
-    case 0x8:   /* AUX high threshold */
+    case 0x8:	/* AUX high treshold */
         return s->aux_thr[1];
-    case 0x9:   /* AUX low threshold */
+    case 0x9:	/* AUX low treshold */
         return s->aux_thr[0];
 
-    case 0xa:   /* TEMP high threshold */
+    case 0xa:	/* TEMP high treshold */
         return s->temp_thr[1];
-    case 0xb:   /* TEMP low threshold */
+    case 0xb:	/* TEMP low treshold */
         return s->temp_thr[0];
 
     case 0xc:	/* CFR0 */
@@ -186,17 +186,17 @@ static uint16_t tsc2005_read(TSC2005State *s, int reg)
 static void tsc2005_write(TSC2005State *s, int reg, uint16_t data)
 {
     switch (reg) {
-    case 0x8:   /* AUX high threshold */
+    case 0x8:	/* AUX high treshold */
         s->aux_thr[1] = data;
         break;
-    case 0x9:   /* AUX low threshold */
+    case 0x9:	/* AUX low treshold */
         s->aux_thr[0] = data;
         break;
 
-    case 0xa:   /* TEMP high threshold */
+    case 0xa:	/* TEMP high treshold */
         s->temp_thr[1] = data;
         break;
-    case 0xb:   /* TEMP low threshold */
+    case 0xb:	/* TEMP low treshold */
         s->temp_thr[0] = data;
         break;
 
@@ -489,7 +489,8 @@ void *tsc2005_init(qemu_irq pintdav)
 {
     TSC2005State *s;
 
-    s = g_new0(TSC2005State, 1);
+    s = (TSC2005State *)
+            g_malloc0(sizeof(TSC2005State));
     s->x = 400;
     s->y = 240;
     s->pressure = false;
@@ -523,7 +524,7 @@ void *tsc2005_init(qemu_irq pintdav)
  * from the touchscreen.  Assuming 12-bit precision was used during
  * tslib calibration.
  */
-void tsc2005_set_transform(void *opaque, const MouseTransformInfo *info)
+void tsc2005_set_transform(void *opaque, MouseTransformInfo *info)
 {
     TSC2005State *s = (TSC2005State *) opaque;
 

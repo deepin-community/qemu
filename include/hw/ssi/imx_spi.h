@@ -77,9 +77,6 @@
 
 #define EXTRACT(value, name) extract32(value, name##_SHIFT, name##_LENGTH)
 
-/* number of chip selects supported */
-#define ECSPI_NUM_CS 4
-
 #define TYPE_IMX_SPI "imx.spi"
 OBJECT_DECLARE_SIMPLE_TYPE(IMXSPIState, IMX_SPI)
 
@@ -92,7 +89,7 @@ struct IMXSPIState {
 
     qemu_irq irq;
 
-    qemu_irq cs_lines[ECSPI_NUM_CS];
+    qemu_irq cs_lines[4];
 
     SSIBus *bus;
 

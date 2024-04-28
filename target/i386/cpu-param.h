@@ -6,7 +6,7 @@
  */
 
 #ifndef I386_CPU_PARAM_H
-#define I386_CPU_PARAM_H
+#define I386_CPU_PARAM_H 1
 
 #ifdef TARGET_X86_64
 # define TARGET_LONG_BITS             64
@@ -23,5 +23,6 @@
 # define TARGET_VIRT_ADDR_SPACE_BITS  32
 #endif
 #define TARGET_PAGE_BITS 12
+#define NB_MMU_MODES 3
 
 #endif

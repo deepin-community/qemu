@@ -22,7 +22,6 @@
 #include "hw/char/imx_serial.h"
 #include "hw/irq.h"
 #include "hw/qdev-properties.h"
-#include "hw/qdev-properties-system.h"
 #include "migration/vmstate.h"
 #include "qemu/log.h"
 #include "qemu/module.h"
@@ -80,7 +79,7 @@ static void imx_update(IMXSerialState *s)
      * TCEN and TXDC are both bit 3
      * RDR and DREN are both bit 0
      */
-    mask |= s->ucr4 & (UCR4_WKEN | UCR4_TCEN | UCR4_DREN);
+    mask |= s->ucr4 & (UCR4_TCEN | UCR4_DREN);
 
     usr2 = s->usr2 & mask;
 
@@ -112,7 +111,7 @@ static void imx_serial_reset_at_boot(DeviceState *dev)
     imx_serial_reset(s);
 
     /*
-     * enable the uart on boot, so messages from the linux decompressor
+     * enable the uart on boot, so messages from the linux decompresser
      * are visible.  On real hardware this is done by the boot rom
      * before anything else is loaded.
      */
@@ -321,9 +320,6 @@ static void imx_put_data(void *opaque, uint32_t value)
 
 static void imx_receive(void *opaque, const uint8_t *buf, int size)
 {
-    IMXSerialState *s = (IMXSerialState *)opaque;
-
-    s->usr2 |= USR2_WAKE;
     imx_put_data(opaque, *buf);
 }
 

@@ -128,7 +128,7 @@ typedef struct XHCIPort {
     uint32_t portnr;
     USBPort  *uport;
     uint32_t speedmask;
-    char name[20];
+    char name[16];
     MemoryRegion mem;
 } XHCIPort;
 
@@ -194,7 +194,7 @@ typedef struct XHCIState {
     uint32_t flags;
     uint32_t max_pstreams_mask;
     void (*intr_update)(XHCIState *s, int n, bool enable);
-    bool (*intr_raise)(XHCIState *s, int n, bool level);
+    void (*intr_raise)(XHCIState *s, int n, bool level);
     DeviceState *hostOpaque;
 
     /* Operational Registers */

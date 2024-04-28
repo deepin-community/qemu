@@ -35,7 +35,8 @@
 static void get_tpm(Object *obj, Visitor *v, const char *name, void *opaque,
                     Error **errp)
 {
-    TPMBackend **be = object_field_prop_ptr(obj, opaque);
+    DeviceState *dev = DEVICE(obj);
+    TPMBackend **be = qdev_get_prop_ptr(dev, opaque);
     char *p;
 
     p = g_strdup(*be ? (*be)->id : "");
@@ -46,9 +47,15 @@ static void get_tpm(Object *obj, Visitor *v, const char *name, void *opaque,
 static void set_tpm(Object *obj, Visitor *v, const char *name, void *opaque,
                     Error **errp)
 {
+    DeviceState *dev = DEVICE(obj);
     Property *prop = opaque;
-    TPMBackend *s, **be = object_field_prop_ptr(obj, prop);
+    TPMBackend *s, **be = qdev_get_prop_ptr(dev, prop);
     char *str;
+
+    if (dev->realized) {
+        qdev_prop_set_after_realize(dev, name, errp);
+        return;
+    }
 
     if (!visit_type_str(v, name, &str, errp)) {
         return;
@@ -57,7 +64,7 @@ static void set_tpm(Object *obj, Visitor *v, const char *name, void *opaque,
     s = qemu_find_tpm_be(str);
     if (s == NULL) {
         error_setg(errp, "Property '%s.%s' can't find value '%s'",
-                   object_get_typename(obj), name, str);
+                   object_get_typename(obj), prop->name, str);
     } else if (tpm_backend_init(s, TPM_IF(obj), errp) == 0) {
         *be = s; /* weak reference, avoid cyclic ref */
     }
@@ -66,8 +73,9 @@ static void set_tpm(Object *obj, Visitor *v, const char *name, void *opaque,
 
 static void release_tpm(Object *obj, const char *name, void *opaque)
 {
+    DeviceState *dev = DEVICE(obj);
     Property *prop = opaque;
-    TPMBackend **be = object_field_prop_ptr(obj, prop);
+    TPMBackend **be = qdev_get_prop_ptr(dev, prop);
 
     if (*be) {
         tpm_backend_reset(*be);
@@ -112,8 +120,12 @@ static int tpm_util_request(int fd,
                             void *response,
                             size_t responselen)
 {
-    GPollFD fds[1] = { {.fd = fd, .events = G_IO_IN } };
+    fd_set readfds;
     int n;
+    struct timeval tv = {
+        .tv_sec = 1,
+        .tv_usec = 0,
+    };
 
     n = write(fd, request, requestlen);
     if (n < 0) {
@@ -123,8 +135,11 @@ static int tpm_util_request(int fd,
         return -EFAULT;
     }
 
+    FD_ZERO(&readfds);
+    FD_SET(fd, &readfds);
+
     /* wait for a second */
-    n = RETRY_ON_EINTR(g_poll(fds, 1, 1000));
+    n = select(fd + 1, &readfds, NULL, NULL, &tv);
     if (n != 1) {
         return -errno;
     }

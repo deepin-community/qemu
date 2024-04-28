@@ -15,11 +15,10 @@ wrote 4096/4096 bytes at offset 0
 exports available: 1
  export: 'fmt'
   size:  67108864
-  flags: 0x158f ( readonly flush fua df multi cache block-status-payload )
+  flags: 0x58f ( readonly flush fua df multi cache )
   min block: XXX
   opt block: XXX
   max block: XXX
-  transaction size: 64-bit
   available meta contexts: 1
    base:allocation
 
@@ -44,26 +43,17 @@ exports available: 1
 exports available: 1
  export: 'fmt'
   size:  67108864
-  flags: 0x158f ( readonly flush fua df multi cache block-status-payload )
+  flags: 0x58f ( readonly flush fua df multi cache )
   min block: XXX
   opt block: XXX
   max block: XXX
-  transaction size: 64-bit
   available meta contexts: 1
    base:allocation
 
 
-=== Add export with conflicting iothread ===
-{"execute": "device_add", "arguments": {"drive": "null", "driver": "scsi-hd", "id": "sdb"}}
-{"return": {}}
-{"execute": "block-export-add", "arguments": {"fixed-iothread": true, "id": "export1", "iothread": "iothread1", "node-name": "null", "type": "nbd", "writable": true}}
-{"error": {"class": "GenericError", "desc": "Cannot change iothread of active block backend"}}
-{"execute": "block-export-add", "arguments": {"fixed-iothread": false, "id": "export1", "iothread": "iothread1", "node-name": "null", "type": "nbd", "writable": true}}
-{"error": {"class": "GenericError", "desc": "Permission conflict on node 'null': permissions 'write' are both required by an unnamed block device (uses node 'null' as 'root' child) and unshared by block device 'sdb' (uses node 'null' as 'root' child)."}}
-
 === Add a writable export ===
 {"execute": "block-export-add", "arguments": {"description": "This is the writable second export", "id": "export1", "name": "export1", "node-name": "fmt", "type": "nbd", "writable": true, "writethrough": true}}
-{"error": {"class": "GenericError", "desc": "Permission conflict on node 'fmt': permissions 'write' are both required by an unnamed block device (uses node 'fmt' as 'root' child) and unshared by block device 'sda' (uses node 'fmt' as 'root' child)."}}
+{"error": {"class": "GenericError", "desc": "Conflicts with use by sda as 'root', which does not allow 'write' on fmt"}}
 {"execute": "device_del", "arguments": {"id": "sda"}}
 {"return": {}}
 {"data": {"device": "sda", "path": "/machine/peripheral/sda"}, "event": "DEVICE_DELETED", "timestamp": {"microseconds": "USECS", "seconds": "SECS"}}
@@ -76,21 +66,19 @@ exports available: 1
 exports available: 2
  export: 'fmt'
   size:  67108864
-  flags: 0x158f ( readonly flush fua df multi cache block-status-payload )
+  flags: 0x58f ( readonly flush fua df multi cache )
   min block: XXX
   opt block: XXX
   max block: XXX
-  transaction size: 64-bit
   available meta contexts: 1
    base:allocation
  export: 'export1'
   description: This is the writable second export
   size:  67108864
-  flags: 0x1ded ( flush fua trim zeroes df multi cache fast-zero block-status-payload )
+  flags: 0xced ( flush fua trim zeroes df cache fast-zero )
   min block: XXX
   opt block: XXX
   max block: XXX
-  transaction size: 64-bit
   available meta contexts: 1
    base:allocation
 
@@ -113,11 +101,10 @@ exports available: 1
  export: 'export1'
   description: This is the writable second export
   size:  67108864
-  flags: 0x1ded ( flush fua trim zeroes df multi cache fast-zero block-status-payload )
+  flags: 0xced ( flush fua trim zeroes df cache fast-zero )
   min block: XXX
   opt block: XXX
   max block: XXX
-  transaction size: 64-bit
   available meta contexts: 1
    base:allocation
 

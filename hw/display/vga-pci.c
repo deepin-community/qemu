@@ -1,7 +1,7 @@
 /*
  * QEMU PCI VGA Emulator.
  *
- * see docs/specs/standard-vga.rst for virtual hardware specs.
+ * see docs/specs/standard-vga.txt for virtual hardware specs.
  *
  * Copyright (c) 2003 Fabrice Bellard
  *
@@ -25,18 +25,16 @@
  */
 
 #include "qemu/osdep.h"
-#include "hw/pci/pci_device.h"
+#include "hw/pci/pci.h"
 #include "hw/qdev-properties.h"
 #include "migration/vmstate.h"
 #include "vga_int.h"
 #include "ui/pixel_ops.h"
-#include "ui/console.h"
 #include "qemu/module.h"
 #include "qemu/timer.h"
 #include "hw/loader.h"
 #include "hw/display/edid.h"
 #include "qom/object.h"
-#include "hw/acpi/acpi_aml_interface.h"
 
 enum vga_pci_flags {
     PCI_VGA_FLAG_ENABLE_MMIO = 1,
@@ -51,7 +49,7 @@ struct PCIVGAState {
     qemu_edid_info edid_info;
     MemoryRegion mmio;
     MemoryRegion mrs[4];
-    uint8_t edid[384];
+    uint8_t edid[256];
 };
 
 #define TYPE_PCI_VGA "pci-vga"
@@ -241,9 +239,7 @@ static void pci_std_vga_realize(PCIDevice *dev, Error **errp)
     bool edid = false;
 
     /* vga + console init */
-    if (!vga_common_init(s, OBJECT(dev), errp)) {
-        return;
-    }
+    vga_common_init(s, OBJECT(dev));
     vga_init(s, OBJECT(dev), pci_address_space(dev), pci_address_space_io(dev),
              true);
 
@@ -279,9 +275,7 @@ static void pci_secondary_vga_realize(PCIDevice *dev, Error **errp)
     bool edid = false;
 
     /* vga + console init */
-    if (!vga_common_init(s, OBJECT(dev), errp)) {
-        return;
-    }
+    vga_common_init(s, OBJECT(dev));
     s->con = graphic_console_init(DEVICE(dev), 0, s->hw_ops, s);
 
     /* mmio bar */
@@ -356,13 +350,11 @@ static void vga_pci_class_init(ObjectClass *klass, void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(klass);
     PCIDeviceClass *k = PCI_DEVICE_CLASS(klass);
-    AcpiDevAmlIfClass *adevc = ACPI_DEV_AML_IF_CLASS(klass);
 
     k->vendor_id = PCI_VENDOR_ID_QEMU;
     k->device_id = PCI_DEVICE_ID_QEMU_VGA;
     dc->vmsd = &vmstate_vga_pci;
     set_bit(DEVICE_CATEGORY_DISPLAY, dc->categories);
-    adevc->build_dev_aml = build_vga_aml;
 }
 
 static const TypeInfo vga_pci_type_info = {
@@ -373,7 +365,6 @@ static const TypeInfo vga_pci_type_info = {
     .class_init = vga_pci_class_init,
     .interfaces = (InterfaceInfo[]) {
         { INTERFACE_CONVENTIONAL_PCI_DEVICE },
-        { TYPE_ACPI_DEV_AML_IF },
         { },
     },
 };

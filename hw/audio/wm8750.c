@@ -624,10 +624,7 @@ static void wm8750_realize(DeviceState *dev, Error **errp)
 {
     WM8750State *s = WM8750(dev);
 
-    if (!AUD_register_card(CODEC, &s->card, errp)) {
-        return;
-    }
-
+    AUD_register_card(CODEC, &s->card);
     wm8750_reset(I2C_SLAVE(s));
 }
 

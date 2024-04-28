@@ -11,11 +11,13 @@
  */
 
 #include "qemu/osdep.h"
-#include "kvm/kvm_s390x.h"
+#include "cpu.h"
+#include "kvm_s390x.h"
 #include <sys/ioctl.h>
 #include "qemu/error-report.h"
 #include "qemu/module.h"
 #include "qapi/error.h"
+#include "hw/sysbus.h"
 #include "sysemu/kvm.h"
 #include "hw/s390x/s390_flic.h"
 #include "hw/s390x/adapter.h"
@@ -24,7 +26,7 @@
 #include "trace.h"
 #include "qom/object.h"
 
-#define FLIC_SAVE_INITIAL_SIZE qemu_real_host_page_size()
+#define FLIC_SAVE_INITIAL_SIZE qemu_real_host_page_size
 #define FLIC_FAILED (-1UL)
 #define FLIC_SAVEVM_VERSION 1
 
@@ -380,11 +382,11 @@ static void kvm_s390_release_adapter_routes(S390FLICState *fs,
  * @size: ignored
  *
  * Note: Pass buf and len to kernel. Start with one page and
- * increase until buffer is sufficient or maximum size is
+ * increase until buffer is sufficient or maxium size is
  * reached
  */
 static int kvm_flic_save(QEMUFile *f, void *opaque, size_t size,
-                         const VMStateField *field, JSONWriter *vmdesc)
+                         const VMStateField *field, QJSON *vmdesc)
 {
     KVMS390FLICState *flic = opaque;
     int len = FLIC_SAVE_INITIAL_SIZE;

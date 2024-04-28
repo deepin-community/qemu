@@ -6,12 +6,12 @@
  */
 
 #ifndef ARM_CPU_PARAM_H
-#define ARM_CPU_PARAM_H
+#define ARM_CPU_PARAM_H 1
 
 #ifdef TARGET_AARCH64
 # define TARGET_LONG_BITS             64
-# define TARGET_PHYS_ADDR_SPACE_BITS  52
-# define TARGET_VIRT_ADDR_SPACE_BITS  52
+# define TARGET_PHYS_ADDR_SPACE_BITS  48
+# define TARGET_VIRT_ADDR_SPACE_BITS  48
 #else
 # define TARGET_LONG_BITS             32
 # define TARGET_PHYS_ADDR_SPACE_BITS  40
@@ -20,9 +20,6 @@
 
 #ifdef CONFIG_USER_ONLY
 #define TARGET_PAGE_BITS 12
-# ifdef TARGET_AARCH64
-#  define TARGET_TAGGED_ADDRESSES
-# endif
 #else
 /*
  * ARMv7 and later CPUs have 4K pages minimum, but ARMv5 and v6
@@ -30,7 +27,8 @@
  */
 # define TARGET_PAGE_BITS_VARY
 # define TARGET_PAGE_BITS_MIN  10
-
 #endif
+
+#define NB_MMU_MODES 11
 
 #endif

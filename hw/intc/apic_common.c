@@ -22,17 +22,18 @@
 #include "qemu/error-report.h"
 #include "qemu/module.h"
 #include "qapi/error.h"
+#include "cpu.h"
 #include "qapi/visitor.h"
 #include "hw/i386/apic.h"
 #include "hw/i386/apic_internal.h"
-#include "hw/intc/kvm_irqcount.h"
 #include "trace.h"
-#include "hw/boards.h"
+#include "sysemu/hax.h"
 #include "sysemu/kvm.h"
 #include "hw/qdev-properties.h"
 #include "hw/sysbus.h"
 #include "migration/vmstate.h"
 
+static int apic_irq_delivered;
 bool apic_report_tpr_access;
 
 void cpu_set_apic_base(DeviceState *dev, uint64_t val)
@@ -119,6 +120,32 @@ void apic_handle_tpr_access_report(DeviceState *dev, target_ulong ip,
     APICCommonState *s = APIC_COMMON(dev);
 
     vapic_report_tpr_access(s->vapic, CPU(s->cpu), ip, access);
+}
+
+void apic_report_irq_delivered(int delivered)
+{
+    apic_irq_delivered += delivered;
+
+    trace_apic_report_irq_delivered(apic_irq_delivered);
+}
+
+void apic_reset_irq_delivered(void)
+{
+    /* Copy this into a local variable to encourage gcc to emit a plain
+     * register for a sys/sdt.h marker.  For details on this workaround, see:
+     * https://sourceware.org/bugzilla/show_bug.cgi?id=13296
+     */
+    volatile int a_i_d = apic_irq_delivered;
+    trace_apic_reset_irq_delivered(a_i_d);
+
+    apic_irq_delivered = 0;
+}
+
+int apic_get_irq_delivered(void)
+{
+    trace_apic_get_irq_delivered(apic_irq_delivered);
+
+    return apic_irq_delivered;
 }
 
 void apic_deliver_nmi(DeviceState *dev)
@@ -245,7 +272,7 @@ static void apic_reset_common(DeviceState *dev)
     s->apicbase = APIC_DEFAULT_ADDRESS | bsp | MSR_IA32_APICBASE_ENABLE;
     s->id = s->initial_apic_id;
 
-    kvm_reset_irq_delivered();
+    apic_reset_irq_delivered();
 
     s->vapic_paddr = 0;
     info->vapic_base_update(s);
@@ -257,7 +284,6 @@ static const VMStateDescription vmstate_apic_common;
 
 static void apic_common_realize(DeviceState *dev, Error **errp)
 {
-    ERRP_GUARD();
     APICCommonState *s = APIC_COMMON(dev);
     APICCommonClass *info;
     static DeviceState *vapic;
@@ -268,13 +294,10 @@ static void apic_common_realize(DeviceState *dev, Error **errp)
 
     info = APIC_COMMON_GET_CLASS(s);
     info->realize(dev, errp);
-    if (*errp) {
-        return;
-    }
 
     /* Note: We need at least 1M to map the VAPIC option ROM */
     if (!vapic && s->vapic_control & VAPIC_ENABLE_MASK &&
-            current_machine->ram_size >= 1024 * 1024) {
+        !hax_enabled() && ram_size >= 1024 * 1024) {
         vapic = sysbus_create_simple("kvmvapic", -1, NULL);
     }
     s->vapic = vapic;

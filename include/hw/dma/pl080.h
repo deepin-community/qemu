@@ -10,12 +10,11 @@
  * (at your option) any later version.
  */
 
-/*
- * This is a model of the Arm PrimeCell PL080/PL081 DMA controller:
+/* This is a model of the Arm PrimeCell PL080/PL081 DMA controller:
  * The PL080 TRM is:
- * https://developer.arm.com/documentation/ddi0196/latest
+ * http://infocenter.arm.com/help/topic/com.arm.doc.ddi0196g/DDI0196.pdf
  * and the PL081 TRM is:
- * https://developer.arm.com/documentation/ddi0218/latest
+ * http://infocenter.arm.com/help/topic/com.arm.doc.ddi0218e/DDI0218.pdf
  *
  * QEMU interface:
  * + sysbus IRQ 0: DMACINTR combined interrupt line

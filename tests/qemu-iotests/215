@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# group: rw quick
 #
 # Test case for copy-on-read into qcow2, using the COR filter driver
 #
@@ -95,7 +94,7 @@ output=$($QEMU_IO \
          2>&1 | _filter_qemu_io)
 case $output in
     *allocate*)
-        _notrun "Insufficient memory to run test" ;;
+        _notrun "Insufficent memory to run test" ;;
     *) printf '%s\n' "$output" ;;
 esac
 $QEMU_IO \

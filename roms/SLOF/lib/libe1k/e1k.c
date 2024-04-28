@@ -163,7 +163,7 @@ static const e1k_dev_t e1k_dev[] = {
 	{ 0x1016, E1K_82540, "82540EP Mobile" },
 	{ 0x1017, E1K_82540, "82540EP Desktop" },
 	{ 0x100E, E1K_82540, "82540EM Desktop" },
-	{ 0 }
+	{ 0     , 0 }
 };
 
 /*
@@ -182,8 +182,8 @@ check_driver(uint16_t vendor_id, uint16_t device_id);
 
 static int e1k_init(net_driver_t *driver);
 static int e1k_term(void);
-static int e1k_xmit(char *f_buffer_pc, unsigned f_len_i);
-static int e1k_receive(char *f_buffer_pc, unsigned f_len_i);
+static int e1k_xmit(char *f_buffer_pc, int f_len_i);
+static int e1k_receive(char *f_buffer_pc, int f_len_i);
 
 /**
  * Translate virtual to "physical" address, ie. an address
@@ -369,7 +369,7 @@ e1k_init_receiver(void)
 	e1k_wr32(RCTL, 0);
 
 	/*
-	 * clear receive descriptors and setup buffer pointers
+	 * clear receive desciptors and setup buffer pointers
 	 */
 	for (i = 0; i < E1K_NUM_RX_DESC; i++) {
 		memset((uint8_t *) &m_e1k.m_rx_ring_pst[i], 0,
@@ -421,7 +421,7 @@ e1k_init_transmitter(void)
 	uint64_t addr;
 
 	/*
-	 * clear transmit descriptors and setup buffer pointers
+	 * clear transmit desciptors and setup buffer pointers
 	 */
 	for (i = 0; i < E1K_NUM_TX_DESC; i++) {
 		memset((uint8_t *) &m_e1k.m_tx_ring_pst[i], 0,
@@ -451,7 +451,7 @@ e1k_init_transmitter(void)
 	 */
 	e1k_wr32(TCTL, BIT32(1) |			// enable transmitter
 			BIT32(3) |			// pad short packets
-			((uint32_t) 0x0f <<  4) |	// collision threshold
+			((uint32_t) 0x0f <<  4) |	// collision threshhold
 			((uint32_t) 0x40 << 12));	// collision distance
 }
 
@@ -549,11 +549,11 @@ e1k_mac_init(uint8_t *f_mac_pu08)
  * e1k_receive
  */
 static int
-e1k_receive(char *f_buffer_pc, unsigned f_len_i)
+e1k_receive(char *f_buffer_pc, int f_len_i)
 {
 	uint32_t	l_rdh_u32 = e1k_rd32(RDH);	// this includes needed dummy read
 	e1k_rx_desc_st	*rx;
-	unsigned	l_ret_i;
+	int		l_ret_i;
 
 	#ifdef E1K_DEBUG
 	#ifdef E1K_SHOW_RCV_DATA
@@ -589,11 +589,11 @@ e1k_receive(char *f_buffer_pc, unsigned f_len_i)
 	 * copy the data
 	 */
 	memcpy((uint8_t *) f_buffer_pc, dma2virt(bswap_64(rx->m_buffer_u64)),
-		(size_t) MIN(l_ret_i, f_len_i));
+		(size_t) l_ret_i);
 
 	#ifdef E1K_DEBUG
 	#if defined(E1K_SHOW_RCV) || defined(E1K_SHOW_RCV_DATA)
-	printf("e1k: %d bytes received (max %d)\n", l_ret_i, f_len_i);
+	printf("e1k: %d bytes received\n", l_ret_i);
 	#endif
 
 	#ifdef E1K_SHOW_RCV_DATA
@@ -631,7 +631,7 @@ e1k_receive(char *f_buffer_pc, unsigned f_len_i)
 }
 
 static int
-e1k_xmit(char *f_buffer_pc, unsigned f_len_i)
+e1k_xmit(char *f_buffer_pc, int f_len_i)
 {
 	uint32_t	l_tdh_u32 = e1k_rd32(TDH);
 	uint32_t	l_tdt_u32 = e1k_rd32(TDT);

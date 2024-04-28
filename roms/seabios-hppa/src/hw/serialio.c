@@ -106,12 +106,7 @@ portaddr_t DebugOutputPort VARFSEG = 0x402;
 void
 qemu_debug_preinit(void)
 {
-    /* Xen doesn't support checking if debug output is active. */
-    if (runningOnXen())
-        return;
-
     /* Check if the QEMU debug output port is active */
-    /* PARISC may use serial console */
     if (CONFIG_DEBUG_IO &&
         inb(GET_GLOBAL(DebugOutputPort)) != QEMU_DEBUGCON_READBACK)
         DebugOutputPort = 0;
@@ -123,7 +118,7 @@ qemu_debug_putc(char c)
 {
     if (!CONFIG_DEBUG_IO || !runningOnQEMU())
         return;
-    portaddr_t port = GET_GLOBAL(DebugOutputPort);
+    u16 port = GET_GLOBAL(DebugOutputPort);
     if (port)
         // Send character to debug port.
         outb(c, port);

@@ -23,12 +23,14 @@
 #include "qemu/osdep.h"
 #include "qapi/error.h"
 #include "qemu/error-report.h"
+#include "hw/hw.h"
 #include "hw/rx/rx62n.h"
 #include "hw/loader.h"
 #include "hw/sysbus.h"
 #include "hw/qdev-properties.h"
 #include "sysemu/sysemu.h"
-#include "qapi/qmp/qlist.h"
+#include "sysemu/qtest.h"
+#include "cpu.h"
 #include "qom/object.h"
 
 /*
@@ -115,7 +117,7 @@ static const uint8_t ipr_table[NR_IRQS] = {
 };
 
 /*
- * Level triggered IRQ list
+ * Level triggerd IRQ list
  * Not listed IRQ is Edge trigger.
  * See "11.3.1 Interrupt Vector Table" in hardware manual.
  */
@@ -131,22 +133,22 @@ static void register_icu(RX62NState *s)
 {
     int i;
     SysBusDevice *icu;
-    QList *ipr_map, *trigger_level;
 
     object_initialize_child(OBJECT(s), "icu", &s->icu, TYPE_RX_ICU);
     icu = SYS_BUS_DEVICE(&s->icu);
-
-    ipr_map = qlist_new();
+    qdev_prop_set_uint32(DEVICE(icu), "len-ipr-map", NR_IRQS);
     for (i = 0; i < NR_IRQS; i++) {
-        qlist_append_int(ipr_map, ipr_table[i]);
+        char propname[32];
+        snprintf(propname, sizeof(propname), "ipr-map[%d]", i);
+        qdev_prop_set_uint32(DEVICE(icu), propname, ipr_table[i]);
     }
-    qdev_prop_set_array(DEVICE(icu), "ipr-map", ipr_map);
-
-    trigger_level = qlist_new();
+    qdev_prop_set_uint32(DEVICE(icu), "len-trigger-level",
+                         ARRAY_SIZE(levelirq));
     for (i = 0; i < ARRAY_SIZE(levelirq); i++) {
-        qlist_append_int(trigger_level, levelirq[i]);
+        char propname[32];
+        snprintf(propname, sizeof(propname), "trigger-level[%d]", i);
+        qdev_prop_set_uint32(DEVICE(icu), propname, levelirq[i]);
     }
-    qdev_prop_set_array(DEVICE(icu), "trigger-level", trigger_level);
 
     for (i = 0; i < NR_IRQS; i++) {
         s->irq[i] = qdev_get_gpio_in(DEVICE(icu), i);
@@ -155,7 +157,7 @@ static void register_icu(RX62NState *s)
     sysbus_connect_irq(icu, 0, qdev_get_gpio_in(DEVICE(&s->cpu), RX_CPU_IRQ));
     sysbus_connect_irq(icu, 1, qdev_get_gpio_in(DEVICE(&s->cpu), RX_CPU_FIR));
     sysbus_connect_irq(icu, 2, s->irq[SWI]);
-    sysbus_mmio_map(icu, 0, RX62N_ICU_BASE);
+    sysbus_mmio_map(SYS_BUS_DEVICE(icu), 0, RX62N_ICU_BASE);
 }
 
 static void register_tmr(RX62NState *s, int unit)
@@ -242,6 +244,15 @@ static void rx62n_realize(DeviceState *dev, Error **errp)
     memory_region_init_rom(&s->c_flash, OBJECT(dev), "flash-code",
                            rxc->rom_flash_size, &error_abort);
     memory_region_add_subregion(s->sysmem, RX62N_CFLASH_BASE, &s->c_flash);
+
+    if (!s->kernel) {
+        if (bios_name) {
+            rom_add_file_fixed(bios_name, RX62N_CFLASH_BASE, 0);
+        }  else if (!qtest_enabled()) {
+            error_report("No bios or kernel specified");
+            exit(1);
+        }
+    }
 
     /* Initialize CPU */
     object_initialize_child(OBJECT(s), "cpu", &s->cpu, TYPE_RX62N_CPU);

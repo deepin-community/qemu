@@ -17,7 +17,7 @@
 #define IVSHMEM_SERVER_DEFAULT_PID_FILE       "/var/run/ivshmem-server.pid"
 #define IVSHMEM_SERVER_DEFAULT_UNIX_SOCK_PATH "/tmp/ivshmem_socket"
 #define IVSHMEM_SERVER_DEFAULT_SHM_PATH       "ivshmem"
-#define IVSHMEM_SERVER_DEFAULT_SHM_SIZE       (4 * 1024 * 1024)
+#define IVSHMEM_SERVER_DEFAULT_SHM_SIZE       (4*1024*1024)
 #define IVSHMEM_SERVER_DEFAULT_N_VECTORS      1
 
 /* used to quit on signal SIGTERM */
@@ -69,7 +69,7 @@ static void
 ivshmem_server_parse_args(IvshmemServerArgs *args, int argc, char *argv[])
 {
     int c;
-    uint64_t v;
+    unsigned long long v;
     Error *err = NULL;
 
     while ((c = getopt(argc, argv, "hvFp:S:m:M:l:n:")) != -1) {
@@ -112,7 +112,7 @@ ivshmem_server_parse_args(IvshmemServerArgs *args, int argc, char *argv[])
             break;
 
         case 'n': /* number of vectors */
-            if (parse_uint_full(optarg, 0, &v) < 0) {
+            if (parse_uint_full(optarg, &v, 0) < 0) {
                 fprintf(stderr, "cannot parse n_vectors\n");
                 ivshmem_server_help(argv[0]);
                 exit(1);

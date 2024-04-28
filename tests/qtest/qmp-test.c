@@ -11,7 +11,7 @@
  */
 
 #include "qemu/osdep.h"
-#include "libqtest.h"
+#include "libqos/libqtest.h"
 #include "qapi/error.h"
 #include "qapi/qapi-visit-control.h"
 #include "qapi/qmp/qdict.h"
@@ -159,19 +159,16 @@ static void test_qmp_protocol(void)
     qtest_quit(qts);
 }
 
-#ifndef _WIN32
-
 /* Out-of-band tests */
 
-char *tmpdir;
+char tmpdir[] = "/tmp/qmp-test-XXXXXX";
 char *fifo_name;
 
 static void setup_blocking_cmd(void)
 {
-    GError *err = NULL;
-    tmpdir = g_dir_make_tmp("qmp-test-XXXXXX", &err);
-    g_assert_no_error(err);
-
+    if (!mkdtemp(tmpdir)) {
+        g_error("mkdtemp: %s", strerror(errno));
+    }
     fifo_name = g_strdup_printf("%s/fifo", tmpdir);
     if (mkfifo(fifo_name, 0666)) {
         g_error("mkfifo: %s", strerror(errno));
@@ -182,7 +179,6 @@ static void cleanup_blocking_cmd(void)
 {
     unlink(fifo_name);
     rmdir(tmpdir);
-    g_free(tmpdir);
 }
 
 static void send_cmd_that_blocks(QTestState *s, const char *id)
@@ -256,7 +252,7 @@ static void test_qmp_oob(void)
      * Try any command that does not support OOB but with OOB flag. We
      * should get failure.
      */
-    resp = qtest_qmp(qts, "{ 'exec-oob': 'query-cpus-fast' }");
+    resp = qtest_qmp(qts, "{ 'exec-oob': 'query-cpus' }");
     g_assert(qdict_haskey(resp, "error"));
     qobject_unref(resp);
 
@@ -281,8 +277,6 @@ static void test_qmp_oob(void)
     qtest_quit(qts);
 }
 
-#endif /* _WIN32 */
-
 /* Preconfig tests */
 
 static void test_qmp_preconfig(void)
@@ -295,13 +289,13 @@ static void test_qmp_preconfig(void)
     g_assert(!qmp_rsp_is_err(qtest_qmp(qs, "{ 'execute': 'query-commands' }")));
 
     /* forbidden commands, expected error */
-    g_assert(qmp_rsp_is_err(qtest_qmp(qs, "{ 'execute': 'query-cpus-fast' }")));
+    g_assert(qmp_rsp_is_err(qtest_qmp(qs, "{ 'execute': 'query-cpus' }")));
 
     /* check that query-status returns preconfig state */
     rsp = qtest_qmp(qs, "{ 'execute': 'query-status' }");
     ret = qdict_get_qdict(rsp, "return");
     g_assert(ret);
-    g_assert_cmpstr(qdict_get_try_str(ret, "status"), ==, "prelaunch");
+    g_assert_cmpstr(qdict_get_try_str(ret, "status"), ==, "preconfig");
     qobject_unref(rsp);
 
     /* exit preconfig state */
@@ -319,7 +313,7 @@ static void test_qmp_preconfig(void)
     g_assert(qmp_rsp_is_err(qtest_qmp(qs, "{ 'execute': 'x-exit-preconfig' }")));
 
     /* enabled commands, no error expected  */
-    g_assert(!qmp_rsp_is_err(qtest_qmp(qs, "{ 'execute': 'query-cpus-fast' }")));
+    g_assert(!qmp_rsp_is_err(qtest_qmp(qs, "{ 'execute': 'query-cpus' }")));
 
     qtest_quit(qs);
 }
@@ -342,10 +336,7 @@ int main(int argc, char *argv[])
     g_test_init(&argc, &argv, NULL);
 
     qtest_add_func("qmp/protocol", test_qmp_protocol);
-#ifndef _WIN32
-    /* This case calls mkfifo() which does not exist on win32 */
     qtest_add_func("qmp/oob", test_qmp_oob);
-#endif
     qtest_add_func("qmp/preconfig", test_qmp_preconfig);
     qtest_add_func("qmp/missing-any-arg", test_qmp_missing_any_arg);
 

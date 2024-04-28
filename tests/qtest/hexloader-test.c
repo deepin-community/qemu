@@ -10,7 +10,7 @@
  */
 
 #include "qemu/osdep.h"
-#include "libqtest.h"
+#include "libqos/libqtest.h"
 
 /* Load 'test.hex' and verify that the in-memory contents are as expected.
  * 'test.hex' is a memory test pattern stored in Hexadecimal Object
@@ -34,8 +34,12 @@ static void hex_loader_test(void)
 
 int main(int argc, char **argv)
 {
+    int ret;
+
     g_test_init(&argc, &argv, NULL);
 
     qtest_add_func("/tmp/hex_loader", hex_loader_test);
-    return g_test_run();
+    ret = g_test_run();
+
+    return ret;
 }

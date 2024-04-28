@@ -1,13 +1,18 @@
 # FIXME extra_args should accept files()
-gen = [
-  decodetree.process('insn16.decode', extra_args: ['--static-decode=decode_insn16', '--insnwidth=16']),
+dir = meson.current_source_dir()
+gen32 = [
+  decodetree.process('insn16.decode', extra_args: [dir / 'insn16-32.decode', '--static-decode=decode_insn16', '--insnwidth=16']),
   decodetree.process('insn32.decode', extra_args: '--static-decode=decode_insn32'),
-  decodetree.process('xthead.decode', extra_args: '--static-decode=decode_xthead'),
-  decodetree.process('XVentanaCondOps.decode', extra_args: '--static-decode=decode_XVentanaCodeOps'),
+]
+
+gen64 = [
+  decodetree.process('insn16.decode', extra_args: [dir / 'insn16-64.decode', '--static-decode=decode_insn16', '--insnwidth=16']),
+  decodetree.process('insn32.decode', extra_args: [dir / 'insn32-64.decode', '--static-decode=decode_insn32']),
 ]
 
 riscv_ss = ss.source_set()
-riscv_ss.add(gen)
+riscv_ss.add(when: 'TARGET_RISCV32', if_true: gen32)
+riscv_ss.add(when: 'TARGET_RISCV64', if_true: gen64)
 riscv_ss.add(files(
   'cpu.c',
   'cpu_helper.c',
@@ -16,29 +21,15 @@ riscv_ss.add(files(
   'gdbstub.c',
   'op_helper.c',
   'vector_helper.c',
-  'vector_internals.c',
-  'bitmanip_helper.c',
   'translate.c',
-  'm128_helper.c',
-  'crypto_helper.c',
-  'zce_helper.c',
-  'vcrypto_helper.c'
 ))
 
-riscv_system_ss = ss.source_set()
-riscv_system_ss.add(files(
-  'arch_dump.c',
+riscv_softmmu_ss = ss.source_set()
+riscv_softmmu_ss.add(files(
   'pmp.c',
-  'debug.c',
   'monitor.c',
-  'machine.c',
-  'pmu.c',
-  'time_helper.c',
-  'riscv-qmp-cmds.c',
+  'machine.c'
 ))
-
-subdir('tcg')
-subdir('kvm')
 
 target_arch += {'riscv': riscv_ss}
-target_system_arch += {'riscv': riscv_system_ss}
+target_softmmu_arch += {'riscv': riscv_softmmu_ss}

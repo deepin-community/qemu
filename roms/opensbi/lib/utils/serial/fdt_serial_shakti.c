@@ -13,7 +13,7 @@ static int serial_shakti_init(void *fdt, int nodeoff,
 				const struct fdt_match *match)
 {
 	int rc;
-	struct platform_uart_data uart = { 0 };
+	struct platform_uart_data uart;
 
 	rc = fdt_parse_shakti_uart_node(fdt, nodeoff, &uart);
 	if (rc)
@@ -29,5 +29,7 @@ static const struct fdt_match serial_shakti_match[] = {
 
 struct fdt_serial fdt_serial_shakti = {
 	.match_table = serial_shakti_match,
-	.init = serial_shakti_init
+	.init = serial_shakti_init,
+	.getc = shakti_uart_getc,
+	.putc = shakti_uart_putc
 };

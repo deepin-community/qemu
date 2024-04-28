@@ -14,9 +14,9 @@
 #include "s390-ccw.h"
 #include "cio.h"
 #include "virtio.h"
-#include "virtio-scsi.h"
 #include "dasd-ipl.h"
 
+char stack[PAGE_SIZE * 8] __attribute__((__aligned__(PAGE_SIZE)));
 static SubChannelId blk_schid = { .one = 1 };
 static char loadparm_str[LOADPARM_LEN + 1];
 QemuIplParameters qipl;
@@ -218,7 +218,6 @@ static int virtio_setup(void)
 {
     VDev *vdev = virtio_get_device();
     QemuIplParameters *early_qipl = (QemuIplParameters *)QIPL_ADDRESS;
-    int ret;
 
     memcpy(&qipl, early_qipl, sizeof(QemuIplParameters));
 
@@ -226,26 +225,18 @@ static int virtio_setup(void)
         menu_setup();
     }
 
-    switch (vdev->senseid.cu_model) {
-    case VIRTIO_ID_NET:
+    if (virtio_get_device_type() == VIRTIO_ID_NET) {
         sclp_print("Network boot device detected\n");
         vdev->netboot_start_addr = qipl.netboot_start_addr;
-        return 0;
-    case VIRTIO_ID_BLOCK:
-        ret = virtio_blk_setup_device(blk_schid);
-        break;
-    case VIRTIO_ID_SCSI:
-        ret = virtio_scsi_setup_device(blk_schid);
-        break;
-    default:
-        panic("\n! No IPL device available !\n");
-    }
-
-    if (!ret) {
+    } else {
+        int ret = virtio_blk_setup_device(blk_schid);
+        if (ret) {
+            return ret;
+        }
         IPL_assert(virtio_ipl_disk_is_valid(), "No valid IPL device detected");
     }
 
-    return ret;
+    return 0;
 }
 
 static void ipl_boot_device(void)
@@ -290,7 +281,7 @@ static void probe_boot_device(void)
     sclp_print("Could not find a suitable boot device (none specified)\n");
 }
 
-void main(void)
+int main(void)
 {
     sclp_setup();
     css_setup();
@@ -303,4 +294,5 @@ void main(void)
     }
 
     panic("Failed to load OS from hard disk\n");
+    return 0; /* make compiler happy */
 }

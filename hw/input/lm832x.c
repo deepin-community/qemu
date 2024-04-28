@@ -19,7 +19,6 @@
  */
 
 #include "qemu/osdep.h"
-#include "hw/input/lm832x.h"
 #include "hw/i2c/i2c.h"
 #include "hw/irq.h"
 #include "migration/vmstate.h"
@@ -28,6 +27,7 @@
 #include "ui/console.h"
 #include "qom/object.h"
 
+#define TYPE_LM8323 "lm8323"
 OBJECT_DECLARE_SIMPLE_TYPE(LM823KbdState, LM8323)
 
 struct LM823KbdState {

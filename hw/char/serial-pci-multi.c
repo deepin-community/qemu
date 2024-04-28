@@ -25,15 +25,14 @@
  * THE SOFTWARE.
  */
 
-/* see docs/specs/pci-serial.rst */
+/* see docs/specs/pci-serial.txt */
 
 #include "qemu/osdep.h"
 #include "qapi/error.h"
 #include "hw/char/serial.h"
 #include "hw/irq.h"
-#include "hw/pci/pci_device.h"
+#include "hw/pci/pci.h"
 #include "hw/qdev-properties.h"
-#include "hw/qdev-properties-system.h"
 #include "migration/vmstate.h"
 
 #define PCI_SERIAL_MAX_PORTS 4

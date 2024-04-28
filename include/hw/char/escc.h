@@ -45,7 +45,6 @@ typedef struct ESCCChannelState {
     ESCCChnType type;
     uint8_t rx, tx;
     QemuInputHandlerState *hs;
-    char *sunkbd_layout;
 } ESCCChannelState;
 
 struct ESCCState {

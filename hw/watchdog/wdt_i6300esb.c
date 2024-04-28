@@ -24,7 +24,7 @@
 #include "qemu/module.h"
 #include "qemu/timer.h"
 #include "sysemu/watchdog.h"
-#include "hw/pci/pci_device.h"
+#include "hw/pci/pci.h"
 #include "migration/vmstate.h"
 #include "qom/object.h"
 
@@ -454,8 +454,14 @@ static void i6300esb_exit(PCIDevice *dev)
 {
     I6300State *d = WATCHDOG_I6300ESB_DEVICE(dev);
 
+    timer_del(d->timer);
     timer_free(d->timer);
 }
+
+static WatchdogTimerModel model = {
+    .wdt_name = "i6300esb",
+    .wdt_description = "Intel 6300ESB",
+};
 
 static void i6300esb_class_init(ObjectClass *klass, void *data)
 {
@@ -471,8 +477,7 @@ static void i6300esb_class_init(ObjectClass *klass, void *data)
     k->class_id = PCI_CLASS_SYSTEM_OTHER;
     dc->reset = i6300esb_reset;
     dc->vmsd = &vmstate_i6300esb;
-    set_bit(DEVICE_CATEGORY_WATCHDOG, dc->categories);
-    dc->desc = "Intel 6300ESB";
+    set_bit(DEVICE_CATEGORY_MISC, dc->categories);
 }
 
 static const TypeInfo i6300esb_info = {
@@ -488,6 +493,7 @@ static const TypeInfo i6300esb_info = {
 
 static void i6300esb_register_types(void)
 {
+    watchdog_add_model(&model);
     type_register_static(&i6300esb_info);
 }
 

@@ -29,6 +29,7 @@
 #include "sysemu/cpu-timers.h"
 #include "sysemu/replay.h"
 #include "sysemu/cpus.h"
+#include "sysemu/qtest.h"
 
 #ifdef CONFIG_POSIX
 #include <pthread.h>
@@ -100,7 +101,7 @@ QEMUTimerList *timerlist_new(QEMUClockType type,
     QEMUTimerList *timer_list;
     QEMUClock *clock = qemu_clock_ptr(type);
 
-    timer_list = g_new0(QEMUTimerList, 1);
+    timer_list = g_malloc0(sizeof(QEMUTimerList));
     qemu_event_init(&timer_list->timers_done_ev, true);
     timer_list->clock = clock;
     timer_list->notify_cb = cb;
@@ -261,9 +262,6 @@ int64_t qemu_clock_deadline_ns_all(QEMUClockType type, int attr_mask)
     }
 
     QLIST_FOREACH(timer_list, &clock->timerlists, list) {
-        if (!qatomic_read(&timer_list->active_timers)) {
-            continue;
-        }
         qemu_mutex_lock(&timer_list->active_timers_lock);
         ts = timer_list->active_timers;
         /* Skip all external timers */

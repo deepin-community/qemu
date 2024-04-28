@@ -9,10 +9,9 @@
  * (at your option) any later version.
  */
 
-/*
- * This is a model of the Arm PrimeCell PL022 synchronous serial port.
+/* This is a model of the Arm PrimeCell PL022 synchronous serial port.
  * The PL022 TRM is:
- * https://developer.arm.com/documentation/ddi0194/latest
+ * http://infocenter.arm.com/help/topic/com.arm.doc.ddi0194h/DDI0194H_ssp_pl022_trm.pdf
  *
  * QEMU interface:
  * + sysbus IRQ: SSPINTR combined interrupt line

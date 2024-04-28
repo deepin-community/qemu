@@ -1,0 +1,3 @@
+pc-bios/keymaps usr/share/qemu
+ui/qemu.desktop usr/share/applications
+ui/icons/qemu.svg usr/share/icons/hicolor/scalable/apps

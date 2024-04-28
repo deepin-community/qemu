@@ -21,13 +21,16 @@
 #include "qemu/units.h"
 #include "exec/address-spaces.h"
 #include "qapi/error.h"
-#include "qemu/error-report.h"
+#include "cpu.h"
+#include "hw/sysbus.h"
 #include "hw/boards.h"
 #include "hw/qdev-properties.h"
 #include "hw/arm/allwinner-h3.h"
-#include "hw/arm/boot.h"
+#include "sysemu/sysemu.h"
 
-static struct arm_boot_info orangepi_binfo;
+static struct arm_boot_info orangepi_binfo = {
+    .nb_cpus = AW_H3_NUM_CPUS,
+};
 
 static void orangepi_init(MachineState *machine)
 {
@@ -38,7 +41,7 @@ static void orangepi_init(MachineState *machine)
     DeviceState *carddev;
 
     /* BIOS is not supported by this board */
-    if (machine->firmware) {
+    if (bios_name) {
         error_report("BIOS not supported for this machine");
         exit(1);
     }
@@ -85,7 +88,7 @@ static void orangepi_init(MachineState *machine)
     qdev_realize(DEVICE(h3), NULL, &error_abort);
 
     /* Retrieve SD bus */
-    di = drive_get(IF_SD, 0, 0);
+    di = drive_get_next(IF_SD);
     blk = di ? blk_by_legacy_dinfo(di) : NULL;
     bus = qdev_get_child_bus(DEVICE(h3), "sd-bus");
 
@@ -105,13 +108,12 @@ static void orangepi_init(MachineState *machine)
     }
     orangepi_binfo.loader_start = h3->memmap[AW_H3_DEV_SDRAM];
     orangepi_binfo.ram_size = machine->ram_size;
-    orangepi_binfo.psci_conduit = QEMU_PSCI_CONDUIT_SMC;
-    arm_load_kernel(&h3->cpus[0], machine, &orangepi_binfo);
+    arm_load_kernel(ARM_CPU(first_cpu), machine, &orangepi_binfo);
 }
 
 static void orangepi_machine_init(MachineClass *mc)
 {
-    mc->desc = "Orange Pi PC (Cortex-A7)";
+    mc->desc = "Orange Pi PC";
     mc->init = orangepi_init;
     mc->block_default_type = IF_SD;
     mc->units_per_default_bus = 1;

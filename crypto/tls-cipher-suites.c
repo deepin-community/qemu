@@ -14,14 +14,7 @@
 #include "crypto/tlscreds.h"
 #include "crypto/tls-cipher-suites.h"
 #include "hw/nvram/fw_cfg.h"
-#include "tlscredspriv.h"
 #include "trace.h"
-
-struct QCryptoTLSCipherSuites {
-    /* <private> */
-    QCryptoTLSCreds parent_obj;
-    /* <public> */
-};
 
 /*
  * IANA registered TLS ciphers:
@@ -52,6 +45,7 @@ GByteArray *qcrypto_tls_cipher_suites_get_data(QCryptoTLSCipherSuites *obj,
     byte_array = g_byte_array_new();
 
     for (i = 0;; i++) {
+        int ret;
         unsigned idx;
         const char *name;
         IANA_TLS_CIPHER cipher;

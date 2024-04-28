@@ -53,40 +53,30 @@
 
 ##
 # @Enum:
-#
-# @one: The _one_ {and only}, description on the same line
+# @one: The _one_ {and only}
 #
 # Features:
 # @enum-feat: Also _one_ {and only}
-# @enum-member-feat: a member feature
 #
 # @two is undocumented
 ##
-{ 'enum': 'Enum',
-  'data': [ { 'name': 'one', 'if': 'IFONE',
-              'features': [ 'enum-member-feat' ] },
-            'two' ],
+{ 'enum': 'Enum', 'data':
+  [ { 'name': 'one', 'if': 'defined(IFONE)' }, 'two' ],
   'features': [ 'enum-feat' ],
-  'if': 'IFCOND' }
+  'if': 'defined(IFCOND)' }
 
 ##
 # @Base:
-#
 # @base1:
-# description starts on a new line,
-# not indented
+# the first member
 ##
-{ 'struct': 'Base', 'data': { 'base1': 'Enum' },
-  'if': { 'all': ['IFALL1', 'IFALL2'] } }
+{ 'struct': 'Base', 'data': { 'base1': 'Enum' } }
 
 ##
 # @Variant1:
-#
 # A paragraph
 #
-# Another paragraph
-#
-# @var1 is undocumented
+# Another paragraph (but no @var: line)
 #
 # Features:
 # @variant1-feat: a feature
@@ -96,17 +86,15 @@
   'features': [ 'variant1-feat' ],
   'data': { 'var1': { 'type': 'str',
                       'features': [ 'member-feat' ],
-                      'if': 'IFSTR' } } }
+                      'if': 'defined(IFSTR)' } } }
 
 ##
 # @Variant2:
-#
 ##
 { 'struct': 'Variant2', 'data': {} }
 
 ##
 # @Object:
-#
 # Features:
 # @union-feat1: a feature
 ##
@@ -114,15 +102,20 @@
   'features': [ 'union-feat1' ],
   'base': 'Base',
   'discriminator': 'base1',
-  'data': { 'one': 'Variant1',
-            'two': { 'type': 'Variant2',
-                     'if': { 'any': ['IFONE', 'IFTWO'] } } } }
+  'data': { 'one': 'Variant1', 'two': { 'type': 'Variant2', 'if': 'IFTWO' } } }
+
+##
+# @SugaredUnion:
+# Features:
+# @union-feat2: a feature
+##
+{ 'union': 'SugaredUnion',
+  'features': [ 'union-feat2' ],
+  'data': { 'one': 'Variant1', 'two': { 'type': 'Variant2', 'if': 'IFTWO' } } }
 
 ##
 # @Alternate:
-#
-# @i: description starts on the same line
-#     remainder indented the same
+# @i: an integer
 #     @b is undocumented
 #
 # Features:
@@ -130,8 +123,7 @@
 ##
 { 'alternate': 'Alternate',
   'features': [ 'alt-feat' ],
-  'data': { 'i': 'int', 'b': 'bool' },
-  'if': { 'not': { 'any': [ 'IFONE', 'IFTWO' ] } } }
+  'data': { 'i': 'int', 'b': 'bool' } }
 
 ##
 # == Another subsection
@@ -139,13 +131,10 @@
 
 ##
 # @cmd:
+# @arg1: the first argument
 #
-# @arg1:
-#     description starts on a new line,
-#     indented
-#
-# @arg2: description starts on the same line
-#     remainder indented differently
+# @arg2: the second
+#        argument
 #
 # Features:
 # @cmd-feat1: a feature
@@ -190,11 +179,10 @@
   'features': [ 'cmd-feat1', 'cmd-feat2' ] }
 
 ##
-# @EVT_BOXED:
-#
+# @EVT-BOXED:
 # Features:
 # @feat3: a feature
 ##
-{ 'event': 'EVT_BOXED',  'boxed': true,
+{ 'event': 'EVT-BOXED',  'boxed': true,
   'features': [ 'feat3' ],
   'data': 'Object' }

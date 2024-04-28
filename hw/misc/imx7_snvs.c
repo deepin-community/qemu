@@ -14,14 +14,12 @@
 
 #include "qemu/osdep.h"
 #include "hw/misc/imx7_snvs.h"
+#include "qemu/log.h"
 #include "qemu/module.h"
 #include "sysemu/runstate.h"
-#include "trace.h"
 
 static uint64_t imx7_snvs_read(void *opaque, hwaddr offset, unsigned size)
 {
-    trace_imx7_snvs_read(offset, 0);
-
     return 0;
 }
 
@@ -30,8 +28,6 @@ static void imx7_snvs_write(void *opaque, hwaddr offset,
 {
     const uint32_t value = v;
     const uint32_t mask  = SNVS_LPCR_TOP | SNVS_LPCR_DP_EN;
-
-    trace_imx7_snvs_write(offset, value);
 
     if (offset == SNVS_LPCR && ((value & mask) == mask)) {
         qemu_system_shutdown_request(SHUTDOWN_CAUSE_GUEST_SHUTDOWN);

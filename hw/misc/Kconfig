@@ -2,16 +2,22 @@ config APPLESMC
     bool
     depends on ISA_BUS
 
-config ARMSSE_CPUID
+config MAX111X
     bool
 
-config ARMSSE_MHU
+config TMP105
     bool
+    depends on I2C
 
-config ARMSSE_CPU_PWRCTRL
+config TMP421
     bool
+    depends on I2C
 
 config ISA_DEBUG
+    bool
+    depends on ISA_BUS
+
+config SGA
     bool
     depends on ISA_BUS
 
@@ -32,11 +38,6 @@ config EDU
 
 config PCA9552
     bool
-    depends on I2C
-
-config I2C_ECHO
-    bool
-    default y if TEST_DEVICES
     depends on I2C
 
 config PL310
@@ -116,19 +117,9 @@ config IOTKIT_SYSCTL
 config IOTKIT_SYSINFO
     bool
 
-config PVPANIC_COMMON
-    bool
-
-config PVPANIC_PCI
-    bool
-    default y if PCI_DEVICES
-    depends on PCI
-    select PVPANIC_COMMON
-
-config PVPANIC_ISA
+config PVPANIC
     bool
     depends on ISA_BUS
-    select PVPANIC_COMMON
 
 config AUX
     bool
@@ -163,41 +154,10 @@ config SIFIVE_TEST
 config SIFIVE_E_PRCI
     bool
 
-config SIFIVE_E_AON
-    bool
-
 config SIFIVE_U_OTP
     bool
 
 config SIFIVE_U_PRCI
-    bool
-
-config VIRT_CTRL
-    bool
-
-config LASI
-    bool
-
-config ALLWINNER_SRAMC
-    bool
-
-config ALLWINNER_A10_CCM
-    bool
-
-config ALLWINNER_A10_DRAMC
-    bool
-
-config AXP2XX_PMU
-    bool
-    depends on I2C
-
-config DJMEMC
-    bool
-
-config IOSB
-    bool
-
-config XLNX_VERSAL_TRNG
     bool
 
 source macio/Kconfig

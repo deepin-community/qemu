@@ -16,10 +16,10 @@
 #define QEMU_9P_COTH_H
 
 #include "qemu/thread.h"
-#include "qemu/coroutine-core.h"
+#include "qemu/coroutine.h"
 #include "9p.h"
 
-/*
+/**
  * we want to use bottom half because we want to make sure the below
  * sequence of events.
  *
@@ -29,7 +29,7 @@
  * we cannot swap step 1 and 2, because that would imply worker thread
  * can enter coroutine while step1 is still running
  *
- * PERFORMANCE CONSIDERATIONS: As a rule of thumb, keep in mind
+ * @b PERFORMANCE @b CONSIDERATIONS: As a rule of thumb, keep in mind
  * that hopping between threads adds @b latency! So when handling a
  * 9pfs request, avoid calling v9fs_co_run_in_worker() too often, because
  * this might otherwise sum up to a significant, huge overall latency for
@@ -51,9 +51,7 @@
          */                                                             \
         qemu_coroutine_yield();                                         \
         qemu_bh_delete(co_bh);                                          \
-        do {                                                            \
-            code_block;                                                 \
-        } while (0);                                                    \
+        code_block;                                                     \
         /* re-enter back to qemu thread */                              \
         qemu_coroutine_yield();                                         \
     } while (0)

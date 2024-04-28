@@ -27,9 +27,11 @@
 
 #include "qemu/osdep.h"
 #include "qapi/error.h"
-#include "qemu/datadir.h"
+#include "qemu-common.h"
+#include "cpu.h"
 #include "hw/clock.h"
 #include "hw/mips/mips.h"
+#include "hw/mips/cpudevs.h"
 #include "hw/char/serial.h"
 #include "hw/isa/isa.h"
 #include "net/net.h"
@@ -40,6 +42,7 @@
 #include "elf.h"
 #include "hw/sysbus.h"
 #include "hw/qdev-properties.h"
+#include "exec/address-spaces.h"
 #include "qemu/error-report.h"
 #include "sysemu/qtest.h"
 #include "sysemu/reset.h"
@@ -56,16 +59,23 @@ typedef struct ResetData {
     uint64_t vector;
 } ResetData;
 
-static uint64_t load_kernel(void)
+static int64_t load_kernel(void)
 {
-    uint64_t entry, kernel_high, initrd_size;
+    int64_t entry, kernel_high, initrd_size;
     long kernel_size;
     ram_addr_t initrd_offset;
+    int big_endian;
+
+#ifdef TARGET_WORDS_BIGENDIAN
+    big_endian = 1;
+#else
+    big_endian = 0;
+#endif
 
     kernel_size = load_elf(loaderparams.kernel_filename, NULL,
                            cpu_mips_kseg0_to_phys, NULL,
-                           &entry, NULL,
-                           &kernel_high, NULL, TARGET_BIG_ENDIAN,
+                           (uint64_t *)&entry, NULL,
+                           (uint64_t *)&kernel_high, NULL, big_endian,
                            EM_MIPS, 1, 0);
     if (kernel_size < 0) {
         error_report("could not load kernel '%s': %s",
@@ -153,7 +163,7 @@ mips_mipssim_init(MachineState *machine)
     cpu = mips_cpu_create_with_clock(machine->cpu_type, cpuclk);
     env = &cpu->env;
 
-    reset_info = g_new0(ResetData, 1);
+    reset_info = g_malloc0(sizeof(ResetData));
     reset_info->cpu = cpu;
     reset_info->vector = env->active_tc.PC;
     qemu_register_reset(main_cpu_reset, reset_info);
@@ -167,7 +177,7 @@ mips_mipssim_init(MachineState *machine)
     /* Map the BIOS / boot exception handler. */
     memory_region_add_subregion(address_space_mem, 0x1fc00000LL, bios);
     /* Load a BIOS / boot exception handler image. */
-    filename = qemu_find_file(QEMU_FILE_TYPE_BIOS, machine->firmware ?: BIOS_FILENAME);
+    filename = qemu_find_file(QEMU_FILE_TYPE_BIOS, bios_name ?: BIOS_FILENAME);
     if (filename) {
         bios_size = load_image_targphys(filename, 0x1fc00000LL, BIOS_SIZE);
         g_free(filename);
@@ -175,9 +185,9 @@ mips_mipssim_init(MachineState *machine)
         bios_size = -1;
     }
     if ((bios_size < 0 || bios_size > BIOS_SIZE) &&
-        machine->firmware && !qtest_enabled()) {
+        bios_name && !qtest_enabled()) {
         /* Bail out if we have neither a kernel image nor boot vector code. */
-        error_report("Could not load MIPS bios '%s'", machine->firmware);
+        error_report("Could not load MIPS bios '%s'", bios_name);
         exit(1);
     } else {
         /* We have a boot vector start address. */

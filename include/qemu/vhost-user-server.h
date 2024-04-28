@@ -11,10 +11,11 @@
 #ifndef VHOST_USER_SERVER_H
 #define VHOST_USER_SERVER_H
 
-#include "subprojects/libvhost-user/libvhost-user.h" /* only for the type definitions */
+#include "contrib/libvhost-user/libvhost-user.h"
 #include "io/channel-socket.h"
 #include "io/channel-file.h"
 #include "io/net-listener.h"
+#include "qemu/error-report.h"
 #include "qapi/error.h"
 #include "standard-headers/linux/virtio_blk.h"
 
@@ -40,12 +41,7 @@ typedef struct {
     int max_queues;
     const VuDevIface *vu_iface;
 
-    unsigned int in_flight; /* atomic */
-
     /* Protected by ctx lock */
-    bool in_qio_channel_yield;
-    bool wait_idle;
-    bool quiescing;
     VuDev vu_dev;
     QIOChannel *ioc; /* The I/O channel with the client */
     QIOChannelSocket *sioc; /* The underlying data channel with the client */
@@ -62,10 +58,6 @@ bool vhost_user_server_start(VuServer *server,
                              Error **errp);
 
 void vhost_user_server_stop(VuServer *server);
-
-void vhost_user_server_inc_in_flight(VuServer *server);
-void vhost_user_server_dec_in_flight(VuServer *server);
-bool vhost_user_server_has_in_flight(VuServer *server);
 
 void vhost_user_server_attach_aio_context(VuServer *server, AioContext *ctx);
 void vhost_user_server_detach_aio_context(VuServer *server);

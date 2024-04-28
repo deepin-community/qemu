@@ -61,7 +61,6 @@
 #include "qemu/osdep.h"
 #include "block/block.h"
 #include "block/block_int.h"
-#include "block/dirty-bitmap.h"
 #include "sysemu/block-backend.h"
 #include "sysemu/runstate.h"
 #include "qemu/main-loop.h"
@@ -76,10 +75,7 @@
 #include "qemu/id.h"
 #include "qapi/error.h"
 #include "qapi/qapi-commands-migration.h"
-#include "qapi/qapi-visit-migration.h"
-#include "qapi/clone-visitor.h"
 #include "trace.h"
-#include "options.h"
 
 #define CHUNK_SIZE     (1 << 10)
 
@@ -152,7 +148,6 @@ typedef struct DBMLoadState {
     BdrvDirtyBitmap *bitmap;
 
     bool before_vm_start_handled; /* set in dirty_bitmap_mig_before_vm_start */
-    BitmapMigrationBitmapAlias *bmap_inner;
 
     /*
      * cancelled
@@ -229,7 +224,6 @@ static GHashTable *construct_alias_map(const BitmapMigrationNodeAliasList *bbm,
         AliasMapInnerNode *amin;
         GHashTable *bitmaps_map;
         const char *node_map_from, *node_map_to;
-        GDestroyNotify gdn;
 
         if (!id_wellformed(bmna->alias)) {
             error_setg(errp, "The node alias '%s' is not well-formed",
@@ -269,9 +263,8 @@ static GHashTable *construct_alias_map(const BitmapMigrationNodeAliasList *bbm,
             node_map_to = bmna->node_name;
         }
 
-        gdn = (GDestroyNotify) qapi_free_BitmapMigrationBitmapAlias;
-        bitmaps_map = g_hash_table_new_full(g_str_hash, g_str_equal, g_free,
-                                            gdn);
+        bitmaps_map = g_hash_table_new_full(g_str_hash, g_str_equal,
+                                            g_free, g_free);
 
         amin = g_new(AliasMapInnerNode, 1);
         *amin = (AliasMapInnerNode){
@@ -283,7 +276,7 @@ static GHashTable *construct_alias_map(const BitmapMigrationNodeAliasList *bbm,
 
         for (bmbal = bmna->bitmaps; bmbal; bmbal = bmbal->next) {
             const BitmapMigrationBitmapAlias *bmba = bmbal->value;
-            const char *bmap_map_from;
+            const char *bmap_map_from, *bmap_map_to;
 
             if (strlen(bmba->alias) > UINT8_MAX) {
                 error_setg(errp,
@@ -300,6 +293,7 @@ static GHashTable *construct_alias_map(const BitmapMigrationNodeAliasList *bbm,
 
             if (name_to_alias) {
                 bmap_map_from = bmba->name;
+                bmap_map_to = bmba->alias;
 
                 if (g_hash_table_contains(bitmaps_map, bmba->name)) {
                     error_setg(errp, "The bitmap '%s'/'%s' is mapped twice",
@@ -308,6 +302,7 @@ static GHashTable *construct_alias_map(const BitmapMigrationNodeAliasList *bbm,
                 }
             } else {
                 bmap_map_from = bmba->alias;
+                bmap_map_to = bmba->name;
 
                 if (g_hash_table_contains(bitmaps_map, bmba->alias)) {
                     error_setg(errp, "The bitmap alias '%s'/'%s' is used twice",
@@ -316,8 +311,8 @@ static GHashTable *construct_alias_map(const BitmapMigrationNodeAliasList *bbm,
                 }
             }
 
-            g_hash_table_insert(bitmaps_map, g_strdup(bmap_map_from),
-                                QAPI_CLONE(BitmapMigrationBitmapAlias, bmba));
+            g_hash_table_insert(bitmaps_map,
+                                g_strdup(bmap_map_from), g_strdup(bmap_map_to));
         }
     }
 
@@ -532,7 +527,6 @@ static int add_bitmaps_to_list(DBMSaveState *s, BlockDriverState *bs,
     }
 
     FOR_EACH_DIRTY_BITMAP(bs, bitmap) {
-        BitmapMigrationBitmapAliasTransform *bitmap_transform = NULL;
         bitmap_name = bdrv_dirty_bitmap_name(bitmap);
         if (!bitmap_name) {
             continue;
@@ -544,17 +538,10 @@ static int add_bitmaps_to_list(DBMSaveState *s, BlockDriverState *bs,
         }
 
         if (bitmap_aliases) {
-            BitmapMigrationBitmapAlias *bmap_inner;
-
-            bmap_inner = g_hash_table_lookup(bitmap_aliases, bitmap_name);
-            if (!bmap_inner) {
+            bitmap_alias = g_hash_table_lookup(bitmap_aliases, bitmap_name);
+            if (!bitmap_alias) {
                 /* Skip bitmaps with no alias */
                 continue;
-            }
-
-            bitmap_alias = bmap_inner->alias;
-            if (bmap_inner->transform) {
-                bitmap_transform = bmap_inner->transform;
             }
         } else {
             if (strlen(bitmap_name) > UINT8_MAX) {
@@ -581,15 +568,8 @@ static int add_bitmaps_to_list(DBMSaveState *s, BlockDriverState *bs,
         if (bdrv_dirty_bitmap_enabled(bitmap)) {
             dbms->flags |= DIRTY_BITMAP_MIG_START_FLAG_ENABLED;
         }
-        if (bitmap_transform &&
-            bitmap_transform->has_persistent) {
-            if (bitmap_transform->persistent) {
-                dbms->flags |= DIRTY_BITMAP_MIG_START_FLAG_PERSISTENT;
-            }
-        } else {
-            if (bdrv_dirty_bitmap_get_persistence(bitmap)) {
-                dbms->flags |= DIRTY_BITMAP_MIG_START_FLAG_PERSISTENT;
-            }
+        if (bdrv_dirty_bitmap_get_persistence(bitmap)) {
+            dbms->flags |= DIRTY_BITMAP_MIG_START_FLAG_PERSISTENT;
         }
 
         QSIMPLEQ_INSERT_TAIL(&s->dbms_list, dbms, entry);
@@ -605,14 +585,11 @@ static int init_dirty_bitmap_migration(DBMSaveState *s)
     SaveBitmapState *dbms;
     GHashTable *handled_by_blk = g_hash_table_new(NULL, NULL);
     BlockBackend *blk;
+    const MigrationParameters *mig_params = &migrate_get_current()->parameters;
     GHashTable *alias_map = NULL;
 
-    /* Runs in the migration thread, but holds the iothread lock */
-    GLOBAL_STATE_CODE();
-    GRAPH_RDLOCK_GUARD_MAINLOOP();
-
-    if (migrate_has_block_bitmap_mapping()) {
-        alias_map = construct_alias_map(migrate_block_bitmap_mapping(), true,
+    if (mig_params->has_block_bitmap_mapping) {
+        alias_map = construct_alias_map(mig_params->block_bitmap_mapping, true,
                                         &error_abort);
     }
 
@@ -710,7 +687,7 @@ static void bulk_phase(QEMUFile *f, DBMSaveState *s, bool limit)
     QSIMPLEQ_FOREACH(dbms, &s->dbms_list, entry) {
         while (!dbms->bulk_completed) {
             bulk_phase_send_chunk(f, s, dbms);
-            if (limit && migration_rate_exceeded(f)) {
+            if (limit && qemu_file_rate_limit(f)) {
                 return;
             }
         }
@@ -766,9 +743,11 @@ static int dirty_bitmap_save_complete(QEMUFile *f, void *opaque)
     return 0;
 }
 
-static void dirty_bitmap_state_pending(void *opaque,
-                                       uint64_t *must_precopy,
-                                       uint64_t *can_postcopy)
+static void dirty_bitmap_save_pending(QEMUFile *f, void *opaque,
+                                      uint64_t max_size,
+                                      uint64_t *res_precopy_only,
+                                      uint64_t *res_compatible,
+                                      uint64_t *res_postcopy_only)
 {
     DBMSaveState *s = &((DBMState *)opaque)->save;
     SaveBitmapState *dbms;
@@ -786,9 +765,9 @@ static void dirty_bitmap_state_pending(void *opaque,
 
     qemu_mutex_unlock_iothread();
 
-    trace_dirty_bitmap_state_pending(pending);
+    trace_dirty_bitmap_save_pending(pending, max_size);
 
-    *can_postcopy += pending;
+    *res_postcopy_only += pending;
 }
 
 /* First occurrence of this bitmap. It should be created if doesn't exist */
@@ -798,7 +777,6 @@ static int dirty_bitmap_load_start(QEMUFile *f, DBMLoadState *s)
     uint32_t granularity = qemu_get_be32(f);
     uint8_t flags = qemu_get_byte(f);
     LoadBitmapState *b;
-    bool persistent;
 
     if (s->cancelled) {
         return 0;
@@ -823,15 +801,7 @@ static int dirty_bitmap_load_start(QEMUFile *f, DBMLoadState *s)
         return -EINVAL;
     }
 
-    if (s->bmap_inner &&
-        s->bmap_inner->transform &&
-        s->bmap_inner->transform->has_persistent) {
-        persistent = s->bmap_inner->transform->persistent;
-    } else {
-        persistent = flags & DIRTY_BITMAP_MIG_START_FLAG_PERSISTENT;
-    }
-
-    if (persistent) {
+    if (flags & DIRTY_BITMAP_MIG_START_FLAG_PERSISTENT) {
         bdrv_dirty_bitmap_set_persistence(s->bitmap, true);
     }
 
@@ -842,8 +812,6 @@ static int dirty_bitmap_load_start(QEMUFile *f, DBMLoadState *s)
             error_report_err(local_err);
             return -EINVAL;
         }
-    } else {
-        bdrv_dirty_bitmap_set_busy(s->bitmap, true);
     }
 
     b = g_new(LoadBitmapState, 1);
@@ -919,8 +887,6 @@ static void cancel_incoming_locked(DBMLoadState *s)
         assert(!s->before_vm_start_handled || !b->migrated);
         if (bdrv_dirty_bitmap_has_successor(b->bitmap)) {
             bdrv_reclaim_dirty_bitmap(b->bitmap, &error_abort);
-        } else {
-            bdrv_dirty_bitmap_set_busy(b->bitmap, false);
         }
         bdrv_release_dirty_bitmap(b->bitmap);
     }
@@ -958,8 +924,6 @@ static void dirty_bitmap_load_complete(QEMUFile *f, DBMLoadState *s)
 
     if (bdrv_dirty_bitmap_has_successor(s->bitmap)) {
         bdrv_reclaim_dirty_bitmap(s->bitmap, &error_abort);
-    } else {
-        bdrv_dirty_bitmap_set_busy(s->bitmap, false);
     }
 
     for (item = s->bitmaps; item; item = g_slist_next(item)) {
@@ -1110,19 +1074,14 @@ static int dirty_bitmap_load_header(QEMUFile *f, DBMLoadState *s,
 
         bitmap_name = s->bitmap_alias;
         if (!s->cancelled && bitmap_alias_map) {
-            BitmapMigrationBitmapAlias *bmap_inner;
-
-            bmap_inner = g_hash_table_lookup(bitmap_alias_map, s->bitmap_alias);
-            if (!bmap_inner) {
+            bitmap_name = g_hash_table_lookup(bitmap_alias_map,
+                                              s->bitmap_alias);
+            if (!bitmap_name) {
                 error_report("Error: Unknown bitmap alias '%s' on node "
                              "'%s' (alias '%s')", s->bitmap_alias,
                              s->bs->node_name, s->node_alias);
                 cancel_incoming_locked(s);
-            } else {
-                bitmap_name = bmap_inner->name;
             }
-
-            s->bmap_inner = bmap_inner;
         }
 
         if (!s->cancelled) {
@@ -1161,6 +1120,7 @@ static int dirty_bitmap_load_header(QEMUFile *f, DBMLoadState *s,
 static int dirty_bitmap_load(QEMUFile *f, void *opaque, int version_id)
 {
     GHashTable *alias_map = NULL;
+    const MigrationParameters *mig_params = &migrate_get_current()->parameters;
     DBMLoadState *s = &((DBMState *)opaque)->load;
     int ret = 0;
 
@@ -1172,9 +1132,9 @@ static int dirty_bitmap_load(QEMUFile *f, void *opaque, int version_id)
         return -EINVAL;
     }
 
-    if (migrate_has_block_bitmap_mapping()) {
-        alias_map = construct_alias_map(migrate_block_bitmap_mapping(), false,
-                                        &error_abort);
+    if (mig_params->has_block_bitmap_mapping) {
+        alias_map = construct_alias_map(mig_params->block_bitmap_mapping,
+                                        false, &error_abort);
     }
 
     do {
@@ -1217,7 +1177,6 @@ static int dirty_bitmap_save_setup(QEMUFile *f, void *opaque)
 {
     DBMSaveState *s = &((DBMState *)opaque)->save;
     SaveBitmapState *dbms = NULL;
-
     if (init_dirty_bitmap_migration(s) < 0) {
         return -1;
     }
@@ -1226,6 +1185,7 @@ static int dirty_bitmap_save_setup(QEMUFile *f, void *opaque)
         send_bitmap_start(f, s, dbms);
     }
     qemu_put_bitmap_flags(f, DIRTY_BITMAP_MIG_FLAG_EOS);
+
     return 0;
 }
 
@@ -1251,8 +1211,7 @@ static SaveVMHandlers savevm_dirty_bitmap_handlers = {
     .save_live_complete_postcopy = dirty_bitmap_save_complete,
     .save_live_complete_precopy = dirty_bitmap_save_complete,
     .has_postcopy = dirty_bitmap_has_postcopy,
-    .state_pending_exact = dirty_bitmap_state_pending,
-    .state_pending_estimate = dirty_bitmap_state_pending,
+    .save_live_pending = dirty_bitmap_save_pending,
     .save_live_iterate = dirty_bitmap_save_iterate,
     .is_active_iterate = dirty_bitmap_is_active_iterate,
     .load_state = dirty_bitmap_load,

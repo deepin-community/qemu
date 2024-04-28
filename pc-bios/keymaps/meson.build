@@ -1,5 +1,5 @@
 keymaps = {
-  'ar': '-l ara',
+  'ar': '-l ar',
   'bepo': '-l fr -v dvorak',
   'cz': '-l cz',
   'da': '-l dk',
@@ -33,29 +33,36 @@ keymaps = {
   'tr': '-l tr',
 }
 
-if meson.is_cross_build() or not xkbcommon.found()
+if meson.is_cross_build() or 'CONFIG_XKBCOMMON' not in config_host
   native_qemu_keymap = find_program('qemu-keymap', required: false, disabler: true)
 else
   native_qemu_keymap = qemu_keymap
 endif
 
-if native_qemu_keymap.found()
-  t = []
-  foreach km, args: keymaps
+t = []
+foreach km, args: keymaps
+  if native_qemu_keymap.found()
     # generate with qemu-kvm
     t += custom_target(km,
                        build_by_default: true,
                        output: km,
                        command: [native_qemu_keymap, '-f', '@OUTPUT@', args.split()],
-                       install: have_system,
+                       install: true,
                        install_dir: qemu_datadir / 'keymaps')
-  endforeach
+  else
+    # copy from source tree
+    t += custom_target(km,
+                       build_by_default: true,
+                       input: km,
+                       output: km,
+                       command: ['cp', '@INPUT@', '@OUTPUT@'],
+                       install: true,
+                       install_dir: qemu_datadir / 'keymaps')
+  endif
+endforeach
 
+if native_qemu_keymap.found()
   alias_target('update-keymaps', t)
-else
-  install_data(keymaps.keys(), install_dir: qemu_datadir / 'keymaps')
 endif
 
-if have_system
-  install_data(['sl', 'sv'], install_dir: qemu_datadir / 'keymaps')
-endif
+install_data(['sl', 'sv'], install_dir: qemu_datadir / 'keymaps')

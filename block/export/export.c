@@ -17,7 +17,6 @@
 #include "sysemu/block-backend.h"
 #include "sysemu/iothread.h"
 #include "block/export.h"
-#include "block/fuse.h"
 #include "block/nbd.h"
 #include "qapi/error.h"
 #include "qapi/qapi-commands-block-export.h"
@@ -26,20 +25,11 @@
 #ifdef CONFIG_VHOST_USER_BLK_SERVER
 #include "vhost-user-blk-server.h"
 #endif
-#ifdef CONFIG_VDUSE_BLK_EXPORT
-#include "vduse-blk.h"
-#endif
 
 static const BlockExportDriver *blk_exp_drivers[] = {
     &blk_exp_nbd,
 #ifdef CONFIG_VHOST_USER_BLK_SERVER
     &blk_exp_vhost_user_blk,
-#endif
-#ifdef CONFIG_FUSE
-    &blk_exp_fuse,
-#endif
-#ifdef CONFIG_VDUSE_BLK_EXPORT
-    &blk_exp_vduse_blk,
 #endif
 };
 
@@ -83,8 +73,6 @@ BlockExport *blk_exp_add(BlockExportOptions *export, Error **errp)
     uint64_t perm;
     int ret;
 
-    GLOBAL_STATE_CODE();
-
     if (!id_wellformed(export->id)) {
         error_setg(errp, "Invalid block export id");
         return NULL;
@@ -116,10 +104,9 @@ BlockExport *blk_exp_add(BlockExportOptions *export, Error **errp)
     ctx = bdrv_get_aio_context(bs);
     aio_context_acquire(ctx);
 
-    if (export->iothread) {
+    if (export->has_iothread) {
         IOThread *iothread;
         AioContext *new_ctx;
-        Error **set_context_errp;
 
         iothread = iothread_by_id(export->iothread);
         if (!iothread) {
@@ -129,9 +116,7 @@ BlockExport *blk_exp_add(BlockExportOptions *export, Error **errp)
 
         new_ctx = iothread_get_aio_context(iothread);
 
-        /* Ignore errors with fixed-iothread=false */
-        set_context_errp = fixed_iothread ? errp : NULL;
-        ret = bdrv_try_change_aio_context(bs, new_ctx, NULL, set_context_errp);
+        ret = bdrv_try_set_aio_context(bs, new_ctx, errp);
         if (ret == 0) {
             aio_context_release(ctx);
             aio_context_acquire(new_ctx);
@@ -147,9 +132,7 @@ BlockExport *blk_exp_add(BlockExportOptions *export, Error **errp)
      * access since the export could be available before migration handover.
      * ctx was acquired in the caller.
      */
-    bdrv_graph_rdlock_main_loop();
-    bdrv_activate(bs, NULL);
-    bdrv_graph_rdunlock_main_loop();
+    bdrv_invalidate_cache(bs, NULL);
 
     perm = BLK_PERM_CONSISTENT_READ;
     if (export->writable) {
@@ -196,10 +179,7 @@ BlockExport *blk_exp_add(BlockExportOptions *export, Error **errp)
     return exp;
 
 fail:
-    if (blk) {
-        blk_set_dev_ops(blk, NULL, NULL);
-        blk_unref(blk);
-    }
+    blk_unref(blk);
     aio_context_release(ctx);
     if (exp) {
         g_free(exp->id);
@@ -208,10 +188,11 @@ fail:
     return NULL;
 }
 
+/* Callers must hold exp->ctx lock */
 void blk_exp_ref(BlockExport *exp)
 {
-    assert(qatomic_read(&exp->refcount) > 0);
-    qatomic_inc(&exp->refcount);
+    assert(exp->refcount > 0);
+    exp->refcount++;
 }
 
 /* Runs in the main thread */
@@ -225,7 +206,6 @@ static void blk_exp_delete_bh(void *opaque)
     assert(exp->refcount == 0);
     QLIST_REMOVE(exp, next);
     exp->drv->delete(exp);
-    blk_set_dev_ops(exp->blk, NULL, NULL);
     blk_unref(exp->blk);
     qapi_event_send_block_export_deleted(exp->id);
     g_free(exp->id);
@@ -234,10 +214,11 @@ static void blk_exp_delete_bh(void *opaque)
     aio_context_release(aio_context);
 }
 
+/* Callers must hold exp->ctx lock */
 void blk_exp_unref(BlockExport *exp)
 {
-    assert(qatomic_read(&exp->refcount) > 0);
-    if (qatomic_fetch_dec(&exp->refcount) == 1) {
+    assert(exp->refcount > 0);
+    if (--exp->refcount == 0) {
         /* Touch the block_exports list only in the main thread */
         aio_bh_schedule_oneshot(qemu_get_aio_context(), blk_exp_delete_bh,
                                 exp);
@@ -312,7 +293,7 @@ void blk_exp_close_all_type(BlockExportType type)
         blk_exp_request_shutdown(exp);
     }
 
-    AIO_WAIT_WHILE_UNLOCKED(NULL, blk_exp_has_type(type));
+    AIO_WAIT_WHILE(NULL, blk_exp_has_type(type));
 }
 
 void blk_exp_close_all(void)
@@ -345,8 +326,7 @@ void qmp_block_export_del(const char *id,
     if (!has_mode) {
         mode = BLOCK_EXPORT_REMOVE_MODE_SAFE;
     }
-    if (mode == BLOCK_EXPORT_REMOVE_MODE_SAFE &&
-        qatomic_read(&exp->refcount) > 1) {
+    if (mode == BLOCK_EXPORT_REMOVE_MODE_SAFE && exp->refcount > 1) {
         error_setg(errp, "export '%s' still in use", exp->id);
         error_append_hint(errp, "Use mode='hard' to force client "
                           "disconnect\n");
@@ -358,10 +338,11 @@ void qmp_block_export_del(const char *id,
 
 BlockExportInfoList *qmp_query_block_exports(Error **errp)
 {
-    BlockExportInfoList *head = NULL, **tail = &head;
+    BlockExportInfoList *head = NULL, **p_next = &head;
     BlockExport *exp;
 
     QLIST_FOREACH(exp, &block_exports, next) {
+        BlockExportInfoList *entry = g_new0(BlockExportInfoList, 1);
         BlockExportInfo *info = g_new(BlockExportInfo, 1);
         *info = (BlockExportInfo) {
             .id             = g_strdup(exp->id),
@@ -370,7 +351,9 @@ BlockExportInfoList *qmp_query_block_exports(Error **errp)
             .shutting_down  = !exp->user_owned,
         };
 
-        QAPI_LIST_APPEND(tail, info);
+        entry->value = info;
+        *p_next = entry;
+        p_next = &entry->next;
     }
 
     return head;

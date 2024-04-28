@@ -51,6 +51,7 @@ static int pr_manager_worker(void *opaque)
 int coroutine_fn pr_manager_execute(PRManager *pr_mgr, AioContext *ctx, int fd,
                                     struct sg_io_hdr *hdr)
 {
+    ThreadPool *pool = aio_get_thread_pool(ctx);
     PRManagerData data = {
         .pr_mgr = pr_mgr,
         .fd     = fd,
@@ -61,7 +62,7 @@ int coroutine_fn pr_manager_execute(PRManager *pr_mgr, AioContext *ctx, int fd,
 
     /* The matching object_unref is in pr_manager_worker.  */
     object_ref(OBJECT(pr_mgr));
-    return thread_pool_submit_co(pr_manager_worker, &data);
+    return thread_pool_submit_co(pool, pr_manager_worker, &data);
 }
 
 bool pr_manager_is_connected(PRManager *pr_mgr)
@@ -115,7 +116,8 @@ pr_manager_register_types(void)
 
 static int query_one_pr_manager(Object *object, void *opaque)
 {
-    PRManagerInfoList ***tail = opaque;
+    PRManagerInfoList ***prev = opaque;
+    PRManagerInfoList *elem;
     PRManagerInfo *info;
     PRManager *pr_mgr;
 
@@ -124,10 +126,15 @@ static int query_one_pr_manager(Object *object, void *opaque)
         return 0;
     }
 
+    elem = g_new0(PRManagerInfoList, 1);
     info = g_new0(PRManagerInfo, 1);
     info->id = g_strdup(object_get_canonical_path_component(object));
     info->connected = pr_manager_is_connected(pr_mgr);
-    QAPI_LIST_APPEND(*tail, info);
+    elem->value = info;
+    elem->next = NULL;
+
+    **prev = elem;
+    *prev = &elem->next;
     return 0;
 }
 

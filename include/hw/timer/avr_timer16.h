@@ -30,6 +30,7 @@
 
 #include "hw/sysbus.h"
 #include "qemu/timer.h"
+#include "hw/hw.h"
 #include "qom/object.h"
 
 enum NextInterrupt {
