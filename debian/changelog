@@ -1,9 +1,145 @@
-qemu (1:8.2.0+ds-1deepin1) unstable; urgency=medium
+qemu (1:9.0.0~rc2+ds-1) experimental; urgency=medium
 
-  * Drop palcode-clipper.
-  * Restrict several B-D-InDep to amd64 only.
+  * new upstream RC
+  * remove hw-i386-fw_cfg.c-fix-non-legacy-smbios-build.patch
+    (not needed anymore)
+  * d/source/lintian-overrides: source-is-missing: pc-bios/hppa-firmware64.img
+  * d/rules: run dh_installdocs for install-indep too
 
- -- Tianyu Chen <sweetyfish@deepin.org>  Tue, 26 Dec 2023 11:43:42 +0800
+ -- Michael Tokarev <mjt@tls.msk.ru>  Wed, 03 Apr 2024 15:43:26 +0300
+
+qemu (1:9.0.0~rc0+ds-2) experimental; urgency=medium
+
+  * +meson-Fix-MESONINTROSPECT-parsing.patch
+    fix build in a dir containing tilde (~) or other special chars
+
+ -- Michael Tokarev <mjt@tls.msk.ru>  Mon, 25 Mar 2024 20:29:21 +0300
+
+qemu (1:9.0.0~rc0+ds-1) experimental; urgency=medium
+
+  * new upstream release candidate
+  * linux-user-binfmt-P.diff: refresh
+  * d/rules: install the right qemu-system-x86_64-microvm binary
+  * d/control: Build-Depend-Indep: gcc-hppa64-linux-gnu
+    (for 64bit seabios-hppa)
+  * d/rules: build and install 64bit hppa firmware
+  * d/patches: +hw-i386-fw_cfg.c-fix-non-legacy-smbios-build.patch
+  * d/qemu-user-static.lintian-overrides: embedded-library zlib
+
+ -- Michael Tokarev <mjt@tls.msk.ru>  Mon, 25 Mar 2024 17:47:32 +0300
+
+qemu (1:8.2.2+ds-2) unstable; urgency=medium
+
+  * d/control: fix qemu version in Breaks: to include the missing epoch
+    (Closes: #1065469)
+  * d/rules: remove x32 from qemu-user host arch list and add it to tools
+
+ -- Michael Tokarev <mjt@tls.msk.ru>  Tue, 05 Mar 2024 10:27:47 +0300
+
+qemu (1:8.2.2+ds-1) unstable; urgency=medium
+
+  * new upstream stable/bugfix release
+  * d/gen-module-upgrade.sh: change addfr() for clarity
+  * d/rules: stop qemu-system-${arch} packages from providing themselves
+    (different fix, really closes: #1063233)
+  * d/rules: ensure ${sysdataidir} is created in pre-install-indep
+  * d/control: stop build-depending on texinfo (not used)
+  * d/rules: build docs directly with sphinx, --disable-docs, install more docs
+  * move system docs to qemu-system-data
+  * d/rules: stop compressing config examples
+  * d/control: bc isn't needed for u-boot anymore
+  * d/copyright: exclude python/wheels/*.whl (not used on debian)
+  * remove patch included upstream now:
+    ui-clipboard-mark-type-as-not-available-when-no-data-CVE-2023-6683.patch
+  * d/rules: disable building qemu-system on x32
+  * remove disable-xen-on-x32.patch
+
+ -- Michael Tokarev <mjt@tls.msk.ru>  Mon, 04 Mar 2024 22:55:03 +0300
+
+qemu (1:8.2.1+ds-2) unstable; urgency=medium
+
+  * rework module-upgrade handling: do not ship /run/qemu.mount unit
+    anymore, instead bind-mount-exec particular subdir in /run/qemu/
+    on upgrade only if some qemu-system-foo processes are running
+  * d/control: Rules-Requires-Root: no
+  * d/control: Standards-Version: 4.6.2
+  * d/rules: stop qemu-system-${arch} packages
+    from providing themselves (Closes: #1063233)
+  * d/rules: run ./configure in arch-indep build
+    and build some roms from there
+  * build x86 optionrom using qemu build rules
+  * d/rules: move fragments which builds firmware out of qemu
+    arch-indep subdir closer together (no code changes)
+  * d/control: clarify qemu-system-gui description:
+    this is not a management gui for qemu
+  * d/control: set minimum version for libpipewire (for bullseye)
+  * d/control: require recent python3 or separate tomli (for bullseye)
+
+ -- Michael Tokarev <mjt@tls.msk.ru>  Sat, 24 Feb 2024 12:19:35 +0300
+
+qemu (1:8.2.1+ds-1) unstable; urgency=medium
+
+  * new upstream stable/bugfix release
+  * remove all upstream-applied patches
+  * d/patches/note-missing-module-pkg-name.diff: fixup
+  * replace fix for CVE-2023-6683 (A different fix from upstream)
+  * remove the mistakenly-added temp file in d/qemu-block-extra/
+  * d/.gitignore: refresh
+
+ -- Michael Tokarev <mjt@tls.msk.ru>  Tue, 30 Jan 2024 10:32:17 +0300
+
+qemu (1:8.2.0+ds-5) unstable; urgency=medium
+
+  * d/rules, d/run-qemu.mount: use dh_installsystemd to install run-qemu.mount
+    (Closes: #1060087)
+  * update hppa and seabios-hppa patch series
+  * ui-clipboard-avoid-crash-upon-request-when-clipboard-CVE-2023-6683.patch
+    (Closes: #1060749, CVE-2023-6683)
+  * +target-s390x-Fix-LAE-setting-a-wrong-access-register.patch
+  * +tcg-s390x-Fix-encoding-of-VRIc-VRSa-VRSc-insns.patch
+    fix chacha20 issue on s390x
+  * update hw-vfio-fix-iteration-over-global-VFIODevice-list.patch
+
+ -- Michael Tokarev <mjt@tls.msk.ru>  Thu, 18 Jan 2024 10:16:31 +0300
+
+qemu (1:8.2.0+ds-4) unstable; urgency=medium
+
+  * d/rules: fix "tail -20" usage
+  * note-missing-module-pkg-name.diff: update, to be much more accurate
+    No more sporadic warnings about missing audio backends etc
+  * d/control: clarify qemu-system-gui and qemu-system-modules-* package
+    descriptions a little bit (#1059457)
+  * more fixups from the ML targetting stable:
+   + hw-net-cadence_gem-fix-MDIO_OP_xxx-values.patch
+   + tcg-ppc-use-new-registers-for-LQ-destination.patch
+   + target-riscv-fix-mcycle-minstret-increment-behavior.patch
+  * a bunch of hppa and seabios-hppa fixes targetting -stable for
+    https://gitlab.com/qemu-project/qemu/-/issues/2044
+
+ -- Michael Tokarev <mjt@tls.msk.ru>  Thu, 04 Jan 2024 22:47:59 +0300
+
+qemu (1:8.2.0+ds-3) unstable; urgency=medium
+
+  * +virtio-net-correctly-copy-vnet-header-when-flushing-TX-CVE-2023-6693.patch
+    Fix CVE-2023-6693 (virtio-net: stack buffer overflow in virtio_net_flush_tx)
+  * +target-i386-the-sgx_epc_get_section-stub-is-reachable.patch
+  * +target-xtensa-fix-OOB-TLB-entry-access.patch
+  * d/rules: print last 20 lines of config.log & meson.log if ./configure fails
+
+ -- Michael Tokarev <mjt@tls.msk.ru>  Tue, 02 Jan 2024 15:54:35 +0300
+
+qemu (1:8.2.0+ds-2) unstable; urgency=medium
+
+  * include-ui-rect.h-fix-qemu_rect_init-mis-assignment.patch
+    fixes virtio-gpu redraw issue (Closes: #1059211)
+  * hw-vfio-fix-iteration-over-global-VFIODevice-list.patch
+    fixes reboot issue with virtio-gpu
+  * target-i386-do-not-re-compute-new-pc-with-CF_PCREL.patch
+    fixes 4M edk2 stall in i386 tcg mode
+  * block-fix-crash-when-loading-snapshot-on-inactive-no.patch
+    fix possible assertion failure when loading snapshot
+
+ -- Michael Tokarev <mjt@tls.msk.ru>  Tue, 02 Jan 2024 12:10:14 +0300
 
 qemu (1:8.2.0+ds-1) unstable; urgency=medium
 
