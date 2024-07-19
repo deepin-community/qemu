@@ -125,7 +125,7 @@ try:
     # Standard native builds
     #
     generate_dockerfile("alpine", "alpine-318")
-    generate_dockerfile("centos8", "centos-stream-8")
+    generate_dockerfile("centos9", "centos-stream-9")
     generate_dockerfile("debian", "debian-12",
                         trailer="".join(debian12_extras))
     generate_dockerfile("fedora", "fedora-38")
@@ -191,11 +191,6 @@ try:
                         cross="s390x",
                         trailer=cross_build("s390x-linux-gnu-",
                                             "s390x-softmmu,s390x-linux-user"))
-
-    generate_dockerfile("fedora-win32-cross", "fedora-38",
-                        cross="mingw32",
-                        trailer=cross_build("i686-w64-mingw32-",
-                                            "i386-softmmu"))
 
     generate_dockerfile("fedora-win64-cross", "fedora-38",
                         cross="mingw64",

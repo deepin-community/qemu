@@ -7,19 +7,20 @@ Priority: optional
 Uploaders: Michael Tokarev <mjt@tls.msk.ru>
 Build-Depends: debhelper-compat (= 13),
  python3:any,
+ python3-venv:any,
+ python3:any (>> 3.11) | python3-tomli,
  meson (>> 0.63.0~), ninja-build,
  flex, bison,
+# for :native suffix see #995622
+ python3-sphinx:native, python3-sphinx-rtd-theme:native,
 Build-Depends-Arch:
 # In comments below we also specify (system-specific) arguments
 # to qemu's configure script, -- optional features which depend
 # on build-dependencies.
- python3-venv,
-# --enable-docs
-# for python3-sphinx:native see #995622
- texinfo, python3-sphinx:native, python3-sphinx-rtd-theme,
 # always needed
- libglib2.0-dev,
- zlib1g-dev,
+ pkgconf, libglib2.0-dev, zlib1g-dev,
+# target/hexagon/ builds a build-time (ie: native) tool using glib
+ pkgconf:native, libglib2.0-dev:native,
 # iasl (from acpica-tools) is used only in a single test these days, not for building
 # acpica-tools,
 # libcapstone is in universe in ubuntu
@@ -31,30 +32,32 @@ Build-Depends-Arch:
 # --disable-sndio
 # --audio-drv-list=pipewire,pa,alsa,jack,oss,sdl	:system-arch-linux:
 ##--audio-drv-list=pa,oss	kfreebsd-any
- libjack-dev  [:system-arch-linux:],
- libpulse-dev,
+ libjack-dev    [:system-arch-linux:],
+ libpulse-dev   [:system-arch:],
  libasound2-dev [:system-arch-linux:],
- libpipewire-0.3-dev [:system-arch-linux:],
+ libpipewire-0.3-dev (>> 0.3.60) [:system-arch-linux:],
 # for virtfs (now in libc6)
 # --enable-attr
-# --enable-bpf	linux-any
- libbpf-dev	[linux-any],
+# --enable-bpf	 :system-arch-linux:
+ libbpf-dev	[:system-arch-linux:],
+# --enable-blkio	:system-arch-linux-64:
+ libblkio-dev	       [:system-arch-linux-64:],
 # --enable-brlapi	:system-arch:
  libbrlapi-dev         [:system-arch:],
-# --enable-virtfs	linux-any
+# --enable-virtfs	:system-arch-linux:
 # needed for virtfs
-# --enable-cap-ng	linux-any
- libcap-ng-dev         [linux-any],
+# --enable-cap-ng	:system-arch-linux:
+ libcap-ng-dev         [:system-arch-linux:],
 # --enable-curl
  libcurl4-gnutls-dev,
-# --enable-fdt
- libfdt-dev,
-# --enable-fuse
- libfuse3-dev,
+# --enable-fdt	 :system-arch:
+ libfdt-dev	[:system-arch:],
+# --enable-fuse		 linux-any
+ libfuse3-dev		[linux-any],
 # --enable-gnutls
  gnutls-dev,
 # --enable-gtk --enable-vte	:system-arch:
- libgtk-3-dev [:system-arch:],
+ libgtk-3-dev    [:system-arch:],
  libvte-2.91-dev [:system-arch:],
 # --enable-libiscsi
  libiscsi-dev,
@@ -64,62 +67,62 @@ Build-Depends-Arch:
  libvirglrenderer-dev          [:system-arch-linux:],
 # --enable-opengl	:system-arch-linux:
  libepoxy-dev [:system-arch-linux:],
- libdrm-dev [:system-arch-linux:],
- libgbm-dev [:system-arch-linux:],
+ libdrm-dev   [:system-arch-linux:],
+ libgbm-dev   [:system-arch-linux:],
 # --enable-libnfs
  libnfs-dev,
-# --enable-numa	i386 amd64 ia64 mips mipsel mips64 mips64el powerpc powerpcspe x32 ppc64 ppc64el arm64 sparc s390x riscv64
- libnuma-dev   [i386 amd64 ia64 mips mipsel mips64 mips64el powerpc powerpcspe x32 ppc64 ppc64el arm64 sparc s390x riscv64],
-# --enable-smartcard
- libcacard-dev,
-# --enable-pixman
- libpixman-1-dev,
-# --enable-rbd		amd64 arm64 mips64el ppc64el ppc64 riscv64 s390x sparc64
- librbd-dev            [amd64 arm64 mips64el ppc64el ppc64 riscv64 s390x sparc64],
+# --enable-numa	:system-arch-linux:
+ libnuma-dev   [:system-arch-linux:],
+# --enable-smartcard	 :system-arch:
+ libcacard-dev		[:system-arch:],
+# --enable-pixman	 :system-arch:
+ libpixman-1-dev	[:system-arch:],
+# --enable-rbd		amd64 arm64 loong64 mips64el ppc64el riscv64 s390x
+ librbd-dev            [amd64 arm64 loong64 mips64el ppc64el riscv64 s390x],
 # gluster is 64bit-only: #1039604
-# --enable-glusterfs	 amd64 arm64 ppc64el ppc64 riscv64 mips64el s390x ia64 sparc64
- libglusterfs-dev	[amd64 arm64 ppc64el ppc64 riscv64 mips64el s390x ia64 sparc64],
-# --enable-vnc-sasl
- libsasl2-dev,
+# --enable-glusterfs	 :system-arch-linux-64:
+ libglusterfs-dev	[:system-arch-linux-64:],
+# --enable-vnc-sasl	 :system-arch:
+ libsasl2-dev		[:system-arch:],
 # --enable-sdl	:system-arch:
  libsdl2-dev [:system-arch:],
-# --enable-seccomp	amd64 arm64 armel armhf i386 mips64el mipsel ppc64 ppc64el powerpc riscv64 s390x x32
- libseccomp-dev        [amd64 arm64 armel armhf i386 mips64el mipsel ppc64 ppc64el powerpc riscv64 s390x x32],
-# --enable-slirp
- libslirp-dev,
+# --enable-seccomp	amd64 arm64 armel armhf i386 loong64 mips64el mipsel ppc64 ppc64el powerpc riscv64 s390x
+ libseccomp-dev        [amd64 arm64 armel armhf i386 loong64 mips64el mipsel ppc64 ppc64el powerpc riscv64 s390x],
+# --enable-slirp	 :system-arch:
+ libslirp-dev		[:system-arch:],
 # --enable-spice	 :spice-arch:
  libspice-server-dev	[:spice-arch:],
 # --enable-rdma		linux-any
  librdmacm-dev [linux-any], libibverbs-dev [linux-any], libibumad-dev [linux-any],
 # --enable-linux-io-uring	linux-any
  liburing-dev                  [linux-any],
-# --enable-libusb	linux-any
- libusb-1.0-0-dev      [linux-any],
-# --enable-usb-redir	linux-any
- libusbredirparser-dev [linux-any],
+# --enable-libusb	:system-arch-linux:
+ libusb-1.0-0-dev      [:system-arch-linux:],
+# --enable-usb-redir	:system-arch-linux:
+ libusbredirparser-dev [:system-arch-linux:],
 # --enable-libssh
  libssh-dev,
 # --enable-zstd
  libzstd-dev,
 # vde is debian-only since ubuntu/vde2 is in universe
-:debian:# --enable-vde
-:debian: libvdeplug-dev,
+:debian:# --enable-vde	 :system-arch:
+:debian: libvdeplug-dev	[:system-arch:],
  libxen-dev [linux-amd64],
-# --enable-nettle
- nettle-dev,
+# --enable-nettle	 :system-arch:
+ nettle-dev		[:system-arch:],
 # other optional features we enable
 # --enable-libudev
 # needed for qga?
  libudev-dev [linux-any],
-# --enable-vnc
-# --enable-vnc-jpeg
- libjpeg-dev,
-# --enable-png
- libpng-dev,
+# --enable-vnc	 :system-arch:
+# --enable-vnc-jpeg	:system-arch:
+ libjpeg-dev	[:system-arch:],
+# --enable-png	 :system-arch:
+ libpng-dev	[:system-arch:],
 # --enable-libpmem	amd64 arm64
  libpmem-dev           [amd64 arm64],
-# --enable-kvm		linux-any
-# --enable-vhost-net	linux-any	# is it really linux-specific?
+# --enable-kvm		:system-arch-linux:
+# --enable-vhost-net	:system-arch-linux:	# is it really linux-specific?
 ##--enable-lzo todo, for (memory) dumps
 ##--enable-netmap todo bsd
 ##--enable-xen-pci-passthrough todo
@@ -131,29 +134,31 @@ Build-Depends-Arch:
 # various firmware files (kvmvapic.bin &Co), older qemu-system-data should work
 #XXX-cyclic-test-dep-dak-bug qemu-system-data [:system-arch-linux:] <!nocheck>,
 Build-Depends-Indep:
+# compiler used to build i386 firmware
+ gcc-i686-linux-gnu,
 # pc-bios/*.dts => *.dtb (PPC firmware)
  device-tree-compiler,
  gcc-s390x-linux-gnu,
 # qemu-palcode/palcode-clipper
-# gcc-alpha-linux-gnu,
+ gcc-alpha-linux-gnu,
 # u-boot code
- gcc-powerpc-linux-gnu [amd64], bc,
+ gcc-powerpc-linux-gnu,
 # skiboot firmware, openbios
- gcc-powerpc64-linux-gnu [amd64],
+ gcc-powerpc64-linux-gnu,
 # skiboot includes <openssl/something.h>
  libssl-dev,
 # openbios
- gcc-sparc64-linux-gnu [amd64], fcode-utils, xsltproc,
-# hppa-firmware
- gcc-hppa-linux-gnu [amd64],
+ gcc-sparc64-linux-gnu, fcode-utils, xsltproc,
+# hppa-firmware (32 and 64 bit)
+ gcc-hppa-linux-gnu, gcc-hppa64-linux-gnu,
 # opensbi
- gcc-riscv64-linux-gnu [amd64],
+ gcc-riscv64-linux-gnu,
 # vbootrom/npcm7xx_bootrom
- gcc-arm-none-eabi [amd64],
+ gcc-arm-none-eabi,
 Build-Conflicts: oss4-dev
-Standards-Version: 4.6.1
+Standards-Version: 4.6.2
 Homepage: http://www.qemu.org/
-Rules-Requires-Root: binary-targets
+Rules-Requires-Root: no
 :debian:Vcs-Browser: https://salsa.debian.org/qemu-team/qemu
 :debian:Vcs-Git: https://salsa.debian.org/qemu-team/qemu.git
 :ubuntu:XS-Debian-Vcs-Browser: https://salsa.debian.org/qemu-team/qemu
@@ -192,6 +197,7 @@ Depends: ${misc:Depends}, ${shlibs:Depends},
  qemu-system-any (= ${binary:Version}) [:system-arch:] | qemu-utils (= ${binary:Version}),
 Enhances: qemu-utils, qemu-system-misc,
  qemu-system-arm, qemu-system-mips, qemu-system-sparc, qemu-system-x86,
+:debian:Provides: qemu-block-supplemental [amd64 arm64 ppc64el riscv64 s390x],
 Description: extra block backend modules for qemu-system and qemu-utils
  QEMU is a fast processor emulator: currently the package supports Alpha, ARM,
  CRIS, i386, LoongArch, M68k (ColdFire), MicroBlaze, MIPS, PowerPC, RISC-V,
@@ -202,6 +208,30 @@ Description: extra block backend modules for qemu-system and qemu-utils
  This package provides extra block device backend modules for qemu-system
  emulation and qemu-img from qemu-utils package, which are rarely used and
  has extra dependencies.
+:ubuntu:
+:ubuntu:Package: qemu-block-supplemental
+:ubuntu:Architecture: amd64 arm64 ppc64el riscv64 s390x
+:ubuntu:Multi-Arch: no
+:ubuntu:Depends: ${misc:Depends}, ${shlibs:Depends},
+:ubuntu:# we need to ensure qemu-block-supplemental is upgraded with qemu-system-* or qemu-utils
+:ubuntu: qemu-system-any (= ${binary:Version}) [amd64 arm64 armhf ppc64el riscv64 s390x] | qemu-utils (= ${binary:Version}),
+:ubuntu:Enhances: qemu-utils, qemu-system-misc,
+:ubuntu: qemu-system-arm, qemu-system-mips, qemu-system-sparc, qemu-system-x86,
+:ubuntu: qemu-system-s390x,
+:ubuntu:Breaks: qemu-block-extra (<< 1:8.2.0+ds-4ubuntu2~)
+:ubuntu:Replaces: qemu-block-extra (<< 1:8.2.0+ds-4ubuntu2~)
+:ubuntu:Description: supplemental block backend modules for qemu-system and qemu-utils
+:ubuntu: QEMU is a fast processor emulator: currently the package supports Alpha, ARM,
+:ubuntu: CRIS, i386, LoongArch, M68k (ColdFire), MicroBlaze, MIPS, PowerPC, RISC-V,
+:ubuntu: S390x, SH4, SPARC, x86-64, Xtensa and other emulations. By using dynamic
+:ubuntu: translation it achieves reasonable speed while being easy to port on new host
+:ubuntu: CPUs.
+:ubuntu: .
+:ubuntu: This package provides supplemental block device backend modules for qemu-system
+:ubuntu: emulation and qemu-img from qemu-utils package.
+:ubuntu: .
+:ubuntu: Currently, the following modules are shipped in this package:
+:ubuntu:  block-glusterfs block-blkio
 
 Package: qemu-system-data
 Architecture: all
@@ -209,7 +239,9 @@ Multi-Arch: foreign
 Conflicts: sgabios, qemu-skiboot, openbios-sparc, openbios-ppc, qemu-slof,
 Replaces:  sgabios, openbios-sparc, openbios-ppc, qemu-slof,
  qemu-system-ppc (<< 1:6.1-4~),
+ qemu-system-common (<< 1:8.2.2+ds-1~),
 Breaks: qemu-system-ppc (<< 1:6.1-4~),
+ qemu-system-common (<< 1:8.2.2+ds-1~),
 Provides: qemu-keymaps, sgabios, qemu-skiboot, openbios-sparc, openbios-ppc, qemu-slof,
 Depends: ${misc:Depends}
 Description: QEMU full system emulation (data files)
@@ -250,11 +282,13 @@ Depends: ${misc:Depends}, ${shlibs:Depends},
  libgl1,
 # we moved vhost-user-gpu files here from qemu-system-common at 6.1-4
 Replaces: qemu-system-common (<< 1:6.1+dfsg-4~)
-Description: QEMU full system emulation binaries (user interface and audio support)
- This package provides local graphical user interface (currently GTK and SDL),
- audio backends and OpenGL display support for full system emulation
- (qemu-system-*) packages.  This package also includes D-Bus display and
- audio modules (which depends on opengl).
+Description: QEMU full system emulation binaries (graphical display and audio modules)
+ This package provides optional graphical guest display modules (currently GTK
+ and SDL) and audio backend modules for full system emulation (qemu-system-*)
+ packages.
+ .
+ This package is not a management/control/GUI interface for qemu, use something
+ else (like virt-manager) for that.
 
 Package: qemu-system-modules-spice
 Architecture: :spice-arch:
@@ -266,9 +300,9 @@ Depends: ${misc:Depends}, ${shlibs:Depends},
  qemu-system-any (= ${binary:Version}),
 Replaces: qemu-system-common (<< 1:8.1.0+ds-1~exp2~)
 Breaks:   qemu-system-common (<< 1:8.1.0+ds-1~exp2~)
-Description: QEMU full system emulation binaries (spice modules)
- This package provides optional spice display (qxl and spice-app) and
- audio modules for QEMU full system emulation (qemu-system-*) packages.
+Description: QEMU full system emulation binaries (spice display modules)
+ This package provides optional spice display (qxl and spice-app) and audio
+ support modules for QEMU full system emulation (qemu-system-*) packages.
 
 Package: qemu-system-modules-opengl
 Architecture: :system-arch:
@@ -278,9 +312,10 @@ Depends: ${misc:Depends}, ${shlibs:Depends},
  qemu-system-any (= ${binary:Version}),
 Replaces: qemu-system-common (<< 1:8.1.0+ds-1~exp2~), qemu-system-gui (<< 1:8.1.0+ds-1~exp2~)
 Breaks:   qemu-system-common (<< 1:8.1.0+ds-1~exp2~), qemu-system-gui (<< 1:8.1.0+ds-1~exp2~)
-Description: QEMU full system emulation binaries (OpenGL modules)
- This package provides optional OpenGL support modules
- for QEMU full system emulation (qemu-system-*) packages.
+Description: QEMU full system emulation binaries (OpenGL display modules)
+ This package provides optional OpenGL display support modules for QEMU full
+ system emulation (qemu-system-*) packages.  It also provides D-Bus display
+ type.
 
 Package: qemu-system-misc
 Architecture: :system-arch:
