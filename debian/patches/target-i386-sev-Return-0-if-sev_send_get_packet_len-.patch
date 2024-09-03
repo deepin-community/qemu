@@ -1,0 +1,60 @@
+From 69a12d9da0755dbee8b31eeb9da73841fac88f7a Mon Sep 17 00:00:00 2001
+From: hanliyang <hanliyang@hygon.cn>
+Date: Wed, 31 Jan 2024 07:26:57 +0800
+Subject: [PATCH 13/28] target/i386: sev: Return 0 if sev_send_get_packet_len()
+ fails
+
+The send_packet_hdr_len of struct SEVState is of type size_t
+which is an unsigned class type. If the send_packet_hdr_len
+is assigned as -1, then it will be a huge number and the QEMU
+process will crash when allocating packet buffer with the
+huge size.
+
+For example, the following code could cause crash described
+above.
+
+    ```
+    static int
+    sev_send_update_data(SEVState *s, QEMUFile *f, uint8_t *ptr, uint32_t size,
+                     uint64_t *bytes_sent)
+    {
+
+        ......
+
+        if (!s->send_packet_hdr) {
+            s->send_packet_hdr_len = sev_send_get_packet_len(&fw_error);
+            if (s->send_packet_hdr_len < 1) {
+                error_report("%s: SEND_UPDATE fw_error=%d '%s'",
+                             __func__, fw_error, fw_error_to_str(fw_error));
+                return 1;
+            }
+
+            s->send_packet_hdr = g_new(gchar, s->send_packet_hdr_len);
+        }
+
+        ......
+
+    }
+    ```
+
+Signed-off-by: hanliyang <hanliyang@hygon.cn>
+---
+ target/i386/sev.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/target/i386/sev.c b/target/i386/sev.c
+index aeeb479b..b1b26b8a 100644
+--- a/target/i386/sev.c
++++ b/target/i386/sev.c
+@@ -1491,7 +1491,7 @@ sev_send_get_packet_len(int *fw_err)
+     ret = sev_ioctl(sev_guest->sev_fd, KVM_SEV_SEND_UPDATE_DATA,
+                     &update, fw_err);
+     if (*fw_err != SEV_RET_INVALID_LEN) {
+-        ret = -1;
++        ret = 0;
+         error_report("%s: failed to get session length ret=%d fw_error=%d '%s'",
+                     __func__, ret, *fw_err, fw_error_to_str(*fw_err));
+         goto err;
+-- 
+2.25.1
+

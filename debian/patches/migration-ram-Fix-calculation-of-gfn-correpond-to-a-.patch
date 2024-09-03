@@ -1,0 +1,57 @@
+From dfc505b4abbb5170c6fcbd6b42ab966c469a0d3c Mon Sep 17 00:00:00 2001
+From: hanliyang <hanliyang@hygon.cn>
+Date: Sun, 16 Jan 2022 20:05:02 -0500
+Subject: [PATCH 16/28] migration/ram: Fix calculation of gfn correpond to a
+ page in ramblock
+
+A RAMBlock contains a host memory region which may consist of many
+discontiguous MemoryRegion in AddressSpace of a Guest, so we cannot
+get gpa by MemoryRegion.addr. Since KVM memslot records the relationship
+between gpa and hva, so we can pass the hva of page in RAMBlock to
+kvm_phisical_memory_addr_from_host() to get the expected gpa.
+
+Signed-off-by: hanliyang <hanliyang@hygon.cn>
+---
+ migration/ram.c | 12 +++++++++++-
+ 1 file changed, 11 insertions(+), 1 deletion(-)
+
+diff --git a/migration/ram.c b/migration/ram.c
+index f7117385..22f07a06 100644
+--- a/migration/ram.c
++++ b/migration/ram.c
+@@ -67,6 +67,7 @@
+ 
+ /* Defines RAM_SAVE_ENCRYPTED_PAGE and RAM_SAVE_SHARED_REGION_LIST */
+ #include "target/i386/sev.h"
++#include "sysemu/kvm.h"
+ 
+ #include "hw/boards.h" /* for machine_dump_guest_core() */
+ 
+@@ -2143,6 +2144,8 @@ static bool encrypted_test_list(RAMState *rs, RAMBlock *block,
+     struct ConfidentialGuestMemoryEncryptionOps *ops =
+         cgs_class->memory_encryption_ops;
+     unsigned long gfn;
++    hwaddr paddr = 0;
++    int ret;
+ 
+     /* ROM devices contains the unencrypted data */
+     if (memory_region_is_rom(block->mr)) {
+@@ -2165,7 +2168,14 @@ static bool encrypted_test_list(RAMState *rs, RAMBlock *block,
+      * Translate page in ram_addr_t address space to GPA address
+      * space using memory region.
+      */
+-    gfn = page + (block->mr->addr >> TARGET_PAGE_BITS);
++    if (kvm_enabled()) {
++        ret = kvm_physical_memory_addr_from_host(kvm_state,
++                           block->host + (page << TARGET_PAGE_BITS), &paddr);
++        if (ret == 0) {
++            return false;
++        }
++    }
++    gfn = paddr >> TARGET_PAGE_BITS;
+ 
+     return ops->is_gfn_in_unshared_region(gfn);
+ }
+-- 
+2.25.1
+

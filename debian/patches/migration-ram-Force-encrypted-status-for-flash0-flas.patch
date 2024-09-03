@@ -1,0 +1,44 @@
+From c75c0401982cc93b498f7c239a167ec603844fd8 Mon Sep 17 00:00:00 2001
+From: Ashish Kalra <ashish.kalra@amd.com>
+Date: Tue, 27 Jul 2021 18:05:25 +0000
+Subject: [PATCH 11/28] migration/ram: Force encrypted status for flash0 &
+ flash1 devices.
+
+cherry-picked from https://github.com/AMDESE/qemu/commit/803d6a4c8d.
+
+Currently OVMF clears the C-bit and marks NonExistent memory space
+as decrypted in the page encryption bitmap. By marking the
+NonExistent memory space as decrypted it gurantees any future MMIO adds
+will work correctly, but this marks flash0 device space as decrypted.
+At reset the SEV core will be in forced encrypted state, so this
+decrypted marking of flash0 device space will cause VCPU reset to fail
+as flash0 device pages will be migrated incorrectly.
+
+Signed-off-by: Ashish Kalra <ashish.kalra@amd.com>
+Signed-off-by: hanliyang <hanliyang@hygon.cn>
+---
+ migration/ram.c | 8 ++++++++
+ 1 file changed, 8 insertions(+)
+
+diff --git a/migration/ram.c b/migration/ram.c
+index 317aea56..09faa857 100644
+--- a/migration/ram.c
++++ b/migration/ram.c
+@@ -2149,6 +2149,14 @@ static bool encrypted_test_list(RAMState *rs, RAMBlock *block,
+         return false;
+     }
+ 
++    if (!strcmp(memory_region_name(block->mr), "system.flash0")) {
++        return true;
++    }
++
++    if (!strcmp(memory_region_name(block->mr), "system.flash1")) {
++        return false;
++    }
++
+     /*
+      * Translate page in ram_addr_t address space to GPA address
+      * space using memory region.
+-- 
+2.25.1
+

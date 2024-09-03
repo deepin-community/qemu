@@ -1,0 +1,32 @@
+From d77ce863ce6079271d700ed69594fc4768d43e62 Mon Sep 17 00:00:00 2001
+From: hanliyang <hanliyang@hygon.cn>
+Date: Tue, 8 Dec 2020 22:57:46 -0500
+Subject: [PATCH 14/28] migration/ram: Force encrypted status for VGA vram
+
+The VGA vram memory region act as frame buffer of VM. This memory
+is decrypted in the QEMU process. For CSV VM live migration, we
+should avoid memory encryption status check on VGA vram.
+
+Signed-off-by: hanliyang <hanliyang@hygon.cn>
+---
+ migration/ram.c | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/migration/ram.c b/migration/ram.c
+index 09faa857..f7117385 100644
+--- a/migration/ram.c
++++ b/migration/ram.c
+@@ -2157,6 +2157,10 @@ static bool encrypted_test_list(RAMState *rs, RAMBlock *block,
+         return false;
+     }
+ 
++    if (!strcmp(memory_region_name(block->mr), "vga.vram")) {
++        return false;
++    }
++
+     /*
+      * Translate page in ram_addr_t address space to GPA address
+      * space using memory region.
+-- 
+2.25.1
+

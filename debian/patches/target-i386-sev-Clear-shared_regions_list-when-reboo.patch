@@ -1,0 +1,57 @@
+From a42f35c1fb7368421cca0c75e60b08080cbe5e7b Mon Sep 17 00:00:00 2001
+From: hanliyang <hanliyang@hygon.cn>
+Date: Sun, 16 Jan 2022 19:57:58 -0500
+Subject: [PATCH 15/28] target/i386: sev: Clear shared_regions_list when reboot
+ CSV Guest
+
+Also fix memory leak in sev_remove_shared_regions_list().
+
+Signed-off-by: hanliyang <hanliyang@hygon.cn>
+---
+ target/i386/kvm/kvm.c | 5 +++++
+ target/i386/sev.c     | 5 +++--
+ 2 files changed, 8 insertions(+), 2 deletions(-)
+
+diff --git a/target/i386/kvm/kvm.c b/target/i386/kvm/kvm.c
+index bba1d8bc..0cbb2734 100644
+--- a/target/i386/kvm/kvm.c
++++ b/target/i386/kvm/kvm.c
+@@ -2269,6 +2269,11 @@ void kvm_arch_reset_vcpu(X86CPU *cpu)
+         env->mp_state = KVM_MP_STATE_RUNNABLE;
+     }
+ 
++    if (cpu_is_bsp(cpu) &&
++        sev_enabled() && has_map_gpa_range) {
++        sev_remove_shared_regions_list(0, -1);
++    }
++
+     /* enabled by default */
+     env->poll_control_msr = 1;
+ 
+diff --git a/target/i386/sev.c b/target/i386/sev.c
+index b1b26b8a..594f034e 100644
+--- a/target/i386/sev.c
++++ b/target/i386/sev.c
+@@ -1693,9 +1693,9 @@ int sev_load_incoming_page(QEMUFile *f, uint8_t *ptr)
+ int sev_remove_shared_regions_list(unsigned long start, unsigned long end)
+ {
+     SevGuestState *s = sev_guest;
+-    struct shared_region *pos;
++    struct shared_region *pos, *next_pos;
+ 
+-    QTAILQ_FOREACH(pos, &s->shared_regions_list, list) {
++    QTAILQ_FOREACH_SAFE(pos, &s->shared_regions_list, list, next_pos) {
+         unsigned long l, r;
+         unsigned long curr_gfn_end = pos->gfn_end;
+ 
+@@ -1709,6 +1709,7 @@ int sev_remove_shared_regions_list(unsigned long start, unsigned long end)
+         if (l <= r) {
+             if (pos->gfn_start == l && pos->gfn_end == r) {
+                 QTAILQ_REMOVE(&s->shared_regions_list, pos, list);
++                g_free(pos);
+             } else if (l == pos->gfn_start) {
+                 pos->gfn_start = r;
+             } else if (r == pos->gfn_end) {
+-- 
+2.25.1
+

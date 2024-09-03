@@ -1,0 +1,343 @@
+From 6465fb1ffe5f25ec8c1047d621ddd17f9a0c98b5 Mon Sep 17 00:00:00 2001
+From: Brijesh Singh <brijesh.singh@amd.com>
+Date: Tue, 27 Jul 2021 16:53:19 +0000
+Subject: [PATCH 10/28] migration/ram: add support to send encrypted pages
+
+cherry-picked from https://github.com/AMDESE/qemu/commit/2d6bda0d4cf.
+
+When memory encryption is enabled, the guest memory will be encrypted with
+the guest specific key. The patch introduces RAM_SAVE_FLAG_ENCRYPTED_PAGE
+flag to distinguish the encrypted data from plaintext. Encrypted pages
+may need special handling. The sev_save_outgoing_page() is used
+by the sender to write the encrypted pages onto the socket, similarly the
+sev_load_incoming_page() is used by the target to read the
+encrypted pages from the socket and load into the guest memory.
+
+Signed-off-by: Brijesh Singh <brijesh.singh@amd.com>
+Co-developed-by: Ashish Kalra <ashish.kalra@amd.com>
+Signed-off-by: Ashish Kalra <ashish.kalra@amd.com>
+[ Fix conflicts. ]
+Signed-off-by: hanliyang <hanliyang@hygon.cn>
+---
+ migration/migration.h |   2 +
+ migration/ram.c       | 174 +++++++++++++++++++++++++++++++++++++++++-
+ target/i386/sev.c     |  14 ++++
+ target/i386/sev.h     |   4 +
+ 4 files changed, 192 insertions(+), 2 deletions(-)
+
+diff --git a/migration/migration.h b/migration/migration.h
+index cf2c9c88..65f5599f 100644
+--- a/migration/migration.h
++++ b/migration/migration.h
+@@ -550,4 +550,6 @@ void migration_rp_kick(MigrationState *s);
+ 
+ int migration_stop_vm(RunState state);
+ 
++bool memcrypt_enabled(void);
++
+ #endif
+diff --git a/migration/ram.c b/migration/ram.c
+index 8c7886ab..317aea56 100644
+--- a/migration/ram.c
++++ b/migration/ram.c
+@@ -63,6 +63,10 @@
+ #include "options.h"
+ #include "sysemu/dirtylimit.h"
+ #include "sysemu/kvm.h"
++#include "exec/confidential-guest-support.h"
++
++/* Defines RAM_SAVE_ENCRYPTED_PAGE and RAM_SAVE_SHARED_REGION_LIST */
++#include "target/i386/sev.h"
+ 
+ #include "hw/boards.h" /* for machine_dump_guest_core() */
+ 
+@@ -92,7 +96,16 @@
+ /* 0x80 is reserved in rdma.h for RAM_SAVE_FLAG_HOOK */
+ #define RAM_SAVE_FLAG_COMPRESS_PAGE    0x100
+ #define RAM_SAVE_FLAG_MULTIFD_FLUSH    0x200
+-/* We can't use any flag that is bigger than 0x200 */
++#define RAM_SAVE_FLAG_ENCRYPTED_DATA   0x400
++
++bool memcrypt_enabled(void)
++{
++    MachineState *ms = MACHINE(qdev_get_machine());
++    if(ms->cgs)
++        return ms->cgs->ready;
++    else
++        return false;
++}
+ 
+ XBZRLECacheStats xbzrle_counters;
+ 
+@@ -1204,6 +1217,88 @@ static int save_normal_page(PageSearchStatus *pss, RAMBlock *block,
+     return 1;
+ }
+ 
++/**
++ * ram_save_encrypted_page - send the given encrypted page to the stream
++ */
++static int ram_save_encrypted_page(RAMState *rs, PageSearchStatus *pss)
++{
++    QEMUFile *file = pss->pss_channel;
++    int ret;
++    uint8_t *p;
++    RAMBlock *block = pss->block;
++    ram_addr_t offset = ((ram_addr_t)pss->page) << TARGET_PAGE_BITS;
++    uint64_t bytes_xmit = 0;
++    MachineState *ms = MACHINE(qdev_get_machine());
++    ConfidentialGuestSupportClass *cgs_class =
++        (ConfidentialGuestSupportClass *) object_get_class(OBJECT(ms->cgs));
++    struct ConfidentialGuestMemoryEncryptionOps *ops =
++        cgs_class->memory_encryption_ops;
++
++    p = block->host + offset;
++    trace_ram_save_page(block->idstr, (uint64_t)offset, p);
++
++    ram_transferred_add(save_page_header(pss, file, block,
++                        offset | RAM_SAVE_FLAG_ENCRYPTED_DATA));
++    qemu_put_be32(file, RAM_SAVE_ENCRYPTED_PAGE);
++    ret = ops->save_outgoing_page(file, p, TARGET_PAGE_SIZE, &bytes_xmit);
++    if (ret) {
++        return -1;
++    }
++    ram_transferred_add(4 + bytes_xmit);
++    stat64_add(&mig_stats.normal_pages, 1);
++
++    return 1;
++}
++
++/**
++ * ram_save_shared_region_list: send the shared region list
++ */
++static int ram_save_shared_region_list(RAMState *rs, QEMUFile *f)
++{
++    int ret;
++    uint64_t bytes_xmit = 0;
++    PageSearchStatus *pss = &rs->pss[RAM_CHANNEL_PRECOPY];
++    MachineState *ms = MACHINE(qdev_get_machine());
++    ConfidentialGuestSupportClass *cgs_class =
++        (ConfidentialGuestSupportClass *) object_get_class(OBJECT(ms->cgs));
++    struct ConfidentialGuestMemoryEncryptionOps *ops =
++        cgs_class->memory_encryption_ops;
++
++    ram_transferred_add(save_page_header(pss, f,
++                                         pss->last_sent_block,
++                                         RAM_SAVE_FLAG_ENCRYPTED_DATA));
++    qemu_put_be32(f, RAM_SAVE_SHARED_REGIONS_LIST);
++    ret = ops->save_outgoing_shared_regions_list(f, &bytes_xmit);
++    if (ret < 0) {
++        return ret;
++    }
++    ram_transferred_add(4 + bytes_xmit);
++
++    return 0;
++}
++
++static int load_encrypted_data(QEMUFile *f, uint8_t *ptr)
++{
++    MachineState *ms = MACHINE(qdev_get_machine());
++    ConfidentialGuestSupportClass *cgs_class =
++        (ConfidentialGuestSupportClass *) object_get_class(OBJECT(ms->cgs));
++    struct ConfidentialGuestMemoryEncryptionOps *ops =
++        cgs_class->memory_encryption_ops;
++
++    int flag;
++
++    flag = qemu_get_be32(f);
++
++    if (flag == RAM_SAVE_ENCRYPTED_PAGE) {
++        return ops->load_incoming_page(f, ptr);
++    } else if (flag == RAM_SAVE_SHARED_REGIONS_LIST) {
++        return ops->load_incoming_shared_regions_list(f);
++    } else {
++        error_report("unknown encrypted flag %x", flag);
++        return 1;
++    }
++}
++
+ /**
+  * ram_save_page: send the given page to the stream
+  *
+@@ -2034,6 +2129,35 @@ static bool save_compress_page(RAMState *rs, PageSearchStatus *pss,
+                                            compress_send_queued_data);
+ }
+ 
++/**
++ * encrypted_test_list: check if the page is encrypted
++ *
++ * Returns a bool indicating whether the page is encrypted.
++ */
++static bool encrypted_test_list(RAMState *rs, RAMBlock *block,
++                                unsigned long page)
++{
++    MachineState *ms = MACHINE(qdev_get_machine());
++    ConfidentialGuestSupportClass *cgs_class =
++        (ConfidentialGuestSupportClass *) object_get_class(OBJECT(ms->cgs));
++    struct ConfidentialGuestMemoryEncryptionOps *ops =
++        cgs_class->memory_encryption_ops;
++    unsigned long gfn;
++
++    /* ROM devices contains the unencrypted data */
++    if (memory_region_is_rom(block->mr)) {
++        return false;
++    }
++
++    /*
++     * Translate page in ram_addr_t address space to GPA address
++     * space using memory region.
++     */
++    gfn = page + (block->mr->addr >> TARGET_PAGE_BITS);
++
++    return ops->is_gfn_in_unshared_region(gfn);
++}
++
+ /**
+  * ram_save_target_page_legacy: save one target page
+  *
+@@ -2052,6 +2176,17 @@ static int ram_save_target_page_legacy(RAMState *rs, PageSearchStatus *pss)
+         return res;
+     }
+ 
++    /*
++     * If memory encryption is enabled then use memory encryption APIs
++     * to write the outgoing buffer to the wire. The encryption APIs
++     * will take care of accessing the guest memory and re-encrypt it
++     * for the transport purposes.
++     */
++    if (memcrypt_enabled() &&
++        encrypted_test_list(rs, pss->block, pss->page)) {
++        return ram_save_encrypted_page(rs, pss);
++    }
++
+     if (save_compress_page(rs, pss, offset)) {
+         return 1;
+     }
+@@ -2917,6 +3052,18 @@ void qemu_guest_free_page_hint(void *addr, size_t len)
+     }
+ }
+ 
++static int ram_encrypted_save_setup(void)
++{
++    MachineState *ms = MACHINE(qdev_get_machine());
++    ConfidentialGuestSupportClass *cgs_class =
++        (ConfidentialGuestSupportClass *) object_get_class(OBJECT(ms->cgs));
++    struct ConfidentialGuestMemoryEncryptionOps *ops =
++        cgs_class->memory_encryption_ops;
++    MigrationParameters *p = &migrate_get_current()->parameters;
++
++    return ops->save_setup(p->sev_pdh, p->sev_plat_cert, p->sev_amd_cert);
++}
++
+ /*
+  * Each of ram_save_setup, ram_save_iterate and ram_save_complete has
+  * long-running RCU critical section.  When rcu-reclaims in the code
+@@ -2952,6 +3099,13 @@ static int ram_save_setup(QEMUFile *f, void *opaque)
+     (*rsp)->pss[RAM_CHANNEL_PRECOPY].pss_channel = f;
+ 
+     WITH_RCU_READ_LOCK_GUARD() {
++
++        if (memcrypt_enabled()) {
++            if (ram_encrypted_save_setup()) {
++                return -1;
++            }
++        }
++
+         qemu_put_be64(f, ram_bytes_total_with_ignored()
+                          | RAM_SAVE_FLAG_MEM_SIZE);
+ 
+@@ -3181,6 +3335,15 @@ static int ram_save_complete(QEMUFile *f, void *opaque)
+             qemu_file_set_error(f, ret);
+             return ret;
+         }
++
++        /* send the shared regions list */
++        if (memcrypt_enabled()) {
++            ret = ram_save_shared_region_list(rs, f);
++            if (ret < 0) {
++                qemu_file_set_error(f, ret);
++                return ret;
++            }
++        }
+     }
+ 
+     ret = multifd_send_sync_main(rs->pss[RAM_CHANNEL_PRECOPY].pss_channel);
+@@ -3918,7 +4081,8 @@ static int ram_load_precopy(QEMUFile *f)
+         }
+ 
+         if (flags & (RAM_SAVE_FLAG_ZERO | RAM_SAVE_FLAG_PAGE |
+-                     RAM_SAVE_FLAG_COMPRESS_PAGE | RAM_SAVE_FLAG_XBZRLE)) {
++                     RAM_SAVE_FLAG_COMPRESS_PAGE | RAM_SAVE_FLAG_XBZRLE |
++                     RAM_SAVE_FLAG_ENCRYPTED_DATA)) {
+             RAMBlock *block = ram_block_from_stream(mis, f, flags,
+                                                     RAM_CHANNEL_PRECOPY);
+ 
+@@ -4011,6 +4175,12 @@ static int ram_load_precopy(QEMUFile *f)
+                 qemu_file_set_error(f, ret);
+             }
+             break;
++        case RAM_SAVE_FLAG_ENCRYPTED_DATA:
++            if (load_encrypted_data(f, host)) {
++                    error_report("Failed to load encrypted data");
++                    ret = -EINVAL;
++            }
++            break;
+         default:
+             error_report("Unknown combination of migration flags: 0x%x", flags);
+             ret = -EINVAL;
+diff --git a/target/i386/sev.c b/target/i386/sev.c
+index aeb3e323..85117563 100644
+--- a/target/i386/sev.c
++++ b/target/i386/sev.c
+@@ -183,6 +183,7 @@ static struct ConfidentialGuestMemoryEncryptionOps sev_memory_encryption_ops = {
+     .save_setup = sev_save_setup,
+     .save_outgoing_page = sev_save_outgoing_page,
+     .load_incoming_page = sev_load_incoming_page,
++    .is_gfn_in_unshared_region = sev_is_gfn_in_unshared_region,
+     .save_outgoing_shared_regions_list = sev_save_outgoing_shared_regions_list,
+     .load_incoming_shared_regions_list = sev_load_incoming_shared_regions_list,
+ };
+@@ -1821,6 +1822,19 @@ int sev_load_incoming_shared_regions_list(QEMUFile *f)
+     return 0;
+ }
+ 
++bool sev_is_gfn_in_unshared_region(unsigned long gfn)
++{
++    SevGuestState *s = sev_guest;
++    struct shared_region *pos;
++
++    QTAILQ_FOREACH(pos, &s->shared_regions_list, list) {
++        if (gfn >= pos->gfn_start && gfn < pos->gfn_end) {
++            return false;
++        }
++    }
++    return true;
++}
++
+ static const QemuUUID sev_hash_table_header_guid = {
+     .data = UUID_LE(0x9438d606, 0x4f22, 0x4cc9, 0xb4, 0x79, 0xa7, 0x93,
+                     0xd4, 0x11, 0xfd, 0x21)
+diff --git a/target/i386/sev.h b/target/i386/sev.h
+index 5b4231c8..b9c2afb7 100644
+--- a/target/i386/sev.h
++++ b/target/i386/sev.h
+@@ -38,6 +38,9 @@ typedef struct SevKernelLoaderContext {
+     size_t cmdline_size;
+ } SevKernelLoaderContext;
+ 
++#define RAM_SAVE_ENCRYPTED_PAGE           0x1
++#define RAM_SAVE_SHARED_REGIONS_LIST      0x2
++
+ #ifdef CONFIG_SEV
+ bool sev_enabled(void);
+ bool sev_es_enabled(void);
+@@ -66,6 +69,7 @@ int sev_remove_shared_regions_list(unsigned long gfn_start,
+ int sev_add_shared_regions_list(unsigned long gfn_start, unsigned long gfn_end);
+ int sev_save_outgoing_shared_regions_list(QEMUFile *f, uint64_t *bytes_sent);
+ int sev_load_incoming_shared_regions_list(QEMUFile *f);
++bool sev_is_gfn_in_unshared_region(unsigned long gfn);
+ 
+ int sev_kvm_init(ConfidentialGuestSupport *cgs, Error **errp);
+ 
+-- 
+2.25.1
+

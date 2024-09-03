@@ -1,0 +1,190 @@
+From 1d7b2fa522f7c5cddce18b303a06ef07508387f3 Mon Sep 17 00:00:00 2001
+From: panpingsheng <panpingsheng@hygon.cn>
+Date: Sat, 12 Jun 2021 15:15:29 +0800
+Subject: [PATCH 26/28] target/i386: get/set/migrate GHCB state
+
+GHCB state is necessary to CSV2 guest when migrating to target.
+
+Add GHCB related definition, it also adds corresponding part
+to kvm_get/put, and vmstate.
+
+Signed-off-by: hanliyang <hanliyang@hygon.cn>
+---
+ linux-headers/linux/kvm.h  |  2 ++
+ target/i386/cpu.h          |  5 +++++
+ target/i386/kvm/kvm.c      | 11 +++++++++++
+ target/i386/kvm/sev-stub.c |  2 ++
+ target/i386/machine.c      | 24 ++++++++++++++++++++++++
+ target/i386/sev.c          | 10 ++++++++++
+ target/i386/sev.h          |  2 ++
+ 7 files changed, 56 insertions(+)
+
+diff --git a/linux-headers/linux/kvm.h b/linux-headers/linux/kvm.h
+index 6e9b2c2c..36d6ba82 100644
+--- a/linux-headers/linux/kvm.h
++++ b/linux-headers/linux/kvm.h
+@@ -1190,6 +1190,8 @@ struct kvm_ppc_resize_hpt {
+ #define KVM_CAP_ARM_EAGER_SPLIT_CHUNK_SIZE 228
+ #define KVM_CAP_ARM_SUPPORTED_BLOCK_SIZES 229
+ 
++#define KVM_CAP_SEV_ES_GHCB 500
++
+ #define KVM_EXIT_HYPERCALL_VALID_MASK (1 << KVM_HC_MAP_GPA_RANGE)
+ 
+ #ifdef KVM_CAP_IRQ_ROUTING
+diff --git a/target/i386/cpu.h b/target/i386/cpu.h
+index ef987f34..09041a5f 100644
+--- a/target/i386/cpu.h
++++ b/target/i386/cpu.h
+@@ -519,6 +519,8 @@ typedef enum X86Seg {
+ 
+ #define MSR_VM_HSAVE_PA                 0xc0010117
+ 
++#define MSR_AMD64_SEV_ES_GHCB           0xc0010130
++
+ #define MSR_IA32_XFD                    0x000001c4
+ #define MSR_IA32_XFD_ERR                0x000001c5
+ 
+@@ -1884,6 +1886,9 @@ typedef struct CPUArchState {
+ 
+     /* Number of dies within this CPU package. */
+     unsigned nr_dies;
++
++    /* GHCB guest physical address info */
++    uint64_t ghcb_gpa;
+ } CPUX86State;
+ 
+ struct kvm_msrs;
+diff --git a/target/i386/kvm/kvm.c b/target/i386/kvm/kvm.c
+index 0cbb2734..a99fc46b 100644
+--- a/target/i386/kvm/kvm.c
++++ b/target/i386/kvm/kvm.c
+@@ -3624,6 +3624,10 @@ static int kvm_put_msrs(X86CPU *cpu, int level)
+         }
+     }
+ 
++    if (sev_kvm_has_msr_ghcb) {
++        kvm_msr_entry_add(cpu, MSR_AMD64_SEV_ES_GHCB, env->ghcb_gpa);
++    }
++
+     return kvm_buf_set_msrs(cpu);
+ }
+ 
+@@ -3998,6 +4002,10 @@ static int kvm_get_msrs(X86CPU *cpu)
+         }
+     }
+ 
++    if (sev_kvm_has_msr_ghcb) {
++        kvm_msr_entry_add(cpu, MSR_AMD64_SEV_ES_GHCB, 0);
++    }
++
+     ret = kvm_vcpu_ioctl(CPU(cpu), KVM_GET_MSRS, cpu->kvm_msr_buf);
+     if (ret < 0) {
+         return ret;
+@@ -4318,6 +4326,9 @@ static int kvm_get_msrs(X86CPU *cpu)
+         case MSR_ARCH_LBR_INFO_0 ... MSR_ARCH_LBR_INFO_0 + 31:
+             env->lbr_records[index - MSR_ARCH_LBR_INFO_0].info = msrs[i].data;
+             break;
++        case MSR_AMD64_SEV_ES_GHCB:
++            env->ghcb_gpa = msrs[i].data;
++            break;
+         }
+     }
+ 
+diff --git a/target/i386/kvm/sev-stub.c b/target/i386/kvm/sev-stub.c
+index 99899688..a0aac111 100644
+--- a/target/i386/kvm/sev-stub.c
++++ b/target/i386/kvm/sev-stub.c
+@@ -14,6 +14,8 @@
+ #include "qemu/osdep.h"
+ #include "sev.h"
+ 
++bool sev_kvm_has_msr_ghcb;
++
+ int sev_kvm_init(ConfidentialGuestSupport *cgs, Error **errp)
+ {
+     /* If we get here, cgs must be some non-SEV thing */
+diff --git a/target/i386/machine.c b/target/i386/machine.c
+index a1041ef8..9a1cb8f3 100644
+--- a/target/i386/machine.c
++++ b/target/i386/machine.c
+@@ -1605,6 +1605,27 @@ static const VMStateDescription vmstate_triple_fault = {
+     }
+ };
+ 
++#if defined(CONFIG_KVM) && defined(TARGET_X86_64)
++static bool msr_ghcb_gpa_needed(void *opaque)
++{
++    X86CPU *cpu = opaque;
++    CPUX86State *env = &cpu->env;
++
++    return env->ghcb_gpa != 0;
++}
++
++static const VMStateDescription vmstate_msr_ghcb_gpa = {
++    .name = "cpu/svm_msr_ghcb_gpa",
++    .version_id = 1,
++    .minimum_version_id = 1,
++    .needed = msr_ghcb_gpa_needed,
++    .fields = (VMStateField[]) {
++        VMSTATE_UINT64(env.ghcb_gpa, X86CPU),
++        VMSTATE_END_OF_LIST()
++    }
++};
++#endif
++
+ const VMStateDescription vmstate_x86_cpu = {
+     .name = "cpu",
+     .version_id = 12,
+@@ -1751,6 +1772,9 @@ const VMStateDescription vmstate_x86_cpu = {
+ #endif
+         &vmstate_arch_lbr,
+         &vmstate_triple_fault,
++#if defined(CONFIG_KVM) && defined(TARGET_X86_64)
++        &vmstate_msr_ghcb_gpa,
++#endif
+         NULL
+     }
+ };
+diff --git a/target/i386/sev.c b/target/i386/sev.c
+index 52693ae8..71d317e8 100644
+--- a/target/i386/sev.c
++++ b/target/i386/sev.c
+@@ -152,6 +152,8 @@ QEMU_BUILD_BUG_ON(sizeof(PaddedSevHashTable) % 16 != 0);
+ static SevGuestState *sev_guest;
+ static Error *sev_mig_blocker;
+ 
++bool sev_kvm_has_msr_ghcb;
++
+ static const char *const sev_fw_errlist[] = {
+     [SEV_RET_SUCCESS]                = "",
+     [SEV_RET_INVALID_PLATFORM_STATE] = "Platform state is invalid",
+@@ -1198,6 +1200,14 @@ int sev_kvm_init(ConfidentialGuestSupport *cgs, Error **errp)
+     cgs_class->memory_encryption_ops = &sev_memory_encryption_ops;
+     QTAILQ_INIT(&sev->shared_regions_list);
+ 
++    /* Determine whether support MSR_AMD64_SEV_ES_GHCB */
++    if (sev_es_enabled()) {
++        sev_kvm_has_msr_ghcb =
++                kvm_vm_check_extension(kvm_state, KVM_CAP_SEV_ES_GHCB);
++    } else {
++        sev_kvm_has_msr_ghcb = false;
++    }
++
+     cgs->ready = true;
+ 
+     return 0;
+diff --git a/target/i386/sev.h b/target/i386/sev.h
+index 209c92fd..0bfe3879 100644
+--- a/target/i386/sev.h
++++ b/target/i386/sev.h
+@@ -78,4 +78,6 @@ void sev_del_migrate_blocker(void);
+ 
+ int sev_kvm_init(ConfidentialGuestSupport *cgs, Error **errp);
+ 
++extern bool sev_kvm_has_msr_ghcb;
++
+ #endif
+-- 
+2.25.1
+

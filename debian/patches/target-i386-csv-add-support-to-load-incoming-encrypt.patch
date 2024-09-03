@@ -1,0 +1,107 @@
+From e1397a82caa5dcd45d4ea98deaf52b8536eccff9 Mon Sep 17 00:00:00 2001
+From: fangbaoshun <fangbaoshun@hygon.cn>
+Date: Mon, 2 Aug 2021 14:11:43 +0800
+Subject: [PATCH 22/28] target/i386: csv: add support to load incoming
+ encrypted pages queued in the CMD list
+
+The csv_load_queued_incoming_pages() provide the implementation to read the
+incoming guest private pages from the socket queued in the CMD list and load
+them into the guest memory. The routines uses the RECEIVE_START command to
+create the incoming encryption context on the first call then uses the
+COMMAND_BATCH carried with RECEIEVE_UPDATE_DATA commands to load the encrypted
+pages into the guest memory. After migration is completed, we issue the
+RECEIVE_FINISH command to transition the SEV guest to the runnable state
+so that it can be executed.
+
+Signed-off-by: hanliyang <hanliyang@hygon.cn>
+---
+ include/exec/confidential-guest-support.h |  3 +++
+ target/i386/csv.h                         |  1 +
+ target/i386/sev.c                         | 32 +++++++++++++++++++++++
+ 3 files changed, 36 insertions(+)
+
+diff --git a/include/exec/confidential-guest-support.h b/include/exec/confidential-guest-support.h
+index 101cc522..cb14b815 100644
+--- a/include/exec/confidential-guest-support.h
++++ b/include/exec/confidential-guest-support.h
+@@ -87,6 +87,9 @@ struct ConfidentialGuestMemoryEncryptionOps {
+ 
+     /* Queue the incoming encrypted page into a list */
+     int (*queue_incoming_page)(QEMUFile *f, uint8_t *ptr);
++
++    /* Load the incoming encrypted pages queued in list into guest memory */
++    int (*load_queued_incoming_pages)(QEMUFile *f);
+ };
+ 
+ typedef struct ConfidentialGuestSupportClass {
+diff --git a/target/i386/csv.h b/target/i386/csv.h
+index d1bcc8bc..977f08b9 100644
+--- a/target/i386/csv.h
++++ b/target/i386/csv.h
+@@ -56,5 +56,6 @@ struct CsvBatchCmdList {
+ int csv_queue_outgoing_page(uint8_t *ptr, uint32_t sz, uint64_t addr);
+ int csv_save_queued_outgoing_pages(QEMUFile *f, uint64_t *bytes_sent);
+ int csv_queue_incoming_page(QEMUFile *f, uint8_t *ptr);
++int csv_load_queued_incoming_pages(QEMUFile *f);
+ 
+ #endif
+diff --git a/target/i386/sev.c b/target/i386/sev.c
+index 97e2e715..8e5da510 100644
+--- a/target/i386/sev.c
++++ b/target/i386/sev.c
+@@ -193,6 +193,7 @@ static struct ConfidentialGuestMemoryEncryptionOps sev_memory_encryption_ops = {
+     .queue_outgoing_page = csv_queue_outgoing_page,
+     .save_queued_outgoing_pages = csv_save_queued_outgoing_pages,
+     .queue_incoming_page = csv_queue_incoming_page,
++    .load_queued_incoming_pages = csv_load_queued_incoming_pages,
+ };
+ 
+ static int
+@@ -2145,6 +2146,24 @@ err:
+     return ret;
+ }
+ 
++static int
++csv_receive_update_data_batch(SevGuestState *s)
++{
++    int ret;
++    int fw_error;
++
++    ret = csv_command_batch(KVM_SEV_RECEIVE_UPDATE_DATA,
++                            (uint64_t)s->csv_batch_cmd_list->head, &fw_error);
++    if (ret) {
++        error_report("%s: csv_command_batch ret=%d fw_error=%d '%s'",
++                __func__, ret, fw_error, fw_error_to_str(fw_error));
++    }
++
++    csv_batch_cmd_list_destroy(s->csv_batch_cmd_list);
++    s->csv_batch_cmd_list = NULL;
++    return ret;
++}
++
+ int
+ csv_queue_outgoing_page(uint8_t *ptr, uint32_t sz, uint64_t addr)
+ {
+@@ -2205,6 +2224,19 @@ csv_save_queued_outgoing_pages(QEMUFile *f, uint64_t *bytes_sent)
+     return csv_send_update_data_batch(s, f, bytes_sent);
+ }
+ 
++int csv_load_queued_incoming_pages(QEMUFile *f)
++{
++    SevGuestState *s = sev_guest;
++
++    /* Only support for HYGON CSV */
++    if (!is_hygon_cpu()) {
++        error_report("Only support load queued pages for HYGON CSV");
++        return -EINVAL;
++    }
++
++    return csv_receive_update_data_batch(s);
++}
++
+ static const QemuUUID sev_hash_table_header_guid = {
+     .data = UUID_LE(0x9438d606, 0x4f22, 0x4cc9, 0xb4, 0x79, 0xa7, 0x93,
+                     0xd4, 0x11, 0xfd, 0x21)
+-- 
+2.25.1
+

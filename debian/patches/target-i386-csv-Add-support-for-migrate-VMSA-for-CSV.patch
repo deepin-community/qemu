@@ -1,0 +1,434 @@
+From b94fc0b7388de9fc50c49df51c535bbffcb44380 Mon Sep 17 00:00:00 2001
+From: hanliyang <hanliyang@hygon.cn>
+Date: Tue, 7 Jun 2022 15:19:32 +0800
+Subject: [PATCH 25/28] target/i386: csv: Add support for migrate VMSA for CSV2
+ guest
+
+CSV2 can protect guest's cpu state through memory encryption. Each
+vcpu has its corresponding memory, which is also called VMSA, and
+is encrypted by guest's specific encrytion key.
+
+When CSV2 guest exit to host, the vcpu's state will be encrypted
+and saved to VMSA, and the VMSA will be decrypted and loaded to cpu
+when the guest's vcpu running at next time.
+
+If user wants to migrate one CSV2 guest to target machine, the VMSA
+of the vcpus also should be migrated to target. CSV firmware provides
+SEND_UPDATE_VMSA/RECEIVE_UPDATE_VMSA API through which VMSA can be
+converted into secure data and transmitted to the remote end (for
+example, network transmission).
+
+The migration of cpu state is identified by CPUState.cpu_index which
+may not equals to vcpu id from KVM's perspective.
+
+When migrate the VMSA, the source QEMU will invoke SEND_UPDATE_VMSA to
+generate data correspond to VMSA, after target QEMU received the data,
+it will calc target vcpu id in the KVM by CPUState.cpu_index, and then
+invoke RECEIVE_UPDATE_VMSA to restore VMSA correspond to vcpu.
+
+Signed-off-by: hanliyang <hanliyang@hygon.cn>
+---
+ include/exec/confidential-guest-support.h |   6 +
+ linux-headers/linux/kvm.h                 |  16 ++
+ migration/ram.c                           |  42 +++++
+ target/i386/csv.h                         |   2 +
+ target/i386/sev.c                         | 201 ++++++++++++++++++++++
+ target/i386/sev.h                         |   1 +
+ target/i386/trace-events                  |   2 +
+ 7 files changed, 270 insertions(+)
+
+diff --git a/include/exec/confidential-guest-support.h b/include/exec/confidential-guest-support.h
+index cb14b815..2cba2764 100644
+--- a/include/exec/confidential-guest-support.h
++++ b/include/exec/confidential-guest-support.h
+@@ -90,6 +90,12 @@ struct ConfidentialGuestMemoryEncryptionOps {
+ 
+     /* Load the incoming encrypted pages queued in list into guest memory */
+     int (*load_queued_incoming_pages)(QEMUFile *f);
++
++    /* Write the encrypted cpu state */
++    int (*save_outgoing_cpu_state)(QEMUFile *f, uint64_t *bytes_sent);
++
++    /* Load the encrypted cpu state */
++    int (*load_incoming_cpu_state)(QEMUFile *f);
+ };
+ 
+ typedef struct ConfidentialGuestSupportClass {
+diff --git a/linux-headers/linux/kvm.h b/linux-headers/linux/kvm.h
+index bd23b2cc..6e9b2c2c 100644
+--- a/linux-headers/linux/kvm.h
++++ b/linux-headers/linux/kvm.h
+@@ -1998,6 +1998,14 @@ struct kvm_sev_send_update_data {
+ 	__u32 trans_len;
+ };
+ 
++struct kvm_sev_send_update_vmsa {
++	__u32 vcpu_id;
++	__u64 hdr_uaddr;
++	__u32 hdr_len;
++	__u64 trans_uaddr;
++	__u32 trans_len;
++};
++
+ struct kvm_sev_receive_start {
+ 	__u32 handle;
+ 	__u32 policy;
+@@ -2016,6 +2024,14 @@ struct kvm_sev_receive_update_data {
+ 	__u32 trans_len;
+ };
+ 
++struct kvm_sev_receive_update_vmsa {
++	__u32 vcpu_id;
++	__u64 hdr_uaddr;
++	__u32 hdr_len;
++	__u64 trans_uaddr;
++	__u32 trans_len;
++};
++
+ struct kvm_csv_batch_list_node {
+ 	__u64 cmd_data_addr;
+ 	__u64 addr;
+diff --git a/migration/ram.c b/migration/ram.c
+index c7245aa4..198b0600 100644
+--- a/migration/ram.c
++++ b/migration/ram.c
+@@ -1279,6 +1279,33 @@ static int ram_save_shared_region_list(RAMState *rs, QEMUFile *f)
+     return 0;
+ }
+ 
++/**
++ * ram_save_encrypted_cpu_state: send the encrypted cpu state
++ */
++static int ram_save_encrypted_cpu_state(RAMState *rs, QEMUFile *f)
++{
++    int ret;
++    uint64_t bytes_xmit = 0;
++    PageSearchStatus *pss = &rs->pss[RAM_CHANNEL_PRECOPY];
++    MachineState *ms = MACHINE(qdev_get_machine());
++    ConfidentialGuestSupportClass *cgs_class =
++        (ConfidentialGuestSupportClass *) object_get_class(OBJECT(ms->cgs));
++    struct ConfidentialGuestMemoryEncryptionOps *ops =
++        cgs_class->memory_encryption_ops;
++
++    ram_transferred_add(save_page_header(pss, f,
++                                         pss->last_sent_block,
++                                         RAM_SAVE_FLAG_ENCRYPTED_DATA));
++    qemu_put_be32(f, RAM_SAVE_ENCRYPTED_CPU_STATE);
++    ret = ops->save_outgoing_cpu_state(f, &bytes_xmit);
++    if (ret < 0) {
++        return ret;
++    }
++    ram_transferred_add(4 + bytes_xmit);
++
++    return 0;
++}
++
+ static int load_encrypted_data(QEMUFile *f, uint8_t *ptr)
+ {
+     MachineState *ms = MACHINE(qdev_get_machine());
+@@ -1303,6 +1330,8 @@ static int load_encrypted_data(QEMUFile *f, uint8_t *ptr)
+             return -EINVAL;
+         }
+         return ops->load_queued_incoming_pages(f);
++    } else if (flag == RAM_SAVE_ENCRYPTED_CPU_STATE) {
++        return ops->load_incoming_cpu_state(f);
+     } else {
+         error_report("unknown encrypted flag %x", flag);
+         return 1;
+@@ -3492,6 +3521,19 @@ static int ram_save_complete(QEMUFile *f, void *opaque)
+                 qemu_file_set_error(f, ret);
+                 return ret;
+             }
++
++            /*
++             * send the encrypted cpu state, for example, CSV2 guest's
++             * vmsa for each vcpu.
++             */
++            if (is_hygon_cpu()) {
++                ret = ram_save_encrypted_cpu_state(rs, f);
++                if (ret < 0) {
++                    error_report("Failed to save encrypted cpu state");
++                    qemu_file_set_error(f, ret);
++                    return ret;
++                }
++            }
+         }
+     }
+ 
+diff --git a/target/i386/csv.h b/target/i386/csv.h
+index 74a54f9b..47741a0a 100644
+--- a/target/i386/csv.h
++++ b/target/i386/csv.h
+@@ -59,5 +59,7 @@ int csv_queue_outgoing_page(uint8_t *ptr, uint32_t sz, uint64_t addr);
+ int csv_save_queued_outgoing_pages(QEMUFile *f, uint64_t *bytes_sent);
+ int csv_queue_incoming_page(QEMUFile *f, uint8_t *ptr);
+ int csv_load_queued_incoming_pages(QEMUFile *f);
++int csv_save_outgoing_cpu_state(QEMUFile *f, uint64_t *bytes_sent);
++int csv_load_incoming_cpu_state(QEMUFile *f);
+ 
+ #endif
+diff --git a/target/i386/sev.c b/target/i386/sev.c
+index 8e5da510..52693ae8 100644
+--- a/target/i386/sev.c
++++ b/target/i386/sev.c
+@@ -90,6 +90,10 @@ struct SevGuestState {
+     gchar *send_packet_hdr;
+     size_t send_packet_hdr_len;
+ 
++    /* needed by live migration of HYGON CSV2 guest */
++    gchar *send_vmsa_packet_hdr;
++    size_t send_vmsa_packet_hdr_len;
++
+     uint32_t reset_cs;
+     uint32_t reset_ip;
+     bool reset_data_valid;
+@@ -183,6 +187,9 @@ static const char *const sev_fw_errlist[] = {
+ #define SHARED_REGION_LIST_CONT     0x1
+ #define SHARED_REGION_LIST_END      0x2
+ 
++#define ENCRYPTED_CPU_STATE_CONT    0x1
++#define ENCRYPTED_CPU_STATE_END     0x2
++
+ static struct ConfidentialGuestMemoryEncryptionOps sev_memory_encryption_ops = {
+     .save_setup = sev_save_setup,
+     .save_outgoing_page = sev_save_outgoing_page,
+@@ -194,6 +201,8 @@ static struct ConfidentialGuestMemoryEncryptionOps sev_memory_encryption_ops = {
+     .save_queued_outgoing_pages = csv_save_queued_outgoing_pages,
+     .queue_incoming_page = csv_queue_incoming_page,
+     .load_queued_incoming_pages = csv_load_queued_incoming_pages,
++    .save_outgoing_cpu_state = csv_save_outgoing_cpu_state,
++    .load_incoming_cpu_state = csv_load_incoming_cpu_state,
+ };
+ 
+ static int
+@@ -1047,6 +1056,9 @@ sev_send_finish(void)
+     }
+ 
+     g_free(sev_guest->send_packet_hdr);
++    if (sev_es_enabled() && is_hygon_cpu()) {
++        g_free(sev_guest->send_vmsa_packet_hdr);
++    }
+     sev_set_guest_state(sev_guest, SEV_STATE_RUNNING);
+ }
+ 
+@@ -2237,6 +2249,195 @@ int csv_load_queued_incoming_pages(QEMUFile *f)
+     return csv_receive_update_data_batch(s);
+ }
+ 
++static int
++sev_send_vmsa_get_packet_len(int *fw_err)
++{
++    int ret;
++    struct kvm_sev_send_update_vmsa update = { 0, };
++
++    ret = sev_ioctl(sev_guest->sev_fd, KVM_SEV_SEND_UPDATE_VMSA,
++                    &update, fw_err);
++    if (*fw_err != SEV_RET_INVALID_LEN) {
++        ret = 0;
++        error_report("%s: failed to get session length ret=%d fw_error=%d '%s'",
++                     __func__, ret, *fw_err, fw_error_to_str(*fw_err));
++        goto err;
++    }
++
++    ret = update.hdr_len;
++
++err:
++    return ret;
++}
++
++static int
++sev_send_update_vmsa(SevGuestState *s, QEMUFile *f, uint32_t cpu_id,
++                     uint32_t cpu_index, uint32_t size, uint64_t *bytes_sent)
++{
++    int ret, fw_error;
++    guchar *trans = NULL;
++    struct kvm_sev_send_update_vmsa update = {};
++
++    /*
++     * If this is first call then query the packet header bytes and allocate
++     * the packet buffer.
++     */
++    if (!s->send_vmsa_packet_hdr) {
++        s->send_vmsa_packet_hdr_len = sev_send_vmsa_get_packet_len(&fw_error);
++        if (s->send_vmsa_packet_hdr_len < 1) {
++            error_report("%s: SEND_UPDATE_VMSA fw_error=%d '%s'",
++                         __func__, fw_error, fw_error_to_str(fw_error));
++            return 1;
++        }
++
++        s->send_vmsa_packet_hdr = g_new(gchar, s->send_vmsa_packet_hdr_len);
++    }
++
++    /* allocate transport buffer */
++    trans = g_new(guchar, size);
++
++    update.vcpu_id = cpu_id;
++    update.hdr_uaddr = (uintptr_t)s->send_vmsa_packet_hdr;
++    update.hdr_len = s->send_vmsa_packet_hdr_len;
++    update.trans_uaddr = (uintptr_t)trans;
++    update.trans_len = size;
++
++    trace_kvm_sev_send_update_vmsa(cpu_id, cpu_index, trans, size);
++
++    ret = sev_ioctl(s->sev_fd, KVM_SEV_SEND_UPDATE_VMSA, &update, &fw_error);
++    if (ret) {
++        error_report("%s: SEND_UPDATE_VMSA ret=%d fw_error=%d '%s'",
++                     __func__, ret, fw_error, fw_error_to_str(fw_error));
++        goto err;
++    }
++
++    /*
++     * Migration of vCPU's VMState according to the instance_id
++     * (i.e. CPUState.cpu_index)
++     */
++    qemu_put_be32(f, sizeof(uint32_t));
++    qemu_put_buffer(f, (uint8_t *)&cpu_index, sizeof(uint32_t));
++    *bytes_sent += 4 + sizeof(uint32_t);
++
++    qemu_put_be32(f, update.hdr_len);
++    qemu_put_buffer(f, (uint8_t *)update.hdr_uaddr, update.hdr_len);
++    *bytes_sent += 4 + update.hdr_len;
++
++    qemu_put_be32(f, update.trans_len);
++    qemu_put_buffer(f, (uint8_t *)update.trans_uaddr, update.trans_len);
++    *bytes_sent += 4 + update.trans_len;
++
++err:
++    g_free(trans);
++    return ret;
++}
++
++int csv_save_outgoing_cpu_state(QEMUFile *f, uint64_t *bytes_sent)
++{
++    SevGuestState *s = sev_guest;
++    CPUState *cpu;
++    int ret = 0;
++
++    /* Only support migrate VMSAs for HYGON CSV2 guest */
++    if (!sev_es_enabled() || !is_hygon_cpu()) {
++        return 0;
++    }
++
++    CPU_FOREACH(cpu) {
++        qemu_put_be32(f, ENCRYPTED_CPU_STATE_CONT);
++        *bytes_sent += 4;
++        ret = sev_send_update_vmsa(s, f, kvm_arch_vcpu_id(cpu),
++                                   cpu->cpu_index, TARGET_PAGE_SIZE, bytes_sent);
++        if (ret) {
++            goto err;
++        }
++    }
++
++    qemu_put_be32(f, ENCRYPTED_CPU_STATE_END);
++    *bytes_sent += 4;
++
++err:
++    return ret;
++}
++
++static int sev_receive_update_vmsa(QEMUFile *f)
++{
++    int ret = 1, fw_error = 0;
++    CPUState *cpu;
++    uint32_t cpu_index, cpu_id = 0;
++    gchar *hdr = NULL, *trans = NULL;
++    struct kvm_sev_receive_update_vmsa update = {};
++
++    /* get cpu index buffer */
++    assert(qemu_get_be32(f) == sizeof(uint32_t));
++    qemu_get_buffer(f, (uint8_t *)&cpu_index, sizeof(uint32_t));
++
++    CPU_FOREACH(cpu) {
++        if (cpu->cpu_index == cpu_index) {
++            cpu_id = kvm_arch_vcpu_id(cpu);
++            break;
++        }
++    }
++    update.vcpu_id = cpu_id;
++
++    /* get packet header */
++    update.hdr_len = qemu_get_be32(f);
++    if (!check_blob_length(update.hdr_len)) {
++        return 1;
++    }
++
++    hdr = g_new(gchar, update.hdr_len);
++    qemu_get_buffer(f, (uint8_t *)hdr, update.hdr_len);
++    update.hdr_uaddr = (uintptr_t)hdr;
++
++    /* get transport buffer */
++    update.trans_len = qemu_get_be32(f);
++    if (!check_blob_length(update.trans_len)) {
++        goto err;
++    }
++
++    trans = g_new(gchar, update.trans_len);
++    update.trans_uaddr = (uintptr_t)trans;
++    qemu_get_buffer(f, (uint8_t *)update.trans_uaddr, update.trans_len);
++
++    trace_kvm_sev_receive_update_vmsa(cpu_id, cpu_index,
++                trans, update.trans_len, hdr, update.hdr_len);
++
++    ret = sev_ioctl(sev_guest->sev_fd, KVM_SEV_RECEIVE_UPDATE_VMSA,
++                    &update, &fw_error);
++    if (ret) {
++        error_report("Error RECEIVE_UPDATE_VMSA ret=%d fw_error=%d '%s'",
++                     ret, fw_error, fw_error_to_str(fw_error));
++    }
++
++err:
++    g_free(trans);
++    g_free(hdr);
++    return ret;
++}
++
++int csv_load_incoming_cpu_state(QEMUFile *f)
++{
++    int status, ret = 0;
++
++    /* Only support migrate VMSAs for HYGON CSV2 guest */
++    if (!sev_es_enabled() || !is_hygon_cpu()) {
++        return 0;
++    }
++
++    status = qemu_get_be32(f);
++    while (status == ENCRYPTED_CPU_STATE_CONT) {
++        ret = sev_receive_update_vmsa(f);
++        if (ret) {
++            break;
++        }
++
++        status = qemu_get_be32(f);
++    }
++
++    return ret;
++}
++
+ static const QemuUUID sev_hash_table_header_guid = {
+     .data = UUID_LE(0x9438d606, 0x4f22, 0x4cc9, 0xb4, 0x79, 0xa7, 0x93,
+                     0xd4, 0x11, 0xfd, 0x21)
+diff --git a/target/i386/sev.h b/target/i386/sev.h
+index f7886116..209c92fd 100644
+--- a/target/i386/sev.h
++++ b/target/i386/sev.h
+@@ -43,6 +43,7 @@ typedef struct SevKernelLoaderContext {
+ 
+ #define RAM_SAVE_ENCRYPTED_PAGE_BATCH     0x4
+ #define RAM_SAVE_ENCRYPTED_PAGE_BATCH_END 0x5
++#define RAM_SAVE_ENCRYPTED_CPU_STATE      0x6
+ 
+ #ifdef CONFIG_SEV
+ bool sev_enabled(void);
+diff --git a/target/i386/trace-events b/target/i386/trace-events
+index 475de65a..87b765c7 100644
+--- a/target/i386/trace-events
++++ b/target/i386/trace-events
+@@ -17,3 +17,5 @@ kvm_sev_send_finish(void) ""
+ kvm_sev_receive_start(int policy, void *session, void *pdh) "policy 0x%x session %p pdh %p"
+ kvm_sev_receive_update_data(void *src, void *dst, int len, void *hdr, int hdr_len) "guest %p trans %p len %d hdr %p hdr_len %d"
+ kvm_sev_receive_finish(void) ""
++kvm_sev_send_update_vmsa(uint32_t cpu_id, uint32_t cpu_index, void *dst, int len) "cpu_id %d cpu_index %d trans %p len %d"
++kvm_sev_receive_update_vmsa(uint32_t cpu_id, uint32_t cpu_index, void *src, int len, void *hdr, int hdr_len) "cpu_id %d cpu_index %d trans %p len %d hdr %p hdr_len %d"
+-- 
+2.25.1
+

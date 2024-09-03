@@ -1,0 +1,140 @@
+From c4360af78c017451fb9ac498e7870386d1263988 Mon Sep 17 00:00:00 2001
+From: hanliyang <hanliyang@hygon.cn>
+Date: Mon, 13 Nov 2023 21:55:33 +0000
+Subject: [PATCH 18/28] target/i386: csv: Read cert chain from file when
+ prepared for CSV live migration
+
+The cert chain is too long when encoded with base64, use the filename
+of cert chain instead of the encoded string when prepared for CSV live
+migration.
+
+[ Fix conflicts. ]
+Signed-off-by: hanliyang <hanliyang@hygon.cn>
+---
+ qapi/migration.json | 24 +++++++++++++++---------
+ target/i386/sev.c   | 30 ++++++++++++++++++++++++++----
+ 2 files changed, 41 insertions(+), 13 deletions(-)
+
+diff --git a/qapi/migration.json b/qapi/migration.json
+index d8a5da8c..de21b0e9 100644
+--- a/qapi/migration.json
++++ b/qapi/migration.json
+@@ -874,14 +874,16 @@
+ # @mode: Migration mode. See description in @MigMode. Default is 'normal'.
+ #        (Since 8.2)
+ #
+-# @sev-pdh: The target host platform diffie-hellman key encoded in base64
++# @sev-pdh: The target host platform diffie-hellman key encoded in base64, or
++#           pdh filename for hygon
+ #           (Since 8.2)
+ #
+-# @sev-plat-cert: The target host platform certificate chain encoded in base64
++# @sev-plat-cert: The target host platform certificate chain encoded in base64,
++#                 or plat cert filename for hygon
+ #                 (Since 8.2)
+ #
+ # @sev-amd-cert: AMD certificate chain which include ASK and OCA encoded in
+-#                base64 (Since 8.2)
++#                base64, or vendor cert filename for hygon (Since 8.2)
+ #
+ # Features:
+ #
+@@ -1072,14 +1074,16 @@
+ # @mode: Migration mode. See description in @MigMode. Default is 'normal'.
+ #        (Since 8.2)
+ #
+-# @sev-pdh: The target host platform diffie-hellman key encoded in base64
++# @sev-pdh: The target host platform diffie-hellman key encoded in base64, or
++#           pdh filename for hygon
+ #           (Since 8.2)
+ #
+-# @sev-plat-cert: The target host platform certificate chain encoded in base64
++# @sev-plat-cert: The target host platform certificate chain encoded in base64,
++#                 or plat cert filename for hygon
+ #                 (Since 8.2)
+ #
+ # @sev-amd-cert: AMD certificate chain which include ASK and OCA encoded in
+-#                base64 (Since 8.2)
++#                base64, or vendor cert filename for hygon (Since 8.2)
+ #
+ # Features:
+ #
+@@ -1313,14 +1317,16 @@
+ # @mode: Migration mode. See description in @MigMode. Default is 'normal'.
+ #        (Since 8.2)
+ #
+-# @sev-pdh: The target host platform diffie-hellman key encoded in base64
++# @sev-pdh: The target host platform diffie-hellman key encoded in base64, or
++#           pdh filename for hygon
+ #           (Since 8.2)
+ #
+-# @sev-plat-cert: The target host platform certificate chain encoded in base64
++# @sev-plat-cert: The target host platform certificate chain encoded in base64,
++#                 or plat cert filename for hygon
+ #                 (Since 8.2)
+ #
+ # @sev-amd-cert: AMD certificate chain which include ASK and OCA encoded in
+-#                base64 (Since 8.2)
++#                base64, or vendor cert filename for hygon (Since 8.2)
+ #
+ # Features:
+ #
+diff --git a/target/i386/sev.c b/target/i386/sev.c
+index 594f034e..ab7893fc 100644
+--- a/target/i386/sev.c
++++ b/target/i386/sev.c
+@@ -27,6 +27,7 @@
+ #include "crypto/hash.h"
+ #include "sysemu/kvm.h"
+ #include "sev.h"
++#include "csv.h"
+ #include "sysemu/sysemu.h"
+ #include "sysemu/runstate.h"
+ #include "trace.h"
+@@ -979,18 +980,39 @@ int sev_save_setup(const char *pdh, const char *plat_cert,
+ {
+     SevGuestState *s = sev_guest;
+ 
+-    s->remote_pdh = g_base64_decode(pdh, &s->remote_pdh_len);
++    if (is_hygon_cpu()) {
++        if (sev_read_file_base64(pdh, &s->remote_pdh,
++                                 &s->remote_pdh_len) < 0) {
++            goto error;
++        }
++    } else {
++        s->remote_pdh = g_base64_decode(pdh, &s->remote_pdh_len);
++    }
+     if (!check_blob_length(s->remote_pdh_len)) {
+         goto error;
+     }
+ 
+-    s->remote_plat_cert = g_base64_decode(plat_cert,
+-                                          &s->remote_plat_cert_len);
++    if (is_hygon_cpu()) {
++        if (sev_read_file_base64(plat_cert, &s->remote_plat_cert,
++                                 &s->remote_plat_cert_len) < 0) {
++            goto error;
++        }
++    } else {
++        s->remote_plat_cert = g_base64_decode(plat_cert,
++                                              &s->remote_plat_cert_len);
++    }
+     if (!check_blob_length(s->remote_plat_cert_len)) {
+         goto error;
+     }
+ 
+-    s->amd_cert = g_base64_decode(amd_cert, &s->amd_cert_len);
++    if (is_hygon_cpu()) {
++        if (sev_read_file_base64(amd_cert, &s->amd_cert,
++                                 &s->amd_cert_len) < 0) {
++            goto error;
++        }
++    } else {
++        s->amd_cert = g_base64_decode(amd_cert, &s->amd_cert_len);
++    }
+     if (!check_blob_length(s->amd_cert_len)) {
+         goto error;
+     }
+-- 
+2.25.1
+

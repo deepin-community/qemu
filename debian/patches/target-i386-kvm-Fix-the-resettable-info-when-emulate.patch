@@ -1,0 +1,179 @@
+From 278a0b275ff10fde831413b26cdf819fb178b689 Mon Sep 17 00:00:00 2001
+From: hanliyang <hanliyang@hygon.cn>
+Date: Sun, 19 Jun 2022 16:49:45 +0800
+Subject: [PATCH 27/28] target/i386/kvm: Fix the resettable info when emulate
+ Hygon CSV2 guest
+
+SEV-ES guest will be terminated by QEMU when receive reboot request.
+In order to support reboot for CSV2 guest, report resettable in
+kvm_arch_cpu_check_are_resettable(). But the CSV2 guest is still not
+resettable if it was migrated to target machine.
+
+Signed-off-by: hanliyang <hanliyang@hygon.cn>
+---
+ target/i386/csv-sysemu-stub.c | 16 ++++++++++++++++
+ target/i386/csv.c             | 20 ++++++++++++++++++++
+ target/i386/csv.h             |  2 ++
+ target/i386/kvm/csv-stub.c    | 17 +++++++++++++++++
+ target/i386/kvm/kvm.c         |  4 ++++
+ target/i386/kvm/meson.build   |  1 +
+ target/i386/meson.build       |  1 +
+ target/i386/sev.c             |  9 +++++++++
+ 8 files changed, 70 insertions(+)
+ create mode 100644 target/i386/csv-sysemu-stub.c
+ create mode 100644 target/i386/csv.c
+ create mode 100644 target/i386/kvm/csv-stub.c
+
+diff --git a/target/i386/csv-sysemu-stub.c b/target/i386/csv-sysemu-stub.c
+new file mode 100644
+index 00000000..5874e4cc
+--- /dev/null
++++ b/target/i386/csv-sysemu-stub.c
+@@ -0,0 +1,16 @@
++/*
++ * QEMU CSV system stub
++ *
++ * Copyright: Hygon Info Technologies Ltd. 2022
++ *
++ * Author:
++ *      Jiang Xin <jiangxin@hygon.cn>
++ *
++ * This work is licensed under the terms of the GNU GPL, version 2 or later.
++ * See the COPYING file in the top-level directory.
++ *
++ */
++
++#include "qemu/osdep.h"
++#include "sev.h"
++#include "csv.h"
+diff --git a/target/i386/csv.c b/target/i386/csv.c
+new file mode 100644
+index 00000000..88fb05ac
+--- /dev/null
++++ b/target/i386/csv.c
+@@ -0,0 +1,20 @@
++/*
++ * QEMU CSV support
++ *
++ * Copyright: Hygon Info Technologies Ltd. 2022
++ *
++ * Author:
++ *      Jiang Xin <jiangxin@hygon.cn>
++ *
++ * This work is licensed under the terms of the GNU GPL, version 2 or later.
++ * See the COPYING file in the top-level directory.
++ *
++ */
++
++#include "qemu/osdep.h"
++
++#include "cpu.h"
++#include "sev.h"
++#include "csv.h"
++
++bool csv_kvm_cpu_reset_inhibit;
+diff --git a/target/i386/csv.h b/target/i386/csv.h
+index 47741a0a..ac4bb5be 100644
+--- a/target/i386/csv.h
++++ b/target/i386/csv.h
+@@ -46,6 +46,8 @@ static bool __attribute__((unused)) is_hygon_cpu(void)
+ 
+ #define CSV_OUTGOING_PAGE_WINDOW_SIZE     (4094 * TARGET_PAGE_SIZE)
+ 
++extern bool csv_kvm_cpu_reset_inhibit;
++
+ typedef struct CsvBatchCmdList CsvBatchCmdList;
+ typedef void (*CsvDestroyCmdNodeFn) (void *data);
+ 
+diff --git a/target/i386/kvm/csv-stub.c b/target/i386/kvm/csv-stub.c
+new file mode 100644
+index 00000000..4d1376f2
+--- /dev/null
++++ b/target/i386/kvm/csv-stub.c
+@@ -0,0 +1,17 @@
++/*
++ * QEMU CSV stub
++ *
++ * Copyright Hygon Info Technologies Ltd. 2024
++ *
++ * Authors:
++ *      Han Liyang <hanliyang@hygon.cn>
++ *
++ * This work is licensed under the terms of the GNU GPL, version 2 or later.
++ * See the COPYING file in the top-level directory.
++ *
++ */
++
++#include "qemu/osdep.h"
++#include "csv.h"
++
++bool csv_kvm_cpu_reset_inhibit;
+diff --git a/target/i386/kvm/kvm.c b/target/i386/kvm/kvm.c
+index a99fc46b..81a96321 100644
+--- a/target/i386/kvm/kvm.c
++++ b/target/i386/kvm/kvm.c
+@@ -32,6 +32,7 @@
+ #include "sysemu/runstate.h"
+ #include "kvm_i386.h"
+ #include "sev.h"
++#include "csv.h"
+ #include "xen-emu.h"
+ #include "hyperv.h"
+ #include "hyperv-proto.h"
+@@ -5709,6 +5710,9 @@ bool kvm_has_waitpkg(void)
+ 
+ bool kvm_arch_cpu_check_are_resettable(void)
+ {
++    if (is_hygon_cpu())
++        return !csv_kvm_cpu_reset_inhibit;
++
+     return !sev_es_enabled();
+ }
+ 
+diff --git a/target/i386/kvm/meson.build b/target/i386/kvm/meson.build
+index 84d9143e..3c3f8cf9 100644
+--- a/target/i386/kvm/meson.build
++++ b/target/i386/kvm/meson.build
+@@ -8,6 +8,7 @@ i386_kvm_ss.add(files(
+ i386_kvm_ss.add(when: 'CONFIG_XEN_EMU', if_true: files('xen-emu.c'))
+ 
+ i386_kvm_ss.add(when: 'CONFIG_SEV', if_false: files('sev-stub.c'))
++i386_kvm_ss.add(when: 'CONFIG_CSV', if_false: files('csv-stub.c'))
+ 
+ i386_system_ss.add(when: 'CONFIG_HYPERV', if_true: files('hyperv.c'), if_false: files('hyperv-stub.c'))
+ 
+diff --git a/target/i386/meson.build b/target/i386/meson.build
+index 7c74bfa8..594a0a6a 100644
+--- a/target/i386/meson.build
++++ b/target/i386/meson.build
+@@ -21,6 +21,7 @@ i386_system_ss.add(files(
+   'cpu-sysemu.c',
+ ))
+ i386_system_ss.add(when: 'CONFIG_SEV', if_true: files('sev.c'), if_false: files('sev-sysemu-stub.c'))
++i386_system_ss.add(when: 'CONFIG_CSV', if_true: files('csv.c'), if_false: files('csv-sysemu-stub.c'))
+ 
+ i386_user_ss = ss.source_set()
+ 
+diff --git a/target/i386/sev.c b/target/i386/sev.c
+index 71d317e8..3406861f 100644
+--- a/target/i386/sev.c
++++ b/target/i386/sev.c
+@@ -1190,6 +1190,15 @@ int sev_kvm_init(ConfidentialGuestSupport *cgs, Error **errp)
+             error_setg(errp, "%s: failed to create encryption context", __func__);
+             goto err;
+         }
++    } else {
++        /*
++         * The CSV2 guest is not resettable after migrated to target machine,
++         * set csv_kvm_cpu_reset_inhibit to true to indicate the CSV2 guest is
++         * not resettable.
++         */
++        if (is_hygon_cpu() && sev_es_enabled()) {
++            csv_kvm_cpu_reset_inhibit = true;
++        }
+     }
+ 
+     ram_block_notifier_add(&sev_ram_notifier);
+-- 
+2.25.1
+

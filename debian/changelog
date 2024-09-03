@@ -1,3 +1,9 @@
+qemu (1:8.2.0+ds-1deepin3) unstable; urgency=medium
+
+  * Support live migration of Hygon CSV/CSV2 VM, support reboot CSV/CSV2 VM
+
+ -- hanliyang <hanliyang@hygon.cn> Tue, 3 Sep 2024 11:27:30 2024 +0800
+
 qemu (1:8.2.0+ds-1deepin2) unstable; urgency=medium
 
   * Support hygon tkm key isolation.
