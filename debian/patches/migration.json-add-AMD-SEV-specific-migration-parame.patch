@@ -1,0 +1,268 @@
+From bffa4c272de4e94001316e238cb93907f8ee8291 Mon Sep 17 00:00:00 2001
+From: Brijesh Singh <brijesh.singh@amd.com>
+Date: Tue, 27 Jul 2021 11:27:00 +0000
+Subject: [PATCH 02/28] migration.json: add AMD SEV specific migration
+ parameters
+
+cherry-picked from https://github.com/AMDESE/qemu/commit/d6a23bde6b6e.
+
+AMD SEV migration flow requires that target machine's public Diffie-Hellman
+key (PDH) and certificate chain must be passed before initiating the guest
+migration. User can use QMP 'migrate-set-parameters' to pass the certificate
+chain. The certificate chain will be used while creating the outgoing
+encryption context.
+
+[ hly: Fix 'Since 4.2' to 'Since 8.2'. ]
+
+Signed-off-by: Brijesh Singh <brijesh.singh@amd.com>
+Signed-off-by: Ashish Kalra <ashish.kalra@amd.com>
+[ Fix conflicts and qapi errors. ]
+Signed-off-by: hanliyang <hanliyang@hygon.cn>
+---
+ migration/migration-hmp-cmds.c | 28 ++++++++++++++++
+ migration/options.c            | 60 ++++++++++++++++++++++++++++++++++
+ qapi/migration.json            | 41 +++++++++++++++++++++--
+ 3 files changed, 126 insertions(+), 3 deletions(-)
+
+diff --git a/migration/migration-hmp-cmds.c b/migration/migration-hmp-cmds.c
+index 86ae8321..7e83d908 100644
+--- a/migration/migration-hmp-cmds.c
++++ b/migration/migration-hmp-cmds.c
+@@ -392,6 +392,19 @@ void hmp_info_migrate_parameters(Monitor *mon, const QDict *qdict)
+         monitor_printf(mon, "%s: %s\n",
+             MigrationParameter_str(MIGRATION_PARAMETER_MODE),
+             qapi_enum_lookup(&MigMode_lookup, params->mode));
++
++        assert(params->sev_pdh);
++        monitor_printf(mon, "%s: %s\n",
++            MigrationParameter_str(MIGRATION_PARAMETER_SEV_PDH),
++            params->sev_pdh);
++        assert(params->sev_plat_cert);
++        monitor_printf(mon, "%s: %s\n",
++            MigrationParameter_str(MIGRATION_PARAMETER_SEV_PLAT_CERT),
++            params->sev_plat_cert);
++        assert(params->sev_amd_cert);
++        monitor_printf(mon, "%s: %s\n",
++            MigrationParameter_str(MIGRATION_PARAMETER_SEV_AMD_CERT),
++            params->sev_amd_cert);
+     }
+ 
+     qapi_free_MigrationParameters(params);
+@@ -679,6 +692,21 @@ void hmp_migrate_set_parameter(Monitor *mon, const QDict *qdict)
+         p->has_mode = true;
+         visit_type_MigMode(v, param, &p->mode, &err);
+         break;
++    case MIGRATION_PARAMETER_SEV_PDH:
++        p->sev_pdh = g_new0(StrOrNull, 1);
++        p->sev_pdh->type = QTYPE_QSTRING;
++        visit_type_str(v, param, &p->sev_pdh->u.s, &err);
++        break;
++    case MIGRATION_PARAMETER_SEV_PLAT_CERT:
++        p->sev_plat_cert = g_new0(StrOrNull, 1);
++        p->sev_plat_cert->type = QTYPE_QSTRING;
++        visit_type_str(v, param, &p->sev_plat_cert->u.s, &err);
++        break;
++    case MIGRATION_PARAMETER_SEV_AMD_CERT:
++        p->sev_amd_cert = g_new0(StrOrNull, 1);
++        p->sev_amd_cert->type = QTYPE_QSTRING;
++        visit_type_str(v, param, &p->sev_amd_cert->u.s, &err);
++        break;
+     default:
+         assert(0);
+     }
+diff --git a/migration/options.c b/migration/options.c
+index 8d8ec73a..70f6beb8 100644
+--- a/migration/options.c
++++ b/migration/options.c
+@@ -179,6 +179,9 @@ Property migration_properties[] = {
+     DEFINE_PROP_MIG_MODE("mode", MigrationState,
+                       parameters.mode,
+                       MIG_MODE_NORMAL),
++    DEFINE_PROP_STRING("sev-pdh", MigrationState, parameters.sev_pdh),
++    DEFINE_PROP_STRING("sev-plat-cert", MigrationState, parameters.sev_plat_cert),
++    DEFINE_PROP_STRING("sev-amd-cert", MigrationState, parameters.sev_amd_cert),
+ 
+     /* Migration capabilities */
+     DEFINE_PROP_MIG_CAP("x-xbzrle", MIGRATION_CAPABILITY_XBZRLE),
+@@ -997,6 +1000,9 @@ MigrationParameters *qmp_query_migrate_parameters(Error **errp)
+     params->announce_rounds = s->parameters.announce_rounds;
+     params->has_announce_step = true;
+     params->announce_step = s->parameters.announce_step;
++    params->sev_pdh = g_strdup(s->parameters.sev_pdh);
++    params->sev_plat_cert = g_strdup(s->parameters.sev_plat_cert);
++    params->sev_amd_cert = g_strdup(s->parameters.sev_amd_cert);
+ 
+     if (s->parameters.has_block_bitmap_mapping) {
+         params->has_block_bitmap_mapping = true;
+@@ -1047,6 +1053,10 @@ void migrate_params_init(MigrationParameters *params)
+     params->has_x_vcpu_dirty_limit_period = true;
+     params->has_vcpu_dirty_limit = true;
+     params->has_mode = true;
++
++    params->sev_pdh = g_strdup("");
++    params->sev_plat_cert = g_strdup("");
++    params->sev_amd_cert = g_strdup("");
+ }
+ 
+ /*
+@@ -1348,6 +1358,19 @@ static void migrate_params_test_apply(MigrateSetParameters *params,
+     if (params->has_mode) {
+         dest->mode = params->mode;
+     }
++
++    if (params->sev_pdh) {
++        assert(params->sev_pdh->type == QTYPE_QSTRING);
++        dest->sev_pdh = params->sev_pdh->u.s;
++    }
++    if (params->sev_plat_cert) {
++        assert(params->sev_plat_cert->type == QTYPE_QSTRING);
++        dest->sev_plat_cert = params->sev_plat_cert->u.s;
++    }
++    if (params->sev_amd_cert) {
++        assert(params->sev_amd_cert->type == QTYPE_QSTRING);
++        dest->sev_amd_cert = params->sev_amd_cert->u.s;
++    }
+ }
+ 
+ static void migrate_params_apply(MigrateSetParameters *params, Error **errp)
+@@ -1492,6 +1515,22 @@ static void migrate_params_apply(MigrateSetParameters *params, Error **errp)
+     if (params->has_mode) {
+         s->parameters.mode = params->mode;
+     }
++
++    if (params->sev_pdh) {
++        g_free(s->parameters.sev_pdh);
++        assert(params->sev_pdh->type == QTYPE_QSTRING);
++        s->parameters.sev_pdh = g_strdup(params->sev_pdh->u.s);
++    }
++    if (params->sev_plat_cert) {
++        g_free(s->parameters.sev_plat_cert);
++        assert(params->sev_plat_cert->type == QTYPE_QSTRING);
++        s->parameters.sev_plat_cert = g_strdup(params->sev_plat_cert->u.s);
++    }
++    if (params->sev_amd_cert) {
++        g_free(s->parameters.sev_amd_cert);
++        assert(params->sev_amd_cert->type == QTYPE_QSTRING);
++        s->parameters.sev_amd_cert = g_strdup(params->sev_amd_cert->u.s);
++    }
+ }
+ 
+ void qmp_migrate_set_parameters(MigrateSetParameters *params, Error **errp)
+@@ -1517,6 +1556,27 @@ void qmp_migrate_set_parameters(MigrateSetParameters *params, Error **errp)
+         params->tls_authz->type = QTYPE_QSTRING;
+         params->tls_authz->u.s = strdup("");
+     }
++    /* TODO Rewrite "" to null instead */
++    if (params->sev_pdh
++        && params->sev_pdh->type == QTYPE_QNULL) {
++        qobject_unref(params->sev_pdh->u.n);
++        params->sev_pdh->type = QTYPE_QSTRING;
++        params->sev_pdh->u.s = strdup("");
++    }
++    /* TODO Rewrite "" to null instead */
++    if (params->sev_plat_cert
++        && params->sev_plat_cert->type == QTYPE_QNULL) {
++        qobject_unref(params->sev_plat_cert->u.n);
++        params->sev_plat_cert->type = QTYPE_QSTRING;
++        params->sev_plat_cert->u.s = strdup("");
++    }
++    /* TODO Rewrite "" to null instead */
++    if (params->sev_amd_cert
++        && params->sev_amd_cert->type == QTYPE_QNULL) {
++        qobject_unref(params->sev_amd_cert->u.n);
++        params->sev_amd_cert->type = QTYPE_QSTRING;
++        params->sev_amd_cert->u.s = strdup("");
++    }
+ 
+     migrate_params_test_apply(params, &tmp);
+ 
+diff --git a/qapi/migration.json b/qapi/migration.json
+index eb2f8835..d8a5da8c 100644
+--- a/qapi/migration.json
++++ b/qapi/migration.json
+@@ -874,6 +874,15 @@
+ # @mode: Migration mode. See description in @MigMode. Default is 'normal'.
+ #        (Since 8.2)
+ #
++# @sev-pdh: The target host platform diffie-hellman key encoded in base64
++#           (Since 8.2)
++#
++# @sev-plat-cert: The target host platform certificate chain encoded in base64
++#                 (Since 8.2)
++#
++# @sev-amd-cert: AMD certificate chain which include ASK and OCA encoded in
++#                base64 (Since 8.2)
++#
+ # Features:
+ #
+ # @deprecated: Member @block-incremental is deprecated.  Use
+@@ -907,7 +916,8 @@
+            'block-bitmap-mapping',
+            { 'name': 'x-vcpu-dirty-limit-period', 'features': ['unstable'] },
+            'vcpu-dirty-limit',
+-           'mode'] }
++           'mode',
++           'sev-pdh', 'sev-plat-cert', 'sev-amd-cert'] }
+ 
+ ##
+ # @MigrateSetParameters:
+@@ -1062,6 +1072,15 @@
+ # @mode: Migration mode. See description in @MigMode. Default is 'normal'.
+ #        (Since 8.2)
+ #
++# @sev-pdh: The target host platform diffie-hellman key encoded in base64
++#           (Since 8.2)
++#
++# @sev-plat-cert: The target host platform certificate chain encoded in base64
++#                 (Since 8.2)
++#
++# @sev-amd-cert: AMD certificate chain which include ASK and OCA encoded in
++#                base64 (Since 8.2)
++#
+ # Features:
+ #
+ # @deprecated: Member @block-incremental is deprecated.  Use
+@@ -1115,7 +1134,11 @@
+             '*x-vcpu-dirty-limit-period': { 'type': 'uint64',
+                                             'features': [ 'unstable' ] },
+             '*vcpu-dirty-limit': 'uint64',
+-            '*mode': 'MigMode'} }
++            '*mode': 'MigMode',
++            '*sev-pdh': 'StrOrNull',
++            '*sev-plat-cert': 'StrOrNull',
++            '*sev-amd-cert' : 'StrOrNull' } }
++
+ 
+ ##
+ # @migrate-set-parameters:
+@@ -1290,6 +1313,15 @@
+ # @mode: Migration mode. See description in @MigMode. Default is 'normal'.
+ #        (Since 8.2)
+ #
++# @sev-pdh: The target host platform diffie-hellman key encoded in base64
++#           (Since 8.2)
++#
++# @sev-plat-cert: The target host platform certificate chain encoded in base64
++#                 (Since 8.2)
++#
++# @sev-amd-cert: AMD certificate chain which include ASK and OCA encoded in
++#                base64 (Since 8.2)
++#
+ # Features:
+ #
+ # @deprecated: Member @block-incremental is deprecated.  Use
+@@ -1340,7 +1372,10 @@
+             '*x-vcpu-dirty-limit-period': { 'type': 'uint64',
+                                             'features': [ 'unstable' ] },
+             '*vcpu-dirty-limit': 'uint64',
+-            '*mode': 'MigMode'} }
++            '*mode': 'MigMode',
++            '*sev-pdh': 'str',
++            '*sev-plat-cert': 'str',
++            '*sev-amd-cert' : 'str'} }
+ 
+ ##
+ # @query-migrate-parameters:
+-- 
+2.25.1
+

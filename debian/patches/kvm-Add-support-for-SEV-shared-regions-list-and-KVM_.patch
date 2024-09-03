@@ -1,0 +1,315 @@
+From 1a04fd7eb6a03d88a8679fda7ff21dd9c05c5c1d Mon Sep 17 00:00:00 2001
+From: Ashish Kalra <ashish.kalra@amd.com>
+Date: Tue, 27 Jul 2021 15:05:49 +0000
+Subject: [PATCH 08/28] kvm: Add support for SEV shared regions list and
+ KVM_EXIT_HYPERCALL.
+
+cherry-picked from https://github.com/AMDESE/qemu/commit/fcbbd9b19ac.
+
+KVM_HC_MAP_GPA_RANGE hypercall is used by the SEV guest to notify a
+change in the page encryption status to the hypervisor. The hypercall
+should be invoked only when the encryption attribute is changed from
+encrypted -> decrypted and vice versa. By default all guest pages are
+considered encrypted.
+
+The hypercall exits to userspace with KVM_EXIT_HYPERCALL exit code,
+currently this is used only by SEV guests for guest page encryptiion
+status tracking. Add support to handle this exit and invoke SEV
+shared regions list handlers.
+
+Add support for SEV guest shared regions and implementation of the
+SEV shared regions list.
+
+Signed-off-by: Ashish Kalra <ashish.kalra@amd.com>
+[ Fix conflicts. ]
+Signed-off-by: hanliyang <hanliyang@hygon.cn>
+---
+ linux-headers/linux/kvm.h  |   3 ++
+ target/i386/kvm/kvm.c      |  48 +++++++++++++++++
+ target/i386/kvm/sev-stub.c |  11 ++++
+ target/i386/sev.c          | 106 +++++++++++++++++++++++++++++++++++++
+ target/i386/sev.h          |   3 ++
+ 5 files changed, 171 insertions(+)
+
+diff --git a/linux-headers/linux/kvm.h b/linux-headers/linux/kvm.h
+index 0d74ee99..4334a30e 100644
+--- a/linux-headers/linux/kvm.h
++++ b/linux-headers/linux/kvm.h
+@@ -338,6 +338,7 @@ struct kvm_run {
+ 		} mmio;
+ 		/* KVM_EXIT_HYPERCALL */
+ 		struct {
++#define KVM_HC_MAP_GPA_RANGE 12
+ 			__u64 nr;
+ 			__u64 args[6];
+ 			__u64 ret;
+@@ -1189,6 +1190,8 @@ struct kvm_ppc_resize_hpt {
+ #define KVM_CAP_ARM_EAGER_SPLIT_CHUNK_SIZE 228
+ #define KVM_CAP_ARM_SUPPORTED_BLOCK_SIZES 229
+ 
++#define KVM_EXIT_HYPERCALL_VALID_MASK (1 << KVM_HC_MAP_GPA_RANGE)
++
+ #ifdef KVM_CAP_IRQ_ROUTING
+ 
+ struct kvm_irq_routing_irqchip {
+diff --git a/target/i386/kvm/kvm.c b/target/i386/kvm/kvm.c
+index 4ce80555..6321f2ec 100644
+--- a/target/i386/kvm/kvm.c
++++ b/target/i386/kvm/kvm.c
+@@ -148,6 +148,7 @@ static int has_xcrs;
+ static int has_sregs2;
+ static int has_exception_payload;
+ static int has_triple_fault_event;
++static int has_map_gpa_range;
+ 
+ static bool has_msr_mcg_ext_ctl;
+ 
+@@ -2190,6 +2191,17 @@ int kvm_arch_init_vcpu(CPUState *cs)
+         c->eax = MAX(c->eax, KVM_CPUID_SIGNATURE | 0x10);
+     }
+ 
++    if (sev_enabled()) {
++        c = cpuid_find_entry(&cpuid_data.cpuid,
++                             KVM_CPUID_FEATURES | kvm_base, 0);
++        if (c) {
++            c->eax |= (1 << KVM_FEATURE_MIGRATION_CONTROL);
++            if (has_map_gpa_range) {
++                c->eax |= (1 << KVM_FEATURE_HC_MAP_GPA_RANGE);
++            }
++        }
++    }
++
+     cpuid_data.cpuid.nent = cpuid_i;
+ 
+     cpuid_data.cpuid.padding = 0;
+@@ -2583,6 +2595,17 @@ int kvm_arch_init(MachineState *ms, KVMState *s)
+ #endif
+     }
+ 
++    has_map_gpa_range = kvm_check_extension(s, KVM_CAP_EXIT_HYPERCALL);
++    if (has_map_gpa_range) {
++        ret = kvm_vm_enable_cap(s, KVM_CAP_EXIT_HYPERCALL, 0,
++                                KVM_EXIT_HYPERCALL_VALID_MASK);
++        if (ret < 0) {
++            error_report("kvm: Failed to enable MAP_GPA_RANGE cap: %s",
++                         strerror(-ret));
++            return ret;
++        }
++    }
++
+     ret = kvm_get_supported_msrs(s);
+     if (ret < 0) {
+         return ret;
+@@ -4935,6 +4958,28 @@ static int kvm_handle_tpr_access(X86CPU *cpu)
+     return 1;
+ }
+ 
++static int kvm_handle_exit_hypercall(X86CPU *cpu, struct kvm_run *run)
++{
++    /*
++     * Currently this exit is only used by SEV guests for
++     * guest page encryption status tracking.
++     */
++    if (run->hypercall.nr == KVM_HC_MAP_GPA_RANGE) {
++        unsigned long enc = run->hypercall.args[2];
++        unsigned long gpa = run->hypercall.args[0];
++        unsigned long npages = run->hypercall.args[1];
++        unsigned long gfn_start = gpa >> TARGET_PAGE_BITS;
++        unsigned long gfn_end = gfn_start + npages;
++
++        if (enc) {
++            sev_remove_shared_regions_list(gfn_start, gfn_end);
++         } else {
++            sev_add_shared_regions_list(gfn_start, gfn_end);
++         }
++    }
++    return 0;
++}
++
+ int kvm_arch_insert_sw_breakpoint(CPUState *cs, struct kvm_sw_breakpoint *bp)
+ {
+     static const uint8_t int3 = 0xcc;
+@@ -5358,6 +5403,9 @@ int kvm_arch_handle_exit(CPUState *cs, struct kvm_run *run)
+         ret = kvm_xen_handle_exit(cpu, &run->xen);
+         break;
+ #endif
++    case KVM_EXIT_HYPERCALL:
++        ret = kvm_handle_exit_hypercall(cpu, run);
++        break;
+     default:
+         fprintf(stderr, "KVM: unknown exit reason %d\n", run->exit_reason);
+         ret = -1;
+diff --git a/target/i386/kvm/sev-stub.c b/target/i386/kvm/sev-stub.c
+index 1be5341e..1282d242 100644
+--- a/target/i386/kvm/sev-stub.c
++++ b/target/i386/kvm/sev-stub.c
+@@ -19,3 +19,14 @@ int sev_kvm_init(ConfidentialGuestSupport *cgs, Error **errp)
+     /* If we get here, cgs must be some non-SEV thing */
+     return 0;
+ }
++
++int sev_remove_shared_regions_list(unsigned long gfn_start,
++                                   unsigned long gfn_end)
++{
++    return 0;
++}
++
++int sev_add_shared_regions_list(unsigned long gfn_start, unsigned long gfn_end)
++{
++    return 0;
++}
+diff --git a/target/i386/sev.c b/target/i386/sev.c
+index ee42edf4..bd00a28e 100644
+--- a/target/i386/sev.c
++++ b/target/i386/sev.c
+@@ -44,6 +44,11 @@
+ #define TYPE_SEV_GUEST "sev-guest"
+ OBJECT_DECLARE_SIMPLE_TYPE(SevGuestState, SEV_GUEST)
+ 
++struct shared_region {
++    unsigned long gfn_start, gfn_end;
++    QTAILQ_ENTRY(shared_region) list;
++};
++
+ 
+ /**
+  * SevGuestState:
+@@ -87,6 +92,8 @@ struct SevGuestState {
+     uint32_t reset_cs;
+     uint32_t reset_ip;
+     bool reset_data_valid;
++
++    QTAILQ_HEAD(, shared_region) shared_regions_list;
+ };
+ 
+ #define DEFAULT_GUEST_POLICY    0x1 /* disable debug */
+@@ -1136,6 +1143,7 @@ int sev_kvm_init(ConfidentialGuestSupport *cgs, Error **errp)
+     migration_add_notifier(&sev_migration_state, sev_migration_state_notifier);
+ 
+     cgs_class->memory_encryption_ops = &sev_memory_encryption_ops;
++    QTAILQ_INIT(&sev->shared_regions_list);
+ 
+     cgs->ready = true;
+ 
+@@ -1670,6 +1678,104 @@ int sev_load_incoming_page(QEMUFile *f, uint8_t *ptr)
+     return sev_receive_update_data(f, ptr);
+ }
+ 
++int sev_remove_shared_regions_list(unsigned long start, unsigned long end)
++{
++    SevGuestState *s = sev_guest;
++    struct shared_region *pos;
++
++    QTAILQ_FOREACH(pos, &s->shared_regions_list, list) {
++        unsigned long l, r;
++        unsigned long curr_gfn_end = pos->gfn_end;
++
++        /*
++         * Find if any intersection exists ?
++         * left bound for intersecting segment
++         */
++        l = MAX(start, pos->gfn_start);
++        /* right bound for intersecting segment */
++        r = MIN(end, pos->gfn_end);
++        if (l <= r) {
++            if (pos->gfn_start == l && pos->gfn_end == r) {
++                QTAILQ_REMOVE(&s->shared_regions_list, pos, list);
++            } else if (l == pos->gfn_start) {
++                pos->gfn_start = r;
++            } else if (r == pos->gfn_end) {
++                pos->gfn_end = l;
++            } else {
++                /* Do a de-merge -- split linked list nodes */
++                struct shared_region *shrd_region;
++
++                pos->gfn_end = l;
++                shrd_region = g_malloc0(sizeof(*shrd_region));
++                if (!shrd_region) {
++                    return 0;
++                }
++                shrd_region->gfn_start = r;
++                shrd_region->gfn_end = curr_gfn_end;
++                QTAILQ_INSERT_AFTER(&s->shared_regions_list, pos,
++                                    shrd_region, list);
++            }
++        }
++        if (end <= curr_gfn_end) {
++            break;
++        }
++    }
++    return 0;
++}
++
++int sev_add_shared_regions_list(unsigned long start, unsigned long end)
++{
++    struct shared_region *shrd_region;
++    struct shared_region *pos;
++    SevGuestState *s = sev_guest;
++
++    if (QTAILQ_EMPTY(&s->shared_regions_list)) {
++        shrd_region = g_malloc0(sizeof(*shrd_region));
++        if (!shrd_region) {
++            return -1;
++        }
++        shrd_region->gfn_start = start;
++        shrd_region->gfn_end = end;
++        QTAILQ_INSERT_TAIL(&s->shared_regions_list, shrd_region, list);
++        return 0;
++    }
++
++    /*
++     * shared regions list is a sorted list in ascending order
++     * of guest PA's and also merges consecutive range of guest PA's
++     */
++    QTAILQ_FOREACH(pos, &s->shared_regions_list, list) {
++        /* handle duplicate overlapping regions */
++        if (start >= pos->gfn_start && end <= pos->gfn_end) {
++            return 0;
++        }
++        if (pos->gfn_end < start) {
++            continue;
++        }
++        /* merge consecutive guest PA(s) -- forward merge */
++        if (pos->gfn_start <= start && pos->gfn_end >= start) {
++            pos->gfn_end = end;
++            return 0;
++        }
++        break;
++    }
++    /*
++     * Add a new node
++     */
++    shrd_region = g_malloc0(sizeof(*shrd_region));
++    if (!shrd_region) {
++        return -1;
++    }
++    shrd_region->gfn_start = start;
++    shrd_region->gfn_end = end;
++    if (pos) {
++        QTAILQ_INSERT_BEFORE(pos, shrd_region, list);
++    } else {
++        QTAILQ_INSERT_TAIL(&s->shared_regions_list, shrd_region, list);
++    }
++    return 1;
++}
++
+ static const QemuUUID sev_hash_table_header_guid = {
+     .data = UUID_LE(0x9438d606, 0x4f22, 0x4cc9, 0xb4, 0x79, 0xa7, 0x93,
+                     0xd4, 0x11, 0xfd, 0x21)
+diff --git a/target/i386/sev.h b/target/i386/sev.h
+index d94da295..acf69d4e 100644
+--- a/target/i386/sev.h
++++ b/target/i386/sev.h
+@@ -61,6 +61,9 @@ int sev_inject_launch_secret(const char *hdr, const char *secret,
+ 
+ int sev_es_save_reset_vector(void *flash_ptr, uint64_t flash_size);
+ void sev_es_set_reset_vector(CPUState *cpu);
++int sev_remove_shared_regions_list(unsigned long gfn_start,
++                                   unsigned long gfn_end);
++int sev_add_shared_regions_list(unsigned long gfn_start, unsigned long gfn_end);
+ 
+ int sev_kvm_init(ConfidentialGuestSupport *cgs, Error **errp);
+ 
+-- 
+2.25.1
+

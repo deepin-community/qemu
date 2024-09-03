@@ -1,0 +1,37 @@
+From 307f006a97fd32033d52f6cedf3c5a8628846c1e Mon Sep 17 00:00:00 2001
+From: fangbaoshun <fangbaoshun@hygon.cn>
+Date: Mon, 2 Aug 2021 14:49:45 +0800
+Subject: [PATCH 24/28] migration/ram: Accelerate the loading of CSV guest's
+ encrypted pages
+
+When memory encryption is enabled, the guest memory will be encrypted with
+the guest specific key. The patch introduces an accelerate solution which
+queued the pages into list and load them togather by COMMAND_BATCH.
+
+Signed-off-by: hanliyang <hanliyang@hygon.cn>
+---
+ migration/ram.c | 8 ++++++++
+ 1 file changed, 8 insertions(+)
+
+diff --git a/migration/ram.c b/migration/ram.c
+index be8dca32..c7245aa4 100644
+--- a/migration/ram.c
++++ b/migration/ram.c
+@@ -1295,6 +1295,14 @@ static int load_encrypted_data(QEMUFile *f, uint8_t *ptr)
+         return ops->load_incoming_page(f, ptr);
+     } else if (flag == RAM_SAVE_SHARED_REGIONS_LIST) {
+         return ops->load_incoming_shared_regions_list(f);
++    } else if (flag == RAM_SAVE_ENCRYPTED_PAGE_BATCH) {
++        return ops->queue_incoming_page(f, ptr);
++    } else if (flag == RAM_SAVE_ENCRYPTED_PAGE_BATCH_END) {
++        if (ops->queue_incoming_page(f, ptr)) {
++            error_report("Failed to queue incoming data");
++            return -EINVAL;
++        }
++        return ops->load_queued_incoming_pages(f);
+     } else {
+         error_report("unknown encrypted flag %x", flag);
+         return 1;
+-- 
+2.25.1
+

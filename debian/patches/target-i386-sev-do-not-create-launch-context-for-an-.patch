@@ -1,0 +1,49 @@
+From 0eb950102066d728e9e8e0af7b89eea2e7e3a8f0 Mon Sep 17 00:00:00 2001
+From: Brijesh Singh <brijesh.singh@amd.com>
+Date: Tue, 27 Jul 2021 12:16:09 +0000
+Subject: [PATCH 05/28] target/i386: sev: do not create launch context for an
+ incoming guest
+
+cherry-picked from https://github.com/AMDESE/qemu/commit/b85694233495.
+
+The LAUNCH_START is used for creating an encryption context to encrypt
+newly created guest, for an incoming guest the RECEIVE_START should be
+used.
+
+Reviewed-by: Dr. David Alan Gilbert <dgilbert@redhat.com>
+Signed-off-by: Brijesh Singh <brijesh.singh@amd.com>
+Signed-off-by: Ashish Kalra <ashish.kalra@amd.com>
+[ Fix conflict. ]
+Signed-off-by: hanliyang <hanliyang@hygon.cn>
+---
+ target/i386/sev.c | 14 ++++++++++----
+ 1 file changed, 10 insertions(+), 4 deletions(-)
+
+diff --git a/target/i386/sev.c b/target/i386/sev.c
+index 3ab02f4c..b56cbdb6 100644
+--- a/target/i386/sev.c
++++ b/target/i386/sev.c
+@@ -1060,10 +1060,16 @@ int sev_kvm_init(ConfidentialGuestSupport *cgs, Error **errp)
+         goto err;
+     }
+ 
+-    ret = sev_launch_start(sev);
+-    if (ret) {
+-        error_setg(errp, "%s: failed to create encryption context", __func__);
+-        goto err;
++    /*
++     * The LAUNCH context is used for new guest, if its an incoming guest
++     * then RECEIVE context will be created after the connection is established.
++     */
++    if (!runstate_check(RUN_STATE_INMIGRATE)) {
++        ret = sev_launch_start(sev);
++        if (ret) {
++            error_setg(errp, "%s: failed to create encryption context", __func__);
++            goto err;
++        }
+     }
+ 
+     ram_block_notifier_add(&sev_ram_notifier);
+-- 
+2.25.1
+

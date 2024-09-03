@@ -1,0 +1,123 @@
+From b71d3e2a0a18f01b3248f33e5a5fb7e7d6766e66 Mon Sep 17 00:00:00 2001
+From: Ashish Kalra <ashish.kalra@amd.com>
+Date: Tue, 27 Jul 2021 17:59:33 +0000
+Subject: [PATCH 12/28] kvm: Add support for userspace MSR filtering and
+ handling of MSR_KVM_MIGRATION_CONTROL.
+
+cherry-picked from https://github.com/AMDESE/qemu/commit/67935c3fd5f.
+
+Add support for userspace MSR filtering using KVM_X86_SET_MSR_FILTER
+ioctl and handling of MSRs in userspace. Currently this is only used
+for SEV guests which use MSR_KVM_MIGRATION_CONTROL to indicate if the
+guest is enabled and ready for migration.
+
+KVM arch code calls into SEV guest specific code to delete the
+SEV migrate blocker which has been setup at SEV_LAUNCH_FINISH.
+
+Signed-off-by: Ashish Kalra <ashish.kalra@amd.com>
+[ Fix conflicts. ]
+Signed-off-by: hanliyang <hanliyang@hygon.cn>
+---
+ target/i386/kvm/kvm.c      | 35 +++++++++++++++++++++++++++++++++++
+ target/i386/kvm/sev-stub.c |  4 ++++
+ target/i386/sev.c          |  6 ++++++
+ target/i386/sev.h          |  1 +
+ 4 files changed, 46 insertions(+)
+
+diff --git a/target/i386/kvm/kvm.c b/target/i386/kvm/kvm.c
+index 6321f2ec..bba1d8bc 100644
+--- a/target/i386/kvm/kvm.c
++++ b/target/i386/kvm/kvm.c
+@@ -2487,6 +2487,32 @@ static bool kvm_rdmsr_core_thread_count(X86CPU *cpu, uint32_t msr,
+     return true;
+ }
+ 
++/*
++ * Currently this exit is only used by SEV guests for
++ * MSR_KVM_MIGRATION_CONTROL to indicate if the guest
++ * is ready for migration.
++ */
++static uint64_t msr_kvm_migration_control;
++
++static bool kvm_rdmsr_kvm_migration_control(X86CPU *cpu, uint32_t msr,
++                                            uint64_t *val)
++{
++    *val = msr_kvm_migration_control;
++
++    return true;
++}
++
++static bool kvm_wrmsr_kvm_migration_control(X86CPU *cpu, uint32_t msr,
++                                            uint64_t val)
++{
++    msr_kvm_migration_control = val;
++
++    if (val == KVM_MIGRATION_READY)
++        sev_del_migrate_blocker();
++
++    return true;
++}
++
+ static Notifier smram_machine_done;
+ static KVMMemoryListener smram_listener;
+ static AddressSpace smram_address_space;
+@@ -2734,6 +2760,15 @@ int kvm_arch_init(MachineState *ms, KVMState *s)
+                          strerror(-ret));
+             exit(1);
+         }
++
++        r = kvm_filter_msr(s, MSR_KVM_MIGRATION_CONTROL,
++                           kvm_rdmsr_kvm_migration_control,
++                           kvm_wrmsr_kvm_migration_control);
++        if (!r) {
++            error_report("Could not install MSR_KVM_MIGRATION_CONTROL handler: %s",
++                         strerror(-ret));
++            exit(1);
++        }
+     }
+ 
+     return 0;
+diff --git a/target/i386/kvm/sev-stub.c b/target/i386/kvm/sev-stub.c
+index 1282d242..99899688 100644
+--- a/target/i386/kvm/sev-stub.c
++++ b/target/i386/kvm/sev-stub.c
+@@ -30,3 +30,7 @@ int sev_add_shared_regions_list(unsigned long gfn_start, unsigned long gfn_end)
+ {
+     return 0;
+ }
++
++void sev_del_migrate_blocker(void)
++{
++}
+diff --git a/target/i386/sev.c b/target/i386/sev.c
+index 85117563..aeeb479b 100644
+--- a/target/i386/sev.c
++++ b/target/i386/sev.c
+@@ -925,6 +925,12 @@ sev_launch_finish(SevGuestState *sev)
+     migrate_add_blocker(&sev_mig_blocker, &error_fatal);
+ }
+ 
++void
++sev_del_migrate_blocker(void)
++{
++    migrate_del_blocker(&sev_mig_blocker);
++}
++
+ static int
+ sev_receive_finish(SevGuestState *s)
+ {
+diff --git a/target/i386/sev.h b/target/i386/sev.h
+index b9c2afb7..84e3bdf2 100644
+--- a/target/i386/sev.h
++++ b/target/i386/sev.h
+@@ -70,6 +70,7 @@ int sev_add_shared_regions_list(unsigned long gfn_start, unsigned long gfn_end);
+ int sev_save_outgoing_shared_regions_list(QEMUFile *f, uint64_t *bytes_sent);
+ int sev_load_incoming_shared_regions_list(QEMUFile *f);
+ bool sev_is_gfn_in_unshared_region(unsigned long gfn);
++void sev_del_migrate_blocker(void);
+ 
+ int sev_kvm_init(ConfidentialGuestSupport *cgs, Error **errp);
+ 
+-- 
+2.25.1
+

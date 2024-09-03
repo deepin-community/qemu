@@ -1,0 +1,208 @@
+From 3c262fba76c61d301337b895c8130c8e5a679dbd Mon Sep 17 00:00:00 2001
+From: fangbaoshun <fangbaoshun@hygon.cn>
+Date: Mon, 2 Aug 2021 14:35:51 +0800
+Subject: [PATCH 23/28] migration/ram: Accelerate the transmission of CSV
+ guest's encrypted pages
+
+When memory encryption is enabled, the guest memory will be encrypted with
+the guest specific key. The patch introduces an accelerate solution which
+queued the pages into list and send them togather by COMMAND_BATCH.
+
+Signed-off-by: hanliyang <hanliyang@hygon.cn>
+---
+ configs/devices/i386-softmmu/default.mak |   1 +
+ hw/i386/Kconfig                          |   5 +
+ migration/ram.c                          | 119 +++++++++++++++++++++++
+ target/i386/csv.h                        |   2 +
+ 4 files changed, 127 insertions(+)
+
+diff --git a/configs/devices/i386-softmmu/default.mak b/configs/devices/i386-softmmu/default.mak
+index db83ffca..e948e54e 100644
+--- a/configs/devices/i386-softmmu/default.mak
++++ b/configs/devices/i386-softmmu/default.mak
+@@ -24,6 +24,7 @@
+ #CONFIG_VTD=n
+ #CONFIG_SGX=n
+ #CONFIG_CSV=n
++#CONFIG_HYGON_CSV_MIG_ACCEL=n
+ 
+ # Boards:
+ #
+diff --git a/hw/i386/Kconfig b/hw/i386/Kconfig
+index 08f3ae43..682e324f 100644
+--- a/hw/i386/Kconfig
++++ b/hw/i386/Kconfig
+@@ -12,8 +12,13 @@ config SGX
+ 
+ config CSV
+     bool
++    select HYGON_CSV_MIG_ACCEL
+     depends on SEV
+ 
++config HYGON_CSV_MIG_ACCEL
++    bool
++    depends on CSV
++
+ config PC
+     bool
+     imply APPLESMC
+diff --git a/migration/ram.c b/migration/ram.c
+index 22f07a06..be8dca32 100644
+--- a/migration/ram.c
++++ b/migration/ram.c
+@@ -67,6 +67,7 @@
+ 
+ /* Defines RAM_SAVE_ENCRYPTED_PAGE and RAM_SAVE_SHARED_REGION_LIST */
+ #include "target/i386/sev.h"
++#include "target/i386/csv.h"
+ #include "sysemu/kvm.h"
+ 
+ #include "hw/boards.h" /* for machine_dump_guest_core() */
+@@ -2334,6 +2335,112 @@ out:
+     return ret;
+ }
+ 
++#ifdef CONFIG_HYGON_CSV_MIG_ACCEL
++/**
++ * ram_save_encrypted_pages_in_batch: send the given encrypted pages to
++ *                                    the stream.
++ *
++ * Sending pages of 4K size in batch. The saving stops at the end of
++ * the block.
++ *
++ * The caller must be with ram_state.bitmap_mutex held to call this
++ * function.
++ *
++ * Returns the number of pages written or negative on error
++ *
++ * @rs: current RAM state
++ * @pss: data about the page we want to send
++ */
++static int
++ram_save_encrypted_pages_in_batch(RAMState *rs, PageSearchStatus *pss)
++{
++    bool page_dirty;
++    int ret;
++    int tmppages, pages = 0;
++    uint8_t *p;
++    uint32_t host_len = 0;
++    uint64_t bytes_xmit = 0;
++    ram_addr_t offset, start_offset = 0;
++    MachineState *ms = MACHINE(qdev_get_machine());
++    ConfidentialGuestSupportClass *cgs_class =
++        (ConfidentialGuestSupportClass *)object_get_class(OBJECT(ms->cgs));
++    struct ConfidentialGuestMemoryEncryptionOps *ops =
++        cgs_class->memory_encryption_ops;
++
++    do {
++        page_dirty = migration_bitmap_clear_dirty(rs, pss->block, pss->page);
++
++        /* Check the pages is dirty and if it is send it */
++        if (page_dirty) {
++            /* Process the unencrypted page */
++            if (!encrypted_test_list(rs, pss->block, pss->page)) {
++                tmppages = migration_ops->ram_save_target_page(rs, pss);
++            } else {
++                /* Caculate the offset and host virtual address of the page */
++                offset = ((ram_addr_t)pss->page) << TARGET_PAGE_BITS;
++                p = pss->block->host + offset;
++
++                /* Record the offset and host virtual address of the first
++                 * page in this loop which will be used below.
++                 */
++                if (host_len == 0) {
++                    start_offset = offset | RAM_SAVE_FLAG_ENCRYPTED_DATA;
++                } else {
++                    offset |= (RAM_SAVE_FLAG_ENCRYPTED_DATA | RAM_SAVE_FLAG_CONTINUE);
++                }
++
++                /* Queue the outgoing page if the page is not zero page.
++                 * If the queued pages are up to the outgoing page window size,
++                 * process them below.
++                 */
++                if (ops->queue_outgoing_page(p, TARGET_PAGE_SIZE, offset))
++                    return -1;
++
++                tmppages = 1;
++                host_len += TARGET_PAGE_SIZE;
++
++                stat64_add(&mig_stats.normal_pages, 1);
++            }
++        } else {
++            tmppages = 0;
++        }
++
++        if (tmppages >= 0) {
++            pages += tmppages;
++        } else {
++            return tmppages;
++        }
++
++        pss_find_next_dirty(pss);
++    } while (offset_in_ramblock(pss->block,
++                                ((ram_addr_t)pss->page) << TARGET_PAGE_BITS) &&
++             host_len < CSV_OUTGOING_PAGE_WINDOW_SIZE);
++
++    /* Check if there are any queued pages */
++    if (host_len != 0) {
++        ram_transferred_add(save_page_header(pss, pss->pss_channel,
++                                             pss->block, start_offset));
++        /* if only one page queued, flag is BATCH_END, else flag is BATCH */
++        if (host_len > TARGET_PAGE_SIZE)
++            qemu_put_be32(pss->pss_channel, RAM_SAVE_ENCRYPTED_PAGE_BATCH);
++        else
++            qemu_put_be32(pss->pss_channel, RAM_SAVE_ENCRYPTED_PAGE_BATCH_END);
++        ram_transferred_add(4);
++        /* Process the queued pages in batch */
++        ret = ops->save_queued_outgoing_pages(pss->pss_channel, &bytes_xmit);
++        if (ret) {
++            return -1;
++        }
++        ram_transferred_add(bytes_xmit);
++    }
++
++    /* The offset we leave with is the last one we looked at */
++    pss->page--;
++
++    return pages;
++}
++#endif
++
+ /**
+  * ram_save_host_page: save a whole host page
+  *
+@@ -2369,6 +2476,18 @@ static int ram_save_host_page(RAMState *rs, PageSearchStatus *pss)
+         return 0;
+     }
+ 
++#ifdef CONFIG_HYGON_CSV_MIG_ACCEL
++    /*
++     * If command_batch function is enabled and memory encryption is enabled
++     * then use command batch APIs to accelerate the sending process
++     * to write the outgoing buffer to the wire. The encryption APIs
++     * will re-encrypt the data with transport key so that data is prototect
++     * on the wire.
++     */
++    if (memcrypt_enabled() && is_hygon_cpu() && !migration_in_postcopy())
++        return ram_save_encrypted_pages_in_batch(rs, pss);
++#endif
++
+     /* Update host page boundary information */
+     pss_host_page_prepare(pss);
+ 
+diff --git a/target/i386/csv.h b/target/i386/csv.h
+index 977f08b9..74a54f9b 100644
+--- a/target/i386/csv.h
++++ b/target/i386/csv.h
+@@ -44,6 +44,8 @@ static bool __attribute__((unused)) is_hygon_cpu(void)
+ 
+ #endif
+ 
++#define CSV_OUTGOING_PAGE_WINDOW_SIZE     (4094 * TARGET_PAGE_SIZE)
++
+ typedef struct CsvBatchCmdList CsvBatchCmdList;
+ typedef void (*CsvDestroyCmdNodeFn) (void *data);
+ 
+-- 
+2.25.1
+

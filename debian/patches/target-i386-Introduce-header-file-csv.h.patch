@@ -1,0 +1,107 @@
+From a6e398cac76ea4d27207e379200179d541d42ebe Mon Sep 17 00:00:00 2001
+From: hanliyang <hanliyang@hygon.cn>
+Date: Thu, 14 Mar 2024 19:21:11 +0800
+Subject: [PATCH 17/28] target/i386: Introduce header file csv.h
+
+This header file is used to provide common helper functions
+and data structures for Hygon CSV.
+
+Signed-off-by: hanliyang <hanliyang@hygon.cn>
+---
+ configs/devices/i386-softmmu/default.mak |  1 +
+ hw/i386/Kconfig                          |  5 +++
+ target/i386/csv.h                        | 47 ++++++++++++++++++++++++
+ 3 files changed, 53 insertions(+)
+ create mode 100644 target/i386/csv.h
+
+diff --git a/configs/devices/i386-softmmu/default.mak b/configs/devices/i386-softmmu/default.mak
+index 598c6646..db83ffca 100644
+--- a/configs/devices/i386-softmmu/default.mak
++++ b/configs/devices/i386-softmmu/default.mak
+@@ -23,6 +23,7 @@
+ #CONFIG_TPM_TIS_ISA=n
+ #CONFIG_VTD=n
+ #CONFIG_SGX=n
++#CONFIG_CSV=n
+ 
+ # Boards:
+ #
+diff --git a/hw/i386/Kconfig b/hw/i386/Kconfig
+index 55850791..08f3ae43 100644
+--- a/hw/i386/Kconfig
++++ b/hw/i386/Kconfig
+@@ -10,6 +10,10 @@ config SGX
+     bool
+     depends on KVM
+ 
++config CSV
++    bool
++    depends on SEV
++
+ config PC
+     bool
+     imply APPLESMC
+@@ -26,6 +30,7 @@ config PC
+     imply QXL
+     imply SEV
+     imply SGX
++    imply CSV
+     imply TEST_DEVICES
+     imply TPM_CRB
+     imply TPM_TIS_ISA
+diff --git a/target/i386/csv.h b/target/i386/csv.h
+new file mode 100644
+index 00000000..f935babe
+--- /dev/null
++++ b/target/i386/csv.h
+@@ -0,0 +1,47 @@
++/*
++ * QEMU CSV support
++ *
++ * Copyright: Hygon Info Technologies Ltd. 2022
++ *
++ * Author:
++ *      Jiang Xin <jiangxin@hygon.cn>
++ *
++ * This work is licensed under the terms of the GNU GPL, version 2 or later.
++ * See the COPYING file in the top-level directory.
++ *
++ */
++
++#ifndef I386_CSV_H
++#define I386_CSV_H
++
++#ifdef CONFIG_CSV
++
++#include "cpu.h"
++
++#define CPUID_VENDOR_HYGON_EBX   0x6f677948  /* "Hygo" */
++#define CPUID_VENDOR_HYGON_ECX   0x656e6975  /* "uine" */
++#define CPUID_VENDOR_HYGON_EDX   0x6e65476e  /* "nGen" */
++
++static bool __attribute__((unused)) is_hygon_cpu(void)
++{
++    uint32_t ebx = 0;
++    uint32_t ecx = 0;
++    uint32_t edx = 0;
++
++    host_cpuid(0, 0, NULL, &ebx, &ecx, &edx);
++
++    if (ebx == CPUID_VENDOR_HYGON_EBX &&
++        ecx == CPUID_VENDOR_HYGON_ECX &&
++        edx == CPUID_VENDOR_HYGON_EDX)
++        return true;
++    else
++        return false;
++}
++
++#else
++
++#define is_hygon_cpu() (false)
++
++#endif
++
++#endif
+-- 
+2.25.1
+

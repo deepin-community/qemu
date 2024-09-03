@@ -1,0 +1,120 @@
+From b897cce732c71d69821a3acb4aa98ef55dcac917 Mon Sep 17 00:00:00 2001
+From: Brijesh Singh <brijesh.singh@amd.com>
+Date: Tue, 27 Jul 2021 16:31:36 +0000
+Subject: [PATCH 09/28] migration: add support to migrate shared regions list
+
+cherry-picked from https://github.com/AMDESE/qemu/commit/9236f522e48b6.
+
+When memory encryption is enabled, the hypervisor maintains a shared
+regions list which is referred by hypervisor during migration to check
+if page is private or shared. This list is built during the VM bootup and
+must be migrated to the target host so that hypervisor on target host can
+use it for future migration.
+
+Signed-off-by: Brijesh Singh <brijesh.singh@amd.com>
+Co-developed-by: Ashish Kalra <ashish.kalra@amd.com>
+Signed-off-by: Ashish Kalra <ashish.kalra@amd.com>
+[ Fix conflicts. ]
+Signed-off-by: hanliyang <hanliyang@hygon.cn>
+---
+ include/exec/confidential-guest-support.h |  2 +-
+ target/i386/sev.c                         | 45 +++++++++++++++++++++++
+ target/i386/sev.h                         |  2 +
+ 3 files changed, 48 insertions(+), 1 deletion(-)
+
+diff --git a/include/exec/confidential-guest-support.h b/include/exec/confidential-guest-support.h
+index 343f686f..dd4887f6 100644
+--- a/include/exec/confidential-guest-support.h
++++ b/include/exec/confidential-guest-support.h
+@@ -73,7 +73,7 @@ struct ConfidentialGuestMemoryEncryptionOps {
+     bool (*is_gfn_in_unshared_region)(unsigned long gfn);
+ 
+     /* Write the shared regions list */
+-    int (*save_outgoing_shared_regions_list)(QEMUFile *f);
++    int (*save_outgoing_shared_regions_list)(QEMUFile *f, uint64_t *bytes_sent);
+ 
+     /* Load the shared regions list */
+     int (*load_incoming_shared_regions_list)(QEMUFile *f);
+diff --git a/target/i386/sev.c b/target/i386/sev.c
+index bd00a28e..aeb3e323 100644
+--- a/target/i386/sev.c
++++ b/target/i386/sev.c
+@@ -176,10 +176,15 @@ static const char *const sev_fw_errlist[] = {
+ 
+ #define SEV_FW_BLOB_MAX_SIZE            0x4000          /* 16KB */
+ 
++#define SHARED_REGION_LIST_CONT     0x1
++#define SHARED_REGION_LIST_END      0x2
++
+ static struct ConfidentialGuestMemoryEncryptionOps sev_memory_encryption_ops = {
+     .save_setup = sev_save_setup,
+     .save_outgoing_page = sev_save_outgoing_page,
+     .load_incoming_page = sev_load_incoming_page,
++    .save_outgoing_shared_regions_list = sev_save_outgoing_shared_regions_list,
++    .load_incoming_shared_regions_list = sev_load_incoming_shared_regions_list,
+ };
+ 
+ static int
+@@ -1776,6 +1781,46 @@ int sev_add_shared_regions_list(unsigned long start, unsigned long end)
+     return 1;
+ }
+ 
++int sev_save_outgoing_shared_regions_list(QEMUFile *f, uint64_t *bytes_sent)
++{
++    SevGuestState *s = sev_guest;
++    struct shared_region *pos;
++
++    QTAILQ_FOREACH(pos, &s->shared_regions_list, list) {
++        qemu_put_be32(f, SHARED_REGION_LIST_CONT);
++        qemu_put_be32(f, pos->gfn_start);
++        qemu_put_be32(f, pos->gfn_end);
++        *bytes_sent += 12;
++    }
++
++    qemu_put_be32(f, SHARED_REGION_LIST_END);
++    *bytes_sent += 4;
++    return 0;
++}
++
++int sev_load_incoming_shared_regions_list(QEMUFile *f)
++{
++    SevGuestState *s = sev_guest;
++    struct shared_region *shrd_region;
++    int status;
++
++    status = qemu_get_be32(f);
++    while (status == SHARED_REGION_LIST_CONT) {
++
++        shrd_region = g_malloc0(sizeof(*shrd_region));
++        if (!shrd_region) {
++            return 0;
++        }
++        shrd_region->gfn_start = qemu_get_be32(f);
++        shrd_region->gfn_end = qemu_get_be32(f);
++
++        QTAILQ_INSERT_TAIL(&s->shared_regions_list, shrd_region, list);
++
++        status = qemu_get_be32(f);
++    }
++    return 0;
++}
++
+ static const QemuUUID sev_hash_table_header_guid = {
+     .data = UUID_LE(0x9438d606, 0x4f22, 0x4cc9, 0xb4, 0x79, 0xa7, 0x93,
+                     0xd4, 0x11, 0xfd, 0x21)
+diff --git a/target/i386/sev.h b/target/i386/sev.h
+index acf69d4e..5b4231c8 100644
+--- a/target/i386/sev.h
++++ b/target/i386/sev.h
+@@ -64,6 +64,8 @@ void sev_es_set_reset_vector(CPUState *cpu);
+ int sev_remove_shared_regions_list(unsigned long gfn_start,
+                                    unsigned long gfn_end);
+ int sev_add_shared_regions_list(unsigned long gfn_start, unsigned long gfn_end);
++int sev_save_outgoing_shared_regions_list(QEMUFile *f, uint64_t *bytes_sent);
++int sev_load_incoming_shared_regions_list(QEMUFile *f);
+ 
+ int sev_kvm_init(ConfidentialGuestSupport *cgs, Error **errp);
+ 
+-- 
+2.25.1
+

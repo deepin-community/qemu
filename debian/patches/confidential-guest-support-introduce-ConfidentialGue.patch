@@ -1,0 +1,67 @@
+From 5a870a2198eed777d31bff5e6c8340eb712522e5 Mon Sep 17 00:00:00 2001
+From: Brijesh Singh <brijesh.singh@amd.com>
+Date: Tue, 27 Jul 2021 11:41:37 +0000
+Subject: [PATCH 03/28] confidential guest support: introduce
+ ConfidentialGuestMemoryEncryptionOps for encrypted VMs
+
+cherry-picked from https://github.com/AMDESE/qemu/commit/74fce7be9bd.
+
+When memory encryption is enabled in VM, the guest RAM will be encrypted
+with the guest-specific key, to protect the confidentiality of data while
+in transit we need to platform specific hooks to save or migrate the
+guest RAM.
+
+Introduce the new ConfidentialGuestMemoryEncryptionOps in this patch
+which will be later used by the encrypted guest for migration.
+
+Signed-off-by: Brijesh Singh <brijesh.singh@amd.com>
+Co-developed-by: Ashish Kalra <ashish.kalra@amd.com>
+Signed-off-by: Ashish Kalra <ashish.kalra@amd.com>
+Signed-off-by: hanliyang <hanliyang@hygon.cn>
+---
+ include/exec/confidential-guest-support.h | 27 +++++++++++++++++++++++
+ 1 file changed, 27 insertions(+)
+
+diff --git a/include/exec/confidential-guest-support.h b/include/exec/confidential-guest-support.h
+index ba2dd4b5..343f686f 100644
+--- a/include/exec/confidential-guest-support.h
++++ b/include/exec/confidential-guest-support.h
+@@ -53,8 +53,35 @@ struct ConfidentialGuestSupport {
+     bool ready;
+ };
+ 
++/**
++ * The functions registers with ConfidentialGuestMemoryEncryptionOps will be
++ * used during the encrypted guest migration.
++ */
++struct ConfidentialGuestMemoryEncryptionOps {
++    /* Initialize the platform specific state before starting the migration */
++    int (*save_setup)(const char *pdh, const char *plat_cert,
++                      const char *amd_cert);
++
++    /* Write the encrypted page and metadata associated with it */
++    int (*save_outgoing_page)(QEMUFile *f, uint8_t *ptr, uint32_t size,
++                              uint64_t *bytes_sent);
++
++    /* Load the incoming encrypted page into guest memory */
++    int (*load_incoming_page)(QEMUFile *f, uint8_t *ptr);
++
++    /* Check if gfn is in shared/unencrypted region */
++    bool (*is_gfn_in_unshared_region)(unsigned long gfn);
++
++    /* Write the shared regions list */
++    int (*save_outgoing_shared_regions_list)(QEMUFile *f);
++
++    /* Load the shared regions list */
++    int (*load_incoming_shared_regions_list)(QEMUFile *f);
++};
++
+ typedef struct ConfidentialGuestSupportClass {
+     ObjectClass parent;
++    struct ConfidentialGuestMemoryEncryptionOps *memory_encryption_ops;
+ } ConfidentialGuestSupportClass;
+ 
+ #endif /* !CONFIG_USER_ONLY */
+-- 
+2.25.1
+

@@ -1,0 +1,222 @@
+From 83bbd6ea7b77a65d3db0dea61c72272495525e0c Mon Sep 17 00:00:00 2001
+From: Brijesh Singh <brijesh.singh@amd.com>
+Date: Tue, 27 Jul 2021 13:00:50 +0000
+Subject: [PATCH 07/28] target/i386: sev: add support to load incoming
+ encrypted page
+
+cherry-picked from https://github.com/AMDESE/qemu/commit/e86e5dccb045.
+
+The sev_load_incoming_page() provide the implementation to read the
+incoming guest private pages from the socket and load it into the guest
+memory. The routines uses the RECEIVE_START command to create the
+incoming encryption context on the first call then uses the
+RECEIEVE_UPDATE_DATA command to load the encrypted pages into the guest
+memory. After migration is completed, we issue the RECEIVE_FINISH command
+to transition the SEV guest to the runnable state so that it can be
+executed.
+
+Signed-off-by: Brijesh Singh <brijesh.singh@amd.com>
+Co-developed-by: Ashish Kalra <ashish.kalra@amd.com>
+Signed-off-by: Ashish Kalra <ashish.kalra@amd.com>
+[ Fix conflicts. ]
+Signed-off-by: hanliyang <hanliyang@hygon.cn>
+---
+ target/i386/sev.c        | 137 ++++++++++++++++++++++++++++++++++++++-
+ target/i386/sev.h        |   1 +
+ target/i386/trace-events |   3 +
+ 3 files changed, 140 insertions(+), 1 deletion(-)
+
+diff --git a/target/i386/sev.c b/target/i386/sev.c
+index 617587c6..ee42edf4 100644
+--- a/target/i386/sev.c
++++ b/target/i386/sev.c
+@@ -172,6 +172,7 @@ static const char *const sev_fw_errlist[] = {
+ static struct ConfidentialGuestMemoryEncryptionOps sev_memory_encryption_ops = {
+     .save_setup = sev_save_setup,
+     .save_outgoing_page = sev_save_outgoing_page,
++    .load_incoming_page = sev_load_incoming_page,
+ };
+ 
+ static int
+@@ -911,13 +912,33 @@ sev_launch_finish(SevGuestState *sev)
+     migrate_add_blocker(&sev_mig_blocker, &error_fatal);
+ }
+ 
++static int
++sev_receive_finish(SevGuestState *s)
++{
++    int error, ret = 1;
++
++    trace_kvm_sev_receive_finish();
++    ret = sev_ioctl(s->sev_fd, KVM_SEV_RECEIVE_FINISH, 0, &error);
++    if (ret) {
++        error_report("%s: RECEIVE_FINISH ret=%d fw_error=%d '%s'",
++                     __func__, ret, error, fw_error_to_str(error));
++        goto err;
++    }
++
++    sev_set_guest_state(s, SEV_STATE_RUNNING);
++err:
++    return ret;
++}
++
+ static void
+ sev_vm_state_change(void *opaque, bool running, RunState state)
+ {
+     SevGuestState *sev = opaque;
+ 
+     if (running) {
+-        if (!sev_check_state(sev, SEV_STATE_RUNNING)) {
++        if (sev_check_state(sev, SEV_STATE_RECEIVE_UPDATE)) {
++            sev_receive_finish(sev);
++        } else if (!sev_check_state(sev, SEV_STATE_RUNNING)) {
+             sev_launch_finish(sev);
+         }
+     }
+@@ -1535,6 +1556,120 @@ int sev_save_outgoing_page(QEMUFile *f, uint8_t *ptr,
+     return sev_send_update_data(s, f, ptr, sz, bytes_sent);
+ }
+ 
++static int
++sev_receive_start(SevGuestState *sev, QEMUFile *f)
++{
++    int ret = 1;
++    int fw_error;
++    struct kvm_sev_receive_start start = { };
++    gchar *session = NULL, *pdh_cert = NULL;
++
++    /* get SEV guest handle */
++    start.handle = object_property_get_int(OBJECT(sev), "handle",
++                                           &error_abort);
++
++    /* get the source policy */
++    start.policy = qemu_get_be32(f);
++
++    /* get source PDH key */
++    start.pdh_len = qemu_get_be32(f);
++    if (!check_blob_length(start.pdh_len)) {
++        return 1;
++    }
++
++    pdh_cert = g_new(gchar, start.pdh_len);
++    qemu_get_buffer(f, (uint8_t *)pdh_cert, start.pdh_len);
++    start.pdh_uaddr = (uintptr_t)pdh_cert;
++
++    /* get source session data */
++    start.session_len = qemu_get_be32(f);
++    if (!check_blob_length(start.session_len)) {
++        return 1;
++    }
++    session = g_new(gchar, start.session_len);
++    qemu_get_buffer(f, (uint8_t *)session, start.session_len);
++    start.session_uaddr = (uintptr_t)session;
++
++    trace_kvm_sev_receive_start(start.policy, session, pdh_cert);
++
++    ret = sev_ioctl(sev_guest->sev_fd, KVM_SEV_RECEIVE_START,
++                    &start, &fw_error);
++    if (ret < 0) {
++        error_report("Error RECEIVE_START ret=%d fw_error=%d '%s'",
++                      ret, fw_error, fw_error_to_str(fw_error));
++        goto err;
++    }
++
++    object_property_set_int(OBJECT(sev), "handle", start.handle, &error_abort);
++    sev_set_guest_state(sev, SEV_STATE_RECEIVE_UPDATE);
++err:
++    g_free(session);
++    g_free(pdh_cert);
++
++    return ret;
++}
++
++static int sev_receive_update_data(QEMUFile *f, uint8_t *ptr)
++{
++    int ret = 1, fw_error = 0;
++    gchar *hdr = NULL, *trans = NULL;
++    struct kvm_sev_receive_update_data update = {};
++
++    /* get packet header */
++    update.hdr_len = qemu_get_be32(f);
++    if (!check_blob_length(update.hdr_len)) {
++        return 1;
++    }
++
++    hdr = g_new(gchar, update.hdr_len);
++    qemu_get_buffer(f, (uint8_t *)hdr, update.hdr_len);
++    update.hdr_uaddr = (uintptr_t)hdr;
++
++    /* get transport buffer */
++    update.trans_len = qemu_get_be32(f);
++    if (!check_blob_length(update.trans_len)) {
++        goto err;
++    }
++
++    trans = g_new(gchar, update.trans_len);
++    update.trans_uaddr = (uintptr_t)trans;
++    qemu_get_buffer(f, (uint8_t *)update.trans_uaddr, update.trans_len);
++
++    update.guest_uaddr = (uintptr_t) ptr;
++    update.guest_len = update.trans_len;
++
++    trace_kvm_sev_receive_update_data(trans, ptr, update.guest_len,
++            hdr, update.hdr_len);
++
++    ret = sev_ioctl(sev_guest->sev_fd, KVM_SEV_RECEIVE_UPDATE_DATA,
++                    &update, &fw_error);
++    if (ret) {
++        error_report("Error RECEIVE_UPDATE_DATA ret=%d fw_error=%d '%s'",
++                     ret, fw_error, fw_error_to_str(fw_error));
++        goto err;
++    }
++err:
++    g_free(trans);
++    g_free(hdr);
++    return ret;
++}
++
++int sev_load_incoming_page(QEMUFile *f, uint8_t *ptr)
++{
++    SevGuestState *s = sev_guest;
++
++    /*
++     * If this is first buffer and SEV is not in recieiving state then
++     * use RECEIVE_START command to create a encryption context.
++     */
++    if (!sev_check_state(s, SEV_STATE_RECEIVE_UPDATE) &&
++        sev_receive_start(s, f)) {
++        return 1;
++    }
++
++    return sev_receive_update_data(f, ptr);
++}
++
+ static const QemuUUID sev_hash_table_header_guid = {
+     .data = UUID_LE(0x9438d606, 0x4f22, 0x4cc9, 0xb4, 0x79, 0xa7, 0x93,
+                     0xd4, 0x11, 0xfd, 0x21)
+diff --git a/target/i386/sev.h b/target/i386/sev.h
+index 463e94bb..d94da295 100644
+--- a/target/i386/sev.h
++++ b/target/i386/sev.h
+@@ -55,6 +55,7 @@ int sev_save_setup(const char *pdh, const char *plat_cert,
+                    const char *amd_cert);
+ int sev_save_outgoing_page(QEMUFile *f, uint8_t *ptr,
+                            uint32_t size, uint64_t *bytes_sent);
++int sev_load_incoming_page(QEMUFile *f, uint8_t *ptr);
+ int sev_inject_launch_secret(const char *hdr, const char *secret,
+                              uint64_t gpa, Error **errp);
+ 
+diff --git a/target/i386/trace-events b/target/i386/trace-events
+index e8d4aec1..475de65a 100644
+--- a/target/i386/trace-events
++++ b/target/i386/trace-events
+@@ -14,3 +14,6 @@ kvm_sev_attestation_report(const char *mnonce, const char *data) "mnonce %s data
+ kvm_sev_send_start(uint64_t pdh, int l1, uint64_t plat, int l2, uint64_t amd, int l3) "pdh 0x%" PRIx64 " len %d plat 0x%" PRIx64 " len %d amd 0x%" PRIx64 " len %d"
+ kvm_sev_send_update_data(void *src, void *dst, int len) "guest %p trans %p len %d"
+ kvm_sev_send_finish(void) ""
++kvm_sev_receive_start(int policy, void *session, void *pdh) "policy 0x%x session %p pdh %p"
++kvm_sev_receive_update_data(void *src, void *dst, int len, void *hdr, int hdr_len) "guest %p trans %p len %d hdr %p hdr_len %d"
++kvm_sev_receive_finish(void) ""
+-- 
+2.25.1
+
