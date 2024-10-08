@@ -1,0 +1,86 @@
+From 8bb4a4e0e2b167eb74b6d61702a0036ec3622171 Mon Sep 17 00:00:00 2001
+From: jiangxin <jiangxin@hygon.cn>
+Date: Tue, 24 Aug 2021 14:57:28 +0800
+Subject: [PATCH 01/14] target/i386: csv: Add CSV3 context
+
+CSV/CSV2/CSV3 are the secure virtualization features on Hygon CPUs.
+The CSV and CSV2 are compatible with the AMD SEV and SEV-ES,
+respectively. From CSV3, we introduced more secure features to
+protect the guest, users can bit 6 of the guest policy to run a
+CSV3 guest.
+
+Add the context and the build option.
+
+Signed-off-by: Xin Jiang <jiangxin@hygon.cn>
+Signed-off-by: hanliyang <hanliyang@hygon.cn>
+---
+ target/i386/csv.c | 11 +++++++++++
+ target/i386/csv.h | 18 ++++++++++++++++++
+ 2 files changed, 29 insertions(+)
+
+diff --git a/target/i386/csv.c b/target/i386/csv.c
+index 88fb05ac..9a1de04d 100644
+--- a/target/i386/csv.c
++++ b/target/i386/csv.c
+@@ -18,3 +18,14 @@
+ #include "csv.h"
+ 
+ bool csv_kvm_cpu_reset_inhibit;
++
++Csv3GuestState csv3_guest = { 0 };
++
++bool
++csv3_enabled(void)
++{
++    if (!is_hygon_cpu())
++        return false;
++
++    return sev_es_enabled() && (csv3_guest.policy & GUEST_POLICY_CSV3_BIT);
++}
+diff --git a/target/i386/csv.h b/target/i386/csv.h
+index ac4bb5be..7852fb8d 100644
+--- a/target/i386/csv.h
++++ b/target/i386/csv.h
+@@ -14,6 +14,8 @@
+ #ifndef I386_CSV_H
+ #define I386_CSV_H
+ 
++#include "qapi/qapi-commands-misc-target.h"
++
+ #ifdef CONFIG_CSV
+ 
+ #include "cpu.h"
+@@ -38,9 +40,12 @@ static bool __attribute__((unused)) is_hygon_cpu(void)
+         return false;
+ }
+ 
++bool csv3_enabled(void);
++
+ #else
+ 
+ #define is_hygon_cpu() (false)
++#define csv3_enabled() (false)
+ 
+ #endif
+ 
+@@ -64,4 +69,17 @@ int csv_load_queued_incoming_pages(QEMUFile *f);
+ int csv_save_outgoing_cpu_state(QEMUFile *f, uint64_t *bytes_sent);
+ int csv_load_incoming_cpu_state(QEMUFile *f);
+ 
++/* CSV3 */
++#define GUEST_POLICY_CSV3_BIT     (1 << 6)
++
++struct Csv3GuestState {
++    uint32_t policy;
++    int sev_fd;
++    void *state;
++};
++
++typedef struct Csv3GuestState Csv3GuestState;
++
++extern struct Csv3GuestState csv3_guest;
++
+ #endif
+-- 
+2.25.1
+

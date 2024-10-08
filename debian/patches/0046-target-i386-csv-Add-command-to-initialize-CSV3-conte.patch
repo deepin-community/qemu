@@ -1,0 +1,202 @@
+From bdbcb2fd3a3c21a457a2edab308183312250fe7f Mon Sep 17 00:00:00 2001
+From: jiangxin <jiangxin@hygon.cn>
+Date: Wed, 25 Aug 2021 11:07:41 +0800
+Subject: [PATCH 02/14] target/i386: csv: Add command to initialize CSV3
+ context
+
+When CSV3 is enabled, KVM_CSV3_INIT command is used to initialize
+the platform, which is implemented by reusing the SEV API framework
+and extending the functionality.
+
+The KVM_CSV3_INIT command should be performed earlier than
+any other command.
+
+Signed-off-by: Xin Jiang <jiangxin@hygon.cn>
+Signed-off-by: hanliyang <hanliyang@hygon.cn>
+---
+ linux-headers/linux/kvm.h     | 11 +++++++++
+ target/i386/csv-sysemu-stub.c |  5 ++++
+ target/i386/csv.c             | 45 +++++++++++++++++++++++++++++++++++
+ target/i386/csv.h             |  4 ++++
+ target/i386/sev.c             | 17 +++++++++++++
+ target/i386/sev.h             |  7 ++++++
+ 6 files changed, 89 insertions(+)
+
+diff --git a/linux-headers/linux/kvm.h b/linux-headers/linux/kvm.h
+index 638befe8..794e0fd4 100644
+--- a/linux-headers/linux/kvm.h
++++ b/linux-headers/linux/kvm.h
+@@ -2049,6 +2049,17 @@ struct kvm_csv_command_batch {
+ 	__u64 csv_batch_list_uaddr;
+ };
+ 
++/* CSV3 command */
++enum csv3_cmd_id {
++	KVM_CSV3_NR_MIN = 0xc0,
++
++	KVM_CSV3_INIT = KVM_CSV3_NR_MIN,
++};
++
++struct kvm_csv3_init_data {
++	__u64 nodemask;
++};
++
+ #define KVM_DEV_ASSIGN_ENABLE_IOMMU	(1 << 0)
+ #define KVM_DEV_ASSIGN_PCI_2_3		(1 << 1)
+ #define KVM_DEV_ASSIGN_MASK_INTX	(1 << 2)
+diff --git a/target/i386/csv-sysemu-stub.c b/target/i386/csv-sysemu-stub.c
+index 5874e4cc..72f0f5c7 100644
+--- a/target/i386/csv-sysemu-stub.c
++++ b/target/i386/csv-sysemu-stub.c
+@@ -14,3 +14,8 @@
+ #include "qemu/osdep.h"
+ #include "sev.h"
+ #include "csv.h"
++
++int csv3_init(uint32_t policy, int fd, void *state, struct sev_ops *ops)
++{
++    return 0;
++}
+diff --git a/target/i386/csv.c b/target/i386/csv.c
+index 9a1de04d..f02aadb5 100644
+--- a/target/i386/csv.c
++++ b/target/i386/csv.c
+@@ -12,6 +12,13 @@
+  */
+ 
+ #include "qemu/osdep.h"
++#include "qemu/error-report.h"
++
++#include <linux/kvm.h>
++
++#ifdef CONFIG_NUMA
++#include <numaif.h>
++#endif
+ 
+ #include "cpu.h"
+ #include "sev.h"
+@@ -21,6 +28,44 @@ bool csv_kvm_cpu_reset_inhibit;
+ 
+ Csv3GuestState csv3_guest = { 0 };
+ 
++int
++csv3_init(uint32_t policy, int fd, void *state, struct sev_ops *ops)
++{
++    int fw_error;
++    int ret;
++    struct kvm_csv3_init_data data = { 0 };
++
++#ifdef CONFIG_NUMA
++    int mode;
++    unsigned long nodemask;
++
++    /* Set flags as 0 to retrieve the default NUMA policy. */
++    ret = get_mempolicy(&mode, &nodemask, sizeof(nodemask) * 8, NULL, 0);
++    if (ret == 0 && (mode == MPOL_BIND))
++        data.nodemask = nodemask;
++#endif
++
++    if (!ops || !ops->sev_ioctl || !ops->fw_error_to_str)
++        return -1;
++
++    csv3_guest.policy = policy;
++    if (csv3_enabled()) {
++        ret = ops->sev_ioctl(fd, KVM_CSV3_INIT, &data, &fw_error);
++        if (ret) {
++            csv3_guest.policy = 0;
++            error_report("%s: Fail to initialize ret=%d fw_error=%d '%s'",
++                       __func__, ret, fw_error, ops->fw_error_to_str(fw_error));
++            return -1;
++        }
++
++        csv3_guest.sev_fd = fd;
++        csv3_guest.state = state;
++        csv3_guest.sev_ioctl = ops->sev_ioctl;
++        csv3_guest.fw_error_to_str = ops->fw_error_to_str;
++    }
++    return 0;
++}
++
+ bool
+ csv3_enabled(void)
+ {
+diff --git a/target/i386/csv.h b/target/i386/csv.h
+index 7852fb8d..cf125fe0 100644
+--- a/target/i386/csv.h
++++ b/target/i386/csv.h
+@@ -15,6 +15,7 @@
+ #define I386_CSV_H
+ 
+ #include "qapi/qapi-commands-misc-target.h"
++#include "sev.h"
+ 
+ #ifdef CONFIG_CSV
+ 
+@@ -76,10 +77,13 @@ struct Csv3GuestState {
+     uint32_t policy;
+     int sev_fd;
+     void *state;
++    int (*sev_ioctl)(int fd, int cmd, void *data, int *error);
++    const char *(*fw_error_to_str)(int code);
+ };
+ 
+ typedef struct Csv3GuestState Csv3GuestState;
+ 
+ extern struct Csv3GuestState csv3_guest;
++extern int csv3_init(uint32_t policy, int fd, void *state, struct sev_ops *ops);
+ 
+ #endif
+diff --git a/target/i386/sev.c b/target/i386/sev.c
+index 3406861f..50f3429a 100644
+--- a/target/i386/sev.c
++++ b/target/i386/sev.c
+@@ -1180,6 +1180,18 @@ int sev_kvm_init(ConfidentialGuestSupport *cgs, Error **errp)
+         goto err;
+     }
+ 
++    /* Support CSV3 */
++    if (!ret && cmd == KVM_SEV_ES_INIT) {
++        ret = csv3_init(sev_guest->policy, sev->sev_fd, (void *)&sev->state, &sev_ops);
++        if (ret) {
++            error_setg(errp, "%s: failed to init csv3 context", __func__);
++            goto err;
++        }
++        /* The CSV3 guest is not resettable */
++        if (csv3_enabled())
++            csv_kvm_cpu_reset_inhibit = true;
++    }
++
+     /*
+      * The LAUNCH context is used for new guest, if its an incoming guest
+      * then RECEIVE context will be created after the connection is established.
+@@ -2589,6 +2601,11 @@ bool sev_add_kernel_loader_hashes(SevKernelLoaderContext *ctx, Error **errp)
+     return ret;
+ }
+ 
++struct sev_ops sev_ops = {
++    .sev_ioctl = sev_ioctl,
++    .fw_error_to_str = fw_error_to_str,
++};
++
+ static void
+ sev_register_types(void)
+ {
+diff --git a/target/i386/sev.h b/target/i386/sev.h
+index 0bfe3879..e91431e0 100644
+--- a/target/i386/sev.h
++++ b/target/i386/sev.h
+@@ -80,4 +80,11 @@ int sev_kvm_init(ConfidentialGuestSupport *cgs, Error **errp);
+ 
+ extern bool sev_kvm_has_msr_ghcb;
+ 
++struct sev_ops {
++    int (*sev_ioctl)(int fd, int cmd, void *data, int *error);
++    const char *(*fw_error_to_str)(int code);
++};
++
++extern struct sev_ops sev_ops;
++
+ #endif
+-- 
+2.25.1
+

@@ -1,3 +1,9 @@
+qemu (1:8.2.0+ds-1deepin4) unstable; urgency=medium
+
+  * Support Hygon CSV3 VM, support live migration for Hygon CSV3 VM
+
+ -- hanliyang <hanliyang@hygon.cn>  Tue, 08 Oct 2024 20:52:00 +0800
+
 qemu (1:8.2.0+ds-1deepin3) unstable; urgency=medium
 
   * Support live migration of Hygon CSV/CSV2 VM, support reboot CSV/CSV2 VM

@@ -1,0 +1,128 @@
+From fc4c0c8a2e9e772c20d2a85d899d30fa56550e7e Mon Sep 17 00:00:00 2001
+From: Xin Jiang <jiangxin@hygon.cn>
+Date: Thu, 13 Jul 2023 09:35:10 +0800
+Subject: [PATCH 08/14] vga: Force full update for CSV3 guest
+
+As CSV3's NPT(nested page table) is managed by firmware, VMM is hard
+to track the dirty pages of vga buffer. Although VMM could perform
+a command to firmware to update read/write attribute of vga buffer
+in NPT, it costs more time due to communication between VMM and
+firmware. So the simplest method is to fully update vga buffer
+always.
+
+Signed-off-by: Xin Jiang <jiangxin@hygon.cn>
+Signed-off-by: hanliyang <hanliyang@hygon.cn>
+---
+ accel/kvm/kvm-all.c    | 1 +
+ accel/stubs/kvm-stub.c | 1 +
+ hw/display/vga.c       | 7 +++++++
+ include/sysemu/kvm.h   | 8 ++++++++
+ target/i386/csv.c      | 3 +++
+ 5 files changed, 20 insertions(+)
+
+diff --git a/accel/kvm/kvm-all.c b/accel/kvm/kvm-all.c
+index e5ed69c3..25d23bba 100644
+--- a/accel/kvm/kvm-all.c
++++ b/accel/kvm/kvm-all.c
+@@ -98,6 +98,7 @@ bool kvm_allowed;
+ bool kvm_readonly_mem_allowed;
+ bool kvm_vm_attributes_allowed;
+ bool kvm_msi_use_devid;
++bool kvm_csv3_allowed;
+ bool kvm_has_guest_debug;
+ static int kvm_sstep_flags;
+ static bool kvm_immediate_exit;
+diff --git a/accel/stubs/kvm-stub.c b/accel/stubs/kvm-stub.c
+index 1b37d9a3..45b23f61 100644
+--- a/accel/stubs/kvm-stub.c
++++ b/accel/stubs/kvm-stub.c
+@@ -24,6 +24,7 @@ bool kvm_gsi_direct_mapping;
+ bool kvm_allowed;
+ bool kvm_readonly_mem_allowed;
+ bool kvm_msi_use_devid;
++bool kvm_csv3_allowed;
+ 
+ void kvm_flush_coalesced_mmio_buffer(void)
+ {
+diff --git a/hw/display/vga.c b/hw/display/vga.c
+index 37557c34..d70226a8 100644
+--- a/hw/display/vga.c
++++ b/hw/display/vga.c
+@@ -39,6 +39,8 @@
+ #include "migration/vmstate.h"
+ #include "trace.h"
+ 
++#include "sysemu/kvm.h"
++
+ //#define DEBUG_VGA_MEM
+ //#define DEBUG_VGA_REG
+ 
+@@ -1783,6 +1785,11 @@ static void vga_update_display(void *opaque)
+             s->cursor_blink_time = qemu_clock_get_ms(QEMU_CLOCK_VIRTUAL);
+             full_update = 1;
+         }
++
++        /* Force to full update in CSV guest. */
++        if (kvm_csv3_enabled())
++            full_update = 1;
++
+         switch(graphic_mode) {
+         case GMODE_TEXT:
+             vga_draw_text(s, full_update);
+diff --git a/include/sysemu/kvm.h b/include/sysemu/kvm.h
+index d6148781..1e15cfe9 100644
+--- a/include/sysemu/kvm.h
++++ b/include/sysemu/kvm.h
+@@ -42,6 +42,7 @@ extern bool kvm_gsi_routing_allowed;
+ extern bool kvm_gsi_direct_mapping;
+ extern bool kvm_readonly_mem_allowed;
+ extern bool kvm_msi_use_devid;
++extern bool kvm_csv3_allowed;
+ 
+ #define kvm_enabled()           (kvm_allowed)
+ /**
+@@ -143,6 +144,12 @@ extern bool kvm_msi_use_devid;
+  */
+ #define kvm_msi_devid_required() (kvm_msi_use_devid)
+ 
++/**
++ * kvm_csv3_enabled:
++ * Returns: true if CSV3 feature is used for the VM.
++ */
++#define kvm_csv3_enabled() (kvm_csv3_allowed)
++
+ #else
+ 
+ #define kvm_enabled()           (0)
+@@ -157,6 +164,7 @@ extern bool kvm_msi_use_devid;
+ #define kvm_gsi_direct_mapping() (false)
+ #define kvm_readonly_mem_enabled() (false)
+ #define kvm_msi_devid_required() (false)
++#define kvm_csv3_enabled() (false)
+ 
+ #endif  /* CONFIG_KVM_IS_POSSIBLE */
+ 
+diff --git a/target/i386/csv.c b/target/i386/csv.c
+index f423b898..70900be8 100644
+--- a/target/i386/csv.c
++++ b/target/i386/csv.c
+@@ -14,6 +14,7 @@
+ #include "qemu/osdep.h"
+ #include "qemu/error-report.h"
+ #include "qapi/error.h"
++#include "sysemu/kvm.h"
+ 
+ #include <linux/kvm.h>
+ 
+@@ -60,6 +61,8 @@ csv3_init(uint32_t policy, int fd, void *state, struct sev_ops *ops)
+             return -1;
+         }
+ 
++        kvm_csv3_allowed = true;
++
+         csv3_guest.sev_fd = fd;
+         csv3_guest.state = state;
+         csv3_guest.sev_ioctl = ops->sev_ioctl;
+-- 
+2.25.1
+

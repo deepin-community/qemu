@@ -1,0 +1,52 @@
+From 5fea26d4065defd3bf6b97267da3281d688b373c Mon Sep 17 00:00:00 2001
+From: jiangxin <jiangxin@hygon.cn>
+Date: Wed, 25 Aug 2021 14:29:40 +0800
+Subject: [PATCH 07/14] target/i386: csv: Load initial image to private memory
+ for CSV3 guest
+
+The initial image of CSV3 guest should be loaded into private memory
+before boot the guest.
+
+Add APIs to implement the image load.
+
+Signed-off-by: Xin Jiang <jiangxin@hygon.cn>
+Signed-off-by: hanliyang <hanliyang@hygon.cn>
+---
+ hw/i386/pc_sysfw.c | 14 +++++++++++++-
+ 1 file changed, 13 insertions(+), 1 deletion(-)
+
+diff --git a/hw/i386/pc_sysfw.c b/hw/i386/pc_sysfw.c
+index c8d9e71b..2bbcbb8d 100644
+--- a/hw/i386/pc_sysfw.c
++++ b/hw/i386/pc_sysfw.c
+@@ -37,6 +37,7 @@
+ #include "hw/block/flash.h"
+ #include "sysemu/kvm.h"
+ #include "sev.h"
++#include "csv.h"
+ 
+ #define FLASH_SECTOR_SIZE 4096
+ 
+@@ -263,7 +264,18 @@ void x86_firmware_configure(void *ptr, int size)
+             error_report("failed to locate and/or save reset vector");
+             exit(1);
+         }
++        if (csv3_enabled()) {
++            ram_addr_t offset = 0;
++            MemoryRegion *mr;
+ 
+-        sev_encrypt_flash(ptr, size, &error_fatal);
++            mr = memory_region_from_host(ptr, &offset);
++            if (!mr) {
++                error_report("failed to get memory region of flash");
++                exit(1);
++            }
++            csv3_load_data(mr->addr + offset, ptr, size, &error_fatal);
++        } else {
++            sev_encrypt_flash(ptr, size, &error_fatal);
++        }
+     }
+ }
+-- 
+2.25.1
+
