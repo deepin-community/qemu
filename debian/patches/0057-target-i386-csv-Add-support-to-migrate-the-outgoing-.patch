@@ -1,0 +1,139 @@
+From 33cf01771ae21863a751cde0f3121847930d8abc Mon Sep 17 00:00:00 2001
+From: jiangxin <jiangxin@hygon.cn>
+Date: Fri, 17 Jun 2022 09:52:31 +0800
+Subject: [PATCH 13/14] target/i386: csv: Add support to migrate the outgoing
+ context for CSV3 guest
+
+CSV3 needs to migrate guest cpu's context pages. Prior to migration
+of the context, it should query transfer buffer length and header
+data length by SEND ENCRYPT CONTEXT command. New migration flag
+RAM_SAVE_ENCRYPTED_CSV3_CONTEXT is defined for CSV3.
+
+Signed-off-by: Jiang Xin <jiangxin@hygon.cn>
+Signed-off-by: hanliyang <hanliyang@hygon.cn>
+---
+ target/i386/csv.c        | 81 ++++++++++++++++++++++++++++++++++++++++
+ target/i386/csv.h        |  1 +
+ target/i386/trace-events |  1 +
+ 3 files changed, 83 insertions(+)
+
+diff --git a/target/i386/csv.c b/target/i386/csv.c
+index 81407e3c..1560db68 100644
+--- a/target/i386/csv.c
++++ b/target/i386/csv.c
+@@ -46,6 +46,7 @@ struct ConfidentialGuestMemoryEncryptionOps csv3_memory_encryption_ops = {
+     .save_queued_outgoing_pages = csv3_save_queued_outgoing_pages,
+     .queue_incoming_page = NULL,
+     .load_queued_incoming_pages = NULL,
++    .save_outgoing_cpu_state = csv3_save_outgoing_context,
+ };
+ 
+ #define CSV3_OUTGOING_PAGE_NUM \
+@@ -572,3 +573,83 @@ int csv3_load_incoming_page(QEMUFile *f, uint8_t *ptr)
+ 
+     return csv3_receive_encrypt_data(f, ptr);
+ }
++
++static int
++csv3_send_get_context_len(int *fw_err, int *context_len, int *hdr_len)
++{
++    int ret = 0;
++    struct kvm_csv3_send_encrypt_context update = { 0 };
++
++    ret = csv3_ioctl(KVM_CSV3_SEND_ENCRYPT_CONTEXT, &update, fw_err);
++    if (*fw_err != SEV_RET_INVALID_LEN) {
++        error_report("%s: failed to get context length ret=%d fw_error=%d '%s'",
++                    __func__, ret, *fw_err, fw_error_to_str(*fw_err));
++        ret = -1;
++        goto err;
++    }
++
++    if (update.trans_len <= INT_MAX && update.hdr_len <= INT_MAX) {
++        *context_len = update.trans_len;
++        *hdr_len = update.hdr_len;
++    }
++    ret = 0;
++err:
++    return ret;
++}
++
++static int
++csv3_send_encrypt_context(Csv3GuestState *s, QEMUFile *f, uint64_t *bytes_sent)
++{
++    int ret, fw_error = 0;
++    int context_len = 0;
++    int hdr_len = 0;
++    guchar *trans;
++    guchar *hdr;
++    struct kvm_csv3_send_encrypt_context update = { };
++
++    ret = csv3_send_get_context_len(&fw_error, &context_len, &hdr_len);
++    if (context_len < 1 || hdr_len < 1) {
++        error_report("%s: fail to get context length fw_error=%d '%s'",
++                     __func__, fw_error, fw_error_to_str(fw_error));
++        return 1;
++    }
++
++    /* allocate transport buffer */
++    trans = g_new(guchar, context_len);
++    hdr = g_new(guchar, hdr_len);
++
++    update.hdr_uaddr = (uintptr_t)hdr;
++    update.hdr_len = hdr_len;
++    update.trans_uaddr = (uintptr_t)trans;
++    update.trans_len = context_len;
++
++    trace_kvm_csv3_send_encrypt_context(trans, update.trans_len);
++
++    ret = csv3_ioctl(KVM_CSV3_SEND_ENCRYPT_CONTEXT, &update, &fw_error);
++    if (ret) {
++        error_report("%s: SEND_ENCRYPT_CONTEXT ret=%d fw_error=%d '%s'",
++                     __func__, ret, fw_error, fw_error_to_str(fw_error));
++        goto err;
++    }
++
++    qemu_put_be32(f, update.hdr_len);
++    qemu_put_buffer(f, (uint8_t *)update.hdr_uaddr, update.hdr_len);
++    *bytes_sent += 4 + update.hdr_len;
++
++    qemu_put_be32(f, update.trans_len);
++    qemu_put_buffer(f, (uint8_t *)update.trans_uaddr, update.trans_len);
++    *bytes_sent += 4 + update.trans_len;
++
++err:
++    g_free(trans);
++    g_free(hdr);
++    return ret;
++}
++
++int csv3_save_outgoing_context(QEMUFile *f, uint64_t *bytes_sent)
++{
++    Csv3GuestState *s = &csv3_guest;
++
++    /* send csv3 context. */
++    return csv3_send_encrypt_context(s, f, bytes_sent);
++}
+diff --git a/target/i386/csv.h b/target/i386/csv.h
+index b0adae0a..e9b8e00c 100644
+--- a/target/i386/csv.h
++++ b/target/i386/csv.h
+@@ -124,5 +124,6 @@ void csv3_shared_region_dma_unmap(uint64_t start, uint64_t end);
+ int csv3_load_incoming_page(QEMUFile *f, uint8_t *ptr);
+ int csv3_queue_outgoing_page(uint8_t *ptr, uint32_t sz, uint64_t addr);
+ int csv3_save_queued_outgoing_pages(QEMUFile *f, uint64_t *bytes_sent);
++int csv3_save_outgoing_context(QEMUFile *f, uint64_t *bytes_sent);
+ 
+ #endif
+diff --git a/target/i386/trace-events b/target/i386/trace-events
+index 9609fe3d..31a2418b 100644
+--- a/target/i386/trace-events
++++ b/target/i386/trace-events
+@@ -23,4 +23,5 @@ kvm_sev_receive_update_vmsa(uint32_t cpu_id, uint32_t cpu_index, void *src, int
+ # csv.c
+ kvm_csv3_launch_encrypt_data(uint64_t gpa, void *addr, uint64_t len) "gpa 0x%" PRIx64 "addr %p len 0x%" PRIu64
+ kvm_csv3_send_encrypt_data(void *dst, int len) "trans %p len %d"
++kvm_csv3_send_encrypt_context(void *dst, int len) "trans %p len %d"
+ kvm_csv3_receive_encrypt_data(void *dst, int len, void *hdr, int hdr_len) "trans %p len %d hdr %p hdr_len %d"
+-- 
+2.25.1
+

@@ -1,0 +1,108 @@
+From c50fcf6209677e1e99094a2974b840c53b8d7369 Mon Sep 17 00:00:00 2001
+From: jiangxin <jiangxin@hygon.cn>
+Date: Wed, 25 Aug 2021 12:25:05 +0800
+Subject: [PATCH 04/14] target/i386: csv: Add command to load vmcb to CSV3
+ guest memory
+
+The KVM_CSV3_LAUNCH_ENCRYPT_VMCB command is used to load and encrypt
+the initial VMCB data to secure memory in an isolated region that
+guest owns.
+
+Signed-off-by: Xin Jiang <jiangxin@hygon.cn>
+Signed-off-by: hanliyang <hanliyang@hygon.cn>
+---
+ linux-headers/linux/kvm.h     |  1 +
+ target/i386/csv-sysemu-stub.c |  5 +++++
+ target/i386/csv.c             | 21 +++++++++++++++++++++
+ target/i386/csv.h             |  1 +
+ target/i386/sev.c             |  8 ++++++--
+ 5 files changed, 34 insertions(+), 2 deletions(-)
+
+diff --git a/linux-headers/linux/kvm.h b/linux-headers/linux/kvm.h
+index 3f1a4020..d18e9f00 100644
+--- a/linux-headers/linux/kvm.h
++++ b/linux-headers/linux/kvm.h
+@@ -2055,6 +2055,7 @@ enum csv3_cmd_id {
+ 
+ 	KVM_CSV3_INIT = KVM_CSV3_NR_MIN,
+ 	KVM_CSV3_LAUNCH_ENCRYPT_DATA,
++	KVM_CSV3_LAUNCH_ENCRYPT_VMCB,
+ };
+ 
+ struct kvm_csv3_launch_encrypt_data {
+diff --git a/target/i386/csv-sysemu-stub.c b/target/i386/csv-sysemu-stub.c
+index b0ccbd2f..23d885f0 100644
+--- a/target/i386/csv-sysemu-stub.c
++++ b/target/i386/csv-sysemu-stub.c
+@@ -24,3 +24,8 @@ int csv3_load_data(uint64_t gpa, uint8_t *ptr, uint64_t len, Error **errp)
+ {
+     g_assert_not_reached();
+ }
++
++int csv3_launch_encrypt_vmcb(void)
++{
++    g_assert_not_reached();
++}
+diff --git a/target/i386/csv.c b/target/i386/csv.c
+index 0e3f4478..f423b898 100644
+--- a/target/i386/csv.c
++++ b/target/i386/csv.c
+@@ -143,3 +143,24 @@ csv3_load_data(uint64_t gpa, uint8_t *ptr, uint64_t len, Error **errp)
+ 
+     return ret;
+ }
++
++int
++csv3_launch_encrypt_vmcb(void)
++{
++    int ret, fw_error;
++
++    if (!csv3_enabled()) {
++        error_report("%s: CSV3 is not enabled",__func__);
++        return -1;
++    }
++
++    ret = csv3_ioctl(KVM_CSV3_LAUNCH_ENCRYPT_VMCB, NULL, &fw_error);
++    if (ret) {
++        error_report("%s: CSV3 LAUNCH_ENCRYPT_VMCB ret=%d fw_error=%d '%s'",
++                     __func__, ret, fw_error, fw_error_to_str(fw_error));
++        goto err;
++    }
++
++err:
++    return ret;
++}
+diff --git a/target/i386/csv.h b/target/i386/csv.h
+index 928774f5..6444d54e 100644
+--- a/target/i386/csv.h
++++ b/target/i386/csv.h
+@@ -85,6 +85,7 @@ typedef struct Csv3GuestState Csv3GuestState;
+ 
+ extern struct Csv3GuestState csv3_guest;
+ extern int csv3_init(uint32_t policy, int fd, void *state, struct sev_ops *ops);
++extern int csv3_launch_encrypt_vmcb(void);
+ 
+ int csv3_load_data(uint64_t gpa, uint8_t *ptr, uint64_t len, Error **errp);
+ 
+diff --git a/target/i386/sev.c b/target/i386/sev.c
+index 50f3429a..b77572f0 100644
+--- a/target/i386/sev.c
++++ b/target/i386/sev.c
+@@ -857,8 +857,12 @@ sev_launch_get_measure(Notifier *notifier, void *unused)
+     }
+ 
+     if (sev_es_enabled()) {
+-        /* measure all the VM save areas before getting launch_measure */
+-        ret = sev_launch_update_vmsa(sev);
++        if (csv3_enabled()) {
++            ret = csv3_launch_encrypt_vmcb();
++        } else {
++            /* measure all the VM save areas before getting launch_measure */
++            ret = sev_launch_update_vmsa(sev);
++        }
+         if (ret) {
+             exit(1);
+         }
+-- 
+2.25.1
+

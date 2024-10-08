@@ -1,0 +1,166 @@
+From 9636b2f254f45e2cfdd91f911d6b9afc697411cb Mon Sep 17 00:00:00 2001
+From: jiangxin <jiangxin@hygon.cn>
+Date: Wed, 25 Aug 2021 09:59:16 +0800
+Subject: [PATCH 03/14] target/i386: csv: Add command to load data to CSV3
+ guest memory
+
+The KVM_CSV3_LAUNCH_ENCRYPT_DATA command is used to load data to an
+encrypted guest memory in an isolated memory region that guest owns.
+
+Signed-off-by: Xin Jiang <jiangxin@hygon.cn>
+Signed-off-by: hanliyang <hanliyang@hygon.cn>
+---
+ linux-headers/linux/kvm.h     |  7 ++++
+ target/i386/csv-sysemu-stub.c |  5 +++
+ target/i386/csv.c             | 69 +++++++++++++++++++++++++++++++++++
+ target/i386/csv.h             |  2 +
+ target/i386/trace-events      |  3 ++
+ 5 files changed, 86 insertions(+)
+
+diff --git a/linux-headers/linux/kvm.h b/linux-headers/linux/kvm.h
+index 794e0fd4..3f1a4020 100644
+--- a/linux-headers/linux/kvm.h
++++ b/linux-headers/linux/kvm.h
+@@ -2054,6 +2054,13 @@ enum csv3_cmd_id {
+ 	KVM_CSV3_NR_MIN = 0xc0,
+ 
+ 	KVM_CSV3_INIT = KVM_CSV3_NR_MIN,
++	KVM_CSV3_LAUNCH_ENCRYPT_DATA,
++};
++
++struct kvm_csv3_launch_encrypt_data {
++	__u64 gpa;
++	__u64 uaddr;
++	__u32 len;
+ };
+ 
+ struct kvm_csv3_init_data {
+diff --git a/target/i386/csv-sysemu-stub.c b/target/i386/csv-sysemu-stub.c
+index 72f0f5c7..b0ccbd2f 100644
+--- a/target/i386/csv-sysemu-stub.c
++++ b/target/i386/csv-sysemu-stub.c
+@@ -19,3 +19,8 @@ int csv3_init(uint32_t policy, int fd, void *state, struct sev_ops *ops)
+ {
+     return 0;
+ }
++
++int csv3_load_data(uint64_t gpa, uint8_t *ptr, uint64_t len, Error **errp)
++{
++    g_assert_not_reached();
++}
+diff --git a/target/i386/csv.c b/target/i386/csv.c
+index f02aadb5..0e3f4478 100644
+--- a/target/i386/csv.c
++++ b/target/i386/csv.c
+@@ -13,6 +13,7 @@
+ 
+ #include "qemu/osdep.h"
+ #include "qemu/error-report.h"
++#include "qapi/error.h"
+ 
+ #include <linux/kvm.h>
+ 
+@@ -20,6 +21,7 @@
+ #include <numaif.h>
+ #endif
+ 
++#include "trace.h"
+ #include "cpu.h"
+ #include "sev.h"
+ #include "csv.h"
+@@ -74,3 +76,70 @@ csv3_enabled(void)
+ 
+     return sev_es_enabled() && (csv3_guest.policy & GUEST_POLICY_CSV3_BIT);
+ }
++
++static bool
++csv3_check_state(SevState state)
++{
++    return *((SevState *)csv3_guest.state) == state ? true : false;
++}
++
++static int
++csv3_ioctl(int cmd, void *data, int *error)
++{
++    if (csv3_guest.sev_ioctl)
++        return csv3_guest.sev_ioctl(csv3_guest.sev_fd, cmd, data, error);
++    else
++        return -1;
++}
++
++static const char *
++fw_error_to_str(int code)
++{
++    if (csv3_guest.fw_error_to_str)
++        return csv3_guest.fw_error_to_str(code);
++    else
++        return NULL;
++}
++
++static int
++csv3_launch_encrypt_data(uint64_t gpa, uint8_t *addr, uint64_t len)
++{
++    int ret, fw_error;
++    struct kvm_csv3_launch_encrypt_data update;
++
++    if (!addr || !len) {
++        return 1;
++    }
++
++    update.gpa = (__u64)gpa;
++    update.uaddr = (__u64)(unsigned long)addr;
++    update.len = len;
++    trace_kvm_csv3_launch_encrypt_data(gpa, addr, len);
++    ret = csv3_ioctl(KVM_CSV3_LAUNCH_ENCRYPT_DATA, &update, &fw_error);
++    if (ret) {
++        error_report("%s: CSV3 LAUNCH_ENCRYPT_DATA ret=%d fw_error=%d '%s'",
++                __func__, ret, fw_error, fw_error_to_str(fw_error));
++    }
++
++    return ret;
++}
++
++int
++csv3_load_data(uint64_t gpa, uint8_t *ptr, uint64_t len, Error **errp)
++{
++    int ret = 0;
++
++    if (!csv3_enabled()) {
++        error_setg(errp, "%s: CSV3 is not enabled", __func__);
++        return -1;
++    }
++
++    /* if CSV3 is in update state then load the data to secure memory */
++    if (csv3_check_state(SEV_STATE_LAUNCH_UPDATE)) {
++        ret = csv3_launch_encrypt_data(gpa, ptr, len);
++        if (ret)
++            error_setg(errp, "%s: CSV3 fail to encrypt data", __func__);
++    }
++
++    return ret;
++}
+diff --git a/target/i386/csv.h b/target/i386/csv.h
+index cf125fe0..928774f5 100644
+--- a/target/i386/csv.h
++++ b/target/i386/csv.h
+@@ -86,4 +86,6 @@ typedef struct Csv3GuestState Csv3GuestState;
+ extern struct Csv3GuestState csv3_guest;
+ extern int csv3_init(uint32_t policy, int fd, void *state, struct sev_ops *ops);
+ 
++int csv3_load_data(uint64_t gpa, uint8_t *ptr, uint64_t len, Error **errp);
++
+ #endif
+diff --git a/target/i386/trace-events b/target/i386/trace-events
+index 87b765c7..e07061bf 100644
+--- a/target/i386/trace-events
++++ b/target/i386/trace-events
+@@ -19,3 +19,6 @@ kvm_sev_receive_update_data(void *src, void *dst, int len, void *hdr, int hdr_le
+ kvm_sev_receive_finish(void) ""
+ kvm_sev_send_update_vmsa(uint32_t cpu_id, uint32_t cpu_index, void *dst, int len) "cpu_id %d cpu_index %d trans %p len %d"
+ kvm_sev_receive_update_vmsa(uint32_t cpu_id, uint32_t cpu_index, void *src, int len, void *hdr, int hdr_len) "cpu_id %d cpu_index %d trans %p len %d hdr %p hdr_len %d"
++
++# csv.c
++kvm_csv3_launch_encrypt_data(uint64_t gpa, void *addr, uint64_t len) "gpa 0x%" PRIx64 "addr %p len 0x%" PRIu64
+-- 
+2.25.1
+

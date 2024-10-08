@@ -42,3 +42,17 @@ target-i386-csv-Add-support-for-migrate-VMSA-for-CSV.patch
 target-i386-get-set-migrate-GHCB-state.patch
 target-i386-kvm-Fix-the-resettable-info-when-emulate.patch
 kvm-Add-support-for-CSV2-reboot.patch
+0045-target-i386-csv-Add-CSV3-context.patch
+0046-target-i386-csv-Add-command-to-initialize-CSV3-conte.patch
+0047-target-i386-csv-Add-command-to-load-data-to-CSV3-gue.patch
+0048-target-i386-csv-Add-command-to-load-vmcb-to-CSV3-gue.patch
+0049-target-i386-cpu-Populate-CPUID-0x8000_001F-when-CSV3.patch
+0050-target-i386-csv-Do-not-register-unregister-guest-sec.patch
+0051-target-i386-csv-Load-initial-image-to-private-memory.patch
+0052-vga-Force-full-update-for-CSV3-guest.patch
+0053-vfio-Only-map-shared-region-for-CSV3-virtual-machine.patch
+0054-linux-headers-update-kernel-headers-to-include-CSV3-.patch
+0055-target-i386-csv-Add-support-to-migrate-the-outgoing-.patch
+0056-target-i386-csv-Add-support-to-migrate-the-incoming-.patch
+0057-target-i386-csv-Add-support-to-migrate-the-outgoing-.patch
+0058-target-i386-csv-Add-support-to-migrate-the-incoming-.patch
