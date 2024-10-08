@@ -1,0 +1,79 @@
+From f7bb7cf3fe4ce27884c31fbcc01db482f1c2c689 Mon Sep 17 00:00:00 2001
+From: jiangxin <jiangxin@hygon.cn>
+Date: Fri, 17 Jun 2022 09:25:19 +0800
+Subject: [PATCH 10/14] linux-headers: update kernel headers to include CSV3
+ migration cmds
+
+Four new migration commands are added to support CSV3 migration.
+
+KVM_CSV3_SEND_ENCRYPT_DATA/KVM_CSV3_RECEIVE_ENCRYPT_DATA cmds are
+used to migrate guest's pages.
+
+KVM_CSV3_SEND_ENCRYPT_CONTEXT/KVM_CSV3_RECEIVE_ENCRYPT_CONTEXT cmds
+are used to migration guest's runtime context.
+
+Signed-off-by: Xin Jiang <jiangxin@hygon.cn>
+Signed-off-by: hanliyang <hanliyang@hygon.cn>
+---
+ linux-headers/linux/kvm.h | 38 ++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 38 insertions(+)
+
+diff --git a/linux-headers/linux/kvm.h b/linux-headers/linux/kvm.h
+index d18e9f00..5eef0e27 100644
+--- a/linux-headers/linux/kvm.h
++++ b/linux-headers/linux/kvm.h
+@@ -2056,6 +2056,12 @@ enum csv3_cmd_id {
+ 	KVM_CSV3_INIT = KVM_CSV3_NR_MIN,
+ 	KVM_CSV3_LAUNCH_ENCRYPT_DATA,
+ 	KVM_CSV3_LAUNCH_ENCRYPT_VMCB,
++	KVM_CSV3_SEND_ENCRYPT_DATA,
++	KVM_CSV3_SEND_ENCRYPT_CONTEXT,
++	KVM_CSV3_RECEIVE_ENCRYPT_DATA,
++	KVM_CSV3_RECEIVE_ENCRYPT_CONTEXT,
++
++	KVM_CSV3_NR_MAX,
+ };
+ 
+ struct kvm_csv3_launch_encrypt_data {
+@@ -2068,6 +2074,38 @@ struct kvm_csv3_init_data {
+ 	__u64 nodemask;
+ };
+ 
++struct kvm_csv3_send_encrypt_data {
++	__u64 hdr_uaddr;
++	__u32 hdr_len;
++	__u64 guest_addr_data;
++	__u32 guest_addr_len;
++	__u64 trans_uaddr;
++	__u32 trans_len;
++};
++
++struct kvm_csv3_send_encrypt_context {
++	__u64 hdr_uaddr;
++	__u32 hdr_len;
++	__u64 trans_uaddr;
++	__u32 trans_len;
++};
++
++struct kvm_csv3_receive_encrypt_data {
++	__u64 hdr_uaddr;
++	__u32 hdr_len;
++	__u64 guest_addr_data;
++	__u32 guest_addr_len;
++	__u64 trans_uaddr;
++	__u32 trans_len;
++};
++
++struct kvm_csv3_receive_encrypt_context {
++	__u64 hdr_uaddr;
++	__u32 hdr_len;
++	__u64 trans_uaddr;
++	__u32 trans_len;
++};
++
+ #define KVM_DEV_ASSIGN_ENABLE_IOMMU	(1 << 0)
+ #define KVM_DEV_ASSIGN_PCI_2_3		(1 << 1)
+ #define KVM_DEV_ASSIGN_MASK_INTX	(1 << 2)
+-- 
+2.25.1
+

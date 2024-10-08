@@ -1,0 +1,41 @@
+From e70e1eab51e3375d3a1017dceaf2a34c6eabfdd1 Mon Sep 17 00:00:00 2001
+From: jiangxin <jiangxin@hygon.cn>
+Date: Tue, 24 Aug 2021 17:31:28 +0800
+Subject: [PATCH 05/14] target/i386: cpu: Populate CPUID 0x8000_001F when CSV3
+ is active
+
+On Hygon platform, bit 30 of EAX indicates whether
+this feature is supported in hardware.
+
+When CSV3 is active, CPUID 0x8000_001F provides
+information for it.
+
+Signed-off-by: Xin Jiang <jiangxin@hygon.cn>
+Signed-off-by: hanliyang <hanliyang@hygon.cn>
+---
+ target/i386/cpu.c | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/target/i386/cpu.c b/target/i386/cpu.c
+index cd16cb89..6077bbe3 100644
+--- a/target/i386/cpu.c
++++ b/target/i386/cpu.c
+@@ -29,6 +29,7 @@
+ #include "hvf/hvf-i386.h"
+ #include "kvm/kvm_i386.h"
+ #include "sev.h"
++#include "csv.h"
+ #include "qapi/error.h"
+ #include "qemu/error-report.h"
+ #include "qapi/qapi-visit-machine.h"
+@@ -6660,6 +6661,7 @@ void cpu_x86_cpuid(CPUX86State *env, uint32_t index, uint32_t count,
+         if (sev_enabled()) {
+             *eax = 0x2;
+             *eax |= sev_es_enabled() ? 0x8 : 0;
++            *eax |= csv3_enabled() ? 0x40000000 : 0; /* bit 30 for CSV3 */
+             *ebx = sev_get_cbit_position() & 0x3f; /* EBX[5:0] */
+             *ebx |= (sev_get_reduced_phys_bits() & 0x3f) << 6; /* EBX[11:6] */
+         }
+-- 
+2.25.1
+

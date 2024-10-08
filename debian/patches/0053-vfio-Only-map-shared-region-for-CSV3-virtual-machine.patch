@@ -1,0 +1,397 @@
+From 6ec0683de581b687c49df651de42d63b86daf219 Mon Sep 17 00:00:00 2001
+From: liuyafei <liuyafei@hygon.cn>
+Date: Mon, 22 May 2023 20:37:40 +0800
+Subject: [PATCH 09/14] vfio: Only map shared region for CSV3 virtual machine
+
+qemu vfio listener map/unmap all of the virtual machine's memory.
+It does not work for CSV3 virtual machine, as only shared memory
+should be accessed by device.
+
+Signed-off-by: liuyafei <liuyafei@hygon.cn>
+Signed-off-by: hanliyang <hanliyang@hygon.cn>
+---
+ hw/vfio/container.c           |  46 +++++++++++-
+ include/exec/memory.h         |  11 +++
+ system/memory.c               |  18 +++++
+ target/i386/csv-sysemu-stub.c |  10 +++
+ target/i386/csv.c             | 134 ++++++++++++++++++++++++++++++++++
+ target/i386/csv.h             |  12 +++
+ target/i386/kvm/kvm.c         |   2 +
+ 7 files changed, 230 insertions(+), 3 deletions(-)
+
+diff --git a/hw/vfio/container.c b/hw/vfio/container.c
+index 24201003..ce075f37 100644
+--- a/hw/vfio/container.c
++++ b/hw/vfio/container.c
+@@ -30,6 +30,7 @@
+ #include "qemu/error-report.h"
+ #include "qemu/range.h"
+ #include "sysemu/reset.h"
++#include "sysemu/kvm.h"
+ #include "trace.h"
+ #include "qapi/error.h"
+ #include "migration/migration.h"
+@@ -468,6 +469,32 @@ static void vfio_free_container(VFIOContainer *container)
+     g_free(container);
+ }
+ 
++static SharedRegionListener *g_shl;
++
++static void shared_memory_listener_register(MemoryListener *listener,
++                                            AddressSpace *as)
++{
++    SharedRegionListener *shl;
++
++    shl = g_new0(SharedRegionListener, 1);
++
++    shl->listener = listener;
++    shl->as = as;
++
++    shared_region_register_listener(shl);
++    g_shl = shl;
++}
++
++static void shared_memory_listener_unregister(void)
++{
++    SharedRegionListener *shl = g_shl;
++
++    shared_region_unregister_listener(shl);
++
++    g_free(shl);
++    g_shl = NULL;
++}
++
+ static int vfio_connect_container(VFIOGroup *group, AddressSpace *as,
+                                   Error **errp)
+ {
+@@ -613,7 +640,12 @@ static int vfio_connect_container(VFIOGroup *group, AddressSpace *as,
+ 
+     container->listener = vfio_memory_listener;
+ 
+-    memory_listener_register(&container->listener, container->space->as);
++    if (kvm_csv3_enabled()) {
++        shared_memory_listener_register(&container->listener,
++                                        container->space->as);
++    } else {
++        memory_listener_register(&container->listener, container->space->as);
++    }
+ 
+     if (container->error) {
+         ret = -1;
+@@ -629,7 +661,11 @@ listener_release_exit:
+     QLIST_REMOVE(group, container_next);
+     QLIST_REMOVE(container, next);
+     vfio_kvm_device_del_group(group);
+-    memory_listener_unregister(&container->listener);
++    if (kvm_csv3_enabled()) {
++        shared_memory_listener_unregister();
++    } else {
++        memory_listener_unregister(&container->listener);
++    }
+     if (container->iommu_type == VFIO_SPAPR_TCE_v2_IOMMU ||
+         container->iommu_type == VFIO_SPAPR_TCE_IOMMU) {
+         vfio_spapr_container_deinit(container);
+@@ -663,7 +699,11 @@ static void vfio_disconnect_container(VFIOGroup *group)
+      * group.
+      */
+     if (QLIST_EMPTY(&container->group_list)) {
+-        memory_listener_unregister(&container->listener);
++        if (kvm_csv3_enabled()) {
++            shared_memory_listener_unregister();
++        } else {
++            memory_listener_unregister(&container->listener);
++        }
+         if (container->iommu_type == VFIO_SPAPR_TCE_v2_IOMMU ||
+             container->iommu_type == VFIO_SPAPR_TCE_IOMMU) {
+             vfio_spapr_container_deinit(container);
+diff --git a/include/exec/memory.h b/include/exec/memory.h
+index 831f7c99..3e65d8d9 100644
+--- a/include/exec/memory.h
++++ b/include/exec/memory.h
+@@ -775,6 +775,17 @@ bool memory_get_xlat_addr(IOMMUTLBEntry *iotlb, void **vaddr,
+                           ram_addr_t *ram_addr, bool *read_only,
+                           bool *mr_has_discard_manager);
+ 
++typedef struct SharedRegionListener SharedRegionListener;
++struct SharedRegionListener {
++    MemoryListener *listener;
++    AddressSpace *as;
++    QTAILQ_ENTRY(SharedRegionListener) next;
++};
++
++void shared_region_register_listener(SharedRegionListener *shl);
++void shared_region_unregister_listener(SharedRegionListener *shl);
++void *shared_region_listeners_get(void);
++
+ typedef struct CoalescedMemoryRange CoalescedMemoryRange;
+ typedef struct MemoryRegionIoeventfd MemoryRegionIoeventfd;
+ 
+diff --git a/system/memory.c b/system/memory.c
+index 798b6c0a..2ffb878e 100644
+--- a/system/memory.c
++++ b/system/memory.c
+@@ -48,6 +48,9 @@ static QTAILQ_HEAD(, MemoryListener) memory_listeners
+ static QTAILQ_HEAD(, AddressSpace) address_spaces
+     = QTAILQ_HEAD_INITIALIZER(address_spaces);
+ 
++static QTAILQ_HEAD(, SharedRegionListener) shared_region_listeners
++    = QTAILQ_HEAD_INITIALIZER(shared_region_listeners);
++
+ static GHashTable *flat_views;
+ 
+ typedef struct AddrRange AddrRange;
+@@ -2226,6 +2229,21 @@ bool memory_get_xlat_addr(IOMMUTLBEntry *iotlb, void **vaddr,
+     return true;
+ }
+ 
++void shared_region_register_listener(SharedRegionListener *shl)
++{
++    QTAILQ_INSERT_TAIL(&shared_region_listeners, shl, next);
++}
++
++void shared_region_unregister_listener(SharedRegionListener *shl)
++{
++    QTAILQ_REMOVE(&shared_region_listeners, shl, next);
++}
++
++void *shared_region_listeners_get(void)
++{
++    return &shared_region_listeners;
++}
++
+ void memory_region_set_log(MemoryRegion *mr, bool log, unsigned client)
+ {
+     uint8_t mask = 1 << client;
+diff --git a/target/i386/csv-sysemu-stub.c b/target/i386/csv-sysemu-stub.c
+index 23d885f0..db22c299 100644
+--- a/target/i386/csv-sysemu-stub.c
++++ b/target/i386/csv-sysemu-stub.c
+@@ -29,3 +29,13 @@ int csv3_launch_encrypt_vmcb(void)
+ {
+     g_assert_not_reached();
+ }
++
++int csv3_shared_region_dma_map(uint64_t start, uint64_t end)
++{
++    return 0;
++}
++
++void csv3_shared_region_dma_unmap(uint64_t start, uint64_t end)
++{
++
++}
+diff --git a/target/i386/csv.c b/target/i386/csv.c
+index 70900be8..5823c899 100644
+--- a/target/i386/csv.c
++++ b/target/i386/csv.c
+@@ -15,6 +15,7 @@
+ #include "qemu/error-report.h"
+ #include "qapi/error.h"
+ #include "sysemu/kvm.h"
++#include "exec/address-spaces.h"
+ 
+ #include <linux/kvm.h>
+ 
+@@ -67,6 +68,8 @@ csv3_init(uint32_t policy, int fd, void *state, struct sev_ops *ops)
+         csv3_guest.state = state;
+         csv3_guest.sev_ioctl = ops->sev_ioctl;
+         csv3_guest.fw_error_to_str = ops->fw_error_to_str;
++        QTAILQ_INIT(&csv3_guest.dma_map_regions_list);
++        qemu_mutex_init(&csv3_guest.dma_map_regions_list_mutex);
+     }
+     return 0;
+ }
+@@ -167,3 +170,134 @@ csv3_launch_encrypt_vmcb(void)
+ err:
+     return ret;
+ }
++
++int csv3_shared_region_dma_map(uint64_t start, uint64_t end)
++{
++    MemoryRegionSection section;
++    AddressSpace *as;
++    QTAILQ_HEAD(, SharedRegionListener) *shared_region_listeners;
++    SharedRegionListener *shl;
++    MemoryListener *listener;
++    uint64_t size;
++    Csv3GuestState *s = &csv3_guest;
++    struct dma_map_region *region, *pos;
++    int ret = 0;
++
++    if (!csv3_enabled())
++        return 0;
++
++    if (end <= start)
++        return 0;
++
++    shared_region_listeners = shared_region_listeners_get();
++    if (QTAILQ_EMPTY(shared_region_listeners))
++        return 0;
++
++    size = end - start;
++
++    qemu_mutex_lock(&s->dma_map_regions_list_mutex);
++    QTAILQ_FOREACH(pos, &s->dma_map_regions_list, list) {
++        if (start >= (pos->start + pos->size)) {
++            continue;
++        } else if ((start + size) <= pos->start) {
++            break;
++        } else {
++            goto end;
++        }
++    }
++    QTAILQ_FOREACH(shl, shared_region_listeners, next) {
++        listener = shl->listener;
++        as = shl->as;
++        section = memory_region_find(as->root, start, size);
++        if (!section.mr) {
++            goto end;
++        }
++
++        if (!memory_region_is_ram(section.mr)) {
++            memory_region_unref(section.mr);
++            goto end;
++        }
++
++        if (listener->region_add) {
++            listener->region_add(listener, &section);
++        }
++        memory_region_unref(section.mr);
++    }
++
++    region = g_malloc0(sizeof(*region));
++    if (!region) {
++        ret = -1;
++        goto end;
++    }
++    region->start = start;
++    region->size = size;
++
++    if (pos) {
++        QTAILQ_INSERT_BEFORE(pos, region, list);
++    } else {
++        QTAILQ_INSERT_TAIL(&s->dma_map_regions_list, region, list);
++    }
++
++end:
++    qemu_mutex_unlock(&s->dma_map_regions_list_mutex);
++    return ret;
++}
++
++void csv3_shared_region_dma_unmap(uint64_t start, uint64_t end)
++{
++    MemoryRegionSection section;
++    AddressSpace *as;
++    QTAILQ_HEAD(, SharedRegionListener) *shared_region_listeners;
++    SharedRegionListener *shl;
++    MemoryListener *listener;
++    uint64_t size;
++    Csv3GuestState *s = &csv3_guest;
++    struct dma_map_region *pos, *next_pos;
++
++    if (!csv3_enabled())
++        return;
++
++    if (end <= start)
++        return;
++
++    shared_region_listeners = shared_region_listeners_get();
++    if (QTAILQ_EMPTY(shared_region_listeners))
++        return;
++
++    size = end - start;
++
++    qemu_mutex_lock(&s->dma_map_regions_list_mutex);
++    QTAILQ_FOREACH_SAFE(pos, &s->dma_map_regions_list, list, next_pos) {
++        uint64_t l, r;
++        uint64_t curr_end = pos->start + pos->size;
++
++        l = MAX(start, pos->start);
++        r = MIN(start + size, pos->start + pos->size);
++        if (l < r) {
++            if ((start <= pos->start) && (start + size >= pos->start + pos->size)) {
++                QTAILQ_FOREACH(shl, shared_region_listeners, next) {
++                    listener = shl->listener;
++                    as = shl->as;
++                    section = memory_region_find(as->root, pos->start, pos->size);
++                    if (!section.mr) {
++                        goto end;
++                    }
++                    if (listener->region_del) {
++                        listener->region_del(listener, &section);
++                    }
++                    memory_region_unref(section.mr);
++                }
++
++                QTAILQ_REMOVE(&s->dma_map_regions_list, pos, list);
++                g_free(pos);
++            }
++            break;
++        }
++        if ((start + size) <= curr_end) {
++            break;
++        }
++    }
++end:
++    qemu_mutex_unlock(&s->dma_map_regions_list_mutex);
++    return;
++}
+diff --git a/target/i386/csv.h b/target/i386/csv.h
+index 6444d54e..0c402cef 100644
+--- a/target/i386/csv.h
++++ b/target/i386/csv.h
+@@ -15,6 +15,8 @@
+ #define I386_CSV_H
+ 
+ #include "qapi/qapi-commands-misc-target.h"
++#include "qemu/thread.h"
++#include "qemu/queue.h"
+ #include "sev.h"
+ 
+ #ifdef CONFIG_CSV
+@@ -73,12 +75,19 @@ int csv_load_incoming_cpu_state(QEMUFile *f);
+ /* CSV3 */
+ #define GUEST_POLICY_CSV3_BIT     (1 << 6)
+ 
++struct dma_map_region {
++    uint64_t start, size;
++    QTAILQ_ENTRY(dma_map_region) list;
++};
++
+ struct Csv3GuestState {
+     uint32_t policy;
+     int sev_fd;
+     void *state;
+     int (*sev_ioctl)(int fd, int cmd, void *data, int *error);
+     const char *(*fw_error_to_str)(int code);
++    QTAILQ_HEAD(, dma_map_region) dma_map_regions_list;
++    QemuMutex dma_map_regions_list_mutex;
+ };
+ 
+ typedef struct Csv3GuestState Csv3GuestState;
+@@ -89,4 +98,7 @@ extern int csv3_launch_encrypt_vmcb(void);
+ 
+ int csv3_load_data(uint64_t gpa, uint8_t *ptr, uint64_t len, Error **errp);
+ 
++int csv3_shared_region_dma_map(uint64_t start, uint64_t end);
++void csv3_shared_region_dma_unmap(uint64_t start, uint64_t end);
++
+ #endif
+diff --git a/target/i386/kvm/kvm.c b/target/i386/kvm/kvm.c
+index 81a96321..38300ef0 100644
+--- a/target/i386/kvm/kvm.c
++++ b/target/i386/kvm/kvm.c
+@@ -5025,8 +5025,10 @@ static int kvm_handle_exit_hypercall(X86CPU *cpu, struct kvm_run *run)
+ 
+         if (enc) {
+             sev_remove_shared_regions_list(gfn_start, gfn_end);
++            csv3_shared_region_dma_unmap(gpa, gfn_end << TARGET_PAGE_BITS);
+          } else {
+             sev_add_shared_regions_list(gfn_start, gfn_end);
++            csv3_shared_region_dma_map(gpa, gfn_end << TARGET_PAGE_BITS);
+          }
+     }
+     return 0;
+-- 
+2.25.1
+
