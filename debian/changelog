@@ -1,8 +1,16 @@
+qemu (1:8.2.0+ds-1deepin4) unstable; urgency=medium
+
+  * Drop powerpc64 system data (Skiboot, VoF, SLOF) as we don't provide
+    cross toolchains for big-endian PowerPC targets.
+  * Disable librbd (Ceph) support for riscv64 as it currently does not build.
+
+ -- Mingcong Bai <baimingcong@uniontech.com>  Wed, 09 Oct 2024 15:16:20 +0800
+
 qemu (1:8.2.0+ds-1deepin3) unstable; urgency=medium
 
   * Support live migration of Hygon CSV/CSV2 VM, support reboot CSV/CSV2 VM
 
- -- hanliyang <hanliyang@hygon.cn> Tue, 3 Sep 2024 11:27:30 2024 +0800
+ -- hanliyang <hanliyang@hygon.cn>  Tue, 3 Sep 2024 11:27:30 2024 +0800
 
 qemu (1:8.2.0+ds-1deepin2) unstable; urgency=medium
 

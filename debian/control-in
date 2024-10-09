@@ -74,8 +74,8 @@ Build-Depends-Arch:
  libcacard-dev,
 # --enable-pixman
  libpixman-1-dev,
-# --enable-rbd		amd64 arm64 mips64el ppc64el ppc64 riscv64 s390x sparc64
- librbd-dev            [amd64 arm64 mips64el ppc64el ppc64 riscv64 s390x sparc64],
+# --enable-rbd		amd64 arm64 mips64el ppc64el ppc64 s390x sparc64
+ librbd-dev            [amd64 arm64 mips64el ppc64el ppc64 s390x sparc64],
 # gluster is 64bit-only: #1039604
 # --enable-glusterfs	 amd64 arm64 ppc64el ppc64 riscv64 mips64el s390x ia64 sparc64
  libglusterfs-dev	[amd64 arm64 ppc64el ppc64 riscv64 mips64el s390x ia64 sparc64],
@@ -138,10 +138,6 @@ Build-Depends-Indep:
 # gcc-alpha-linux-gnu,
 # u-boot code
  gcc-powerpc-linux-gnu [amd64], bc,
-# skiboot firmware, openbios
- gcc-powerpc64-linux-gnu [amd64],
-# skiboot includes <openssl/something.h>
- libssl-dev,
 # openbios
  gcc-sparc64-linux-gnu [amd64], fcode-utils, xsltproc,
 # hppa-firmware
@@ -206,11 +202,11 @@ Description: extra block backend modules for qemu-system and qemu-utils
 Package: qemu-system-data
 Architecture: all
 Multi-Arch: foreign
-Conflicts: sgabios, qemu-skiboot, openbios-sparc, openbios-ppc, qemu-slof,
-Replaces:  sgabios, openbios-sparc, openbios-ppc, qemu-slof,
+Conflicts: sgabios, openbios-sparc, openbios-ppc
+Replaces:  sgabios, openbios-sparc, openbios-ppc,
  qemu-system-ppc (<< 1:6.1-4~),
 Breaks: qemu-system-ppc (<< 1:6.1-4~),
-Provides: qemu-keymaps, sgabios, qemu-skiboot, openbios-sparc, openbios-ppc, qemu-slof,
+Provides: qemu-keymaps, sgabios, openbios-sparc, openbios-ppc
 Depends: ${misc:Depends}
 Description: QEMU full system emulation (data files)
  This package provides architecture-neutral data files

@@ -545,31 +545,6 @@ install-openbios: build-openbios
 		b/openbios/obj-sparc64/QEMU,VGA.bin
 sysdata-components += openbios
 
-### powernv firmware in roms/skiboot
-build-skiboot: b/skiboot/skiboot.lid
-b/skiboot/skiboot.lid: | roms/skiboot/.version
-	mkdir -p b/skiboot
-# skiboot makefiles makes it difficult to *add* an option to CFLAGS.
-# Abuse OPTS= for this, with the default being -Os.
-	grep -q '^OPTS=-Os$$' roms/skiboot/Makefile.main || \
-	  { echo "review OPTS= in skiboot/Makefile.main"; false; }
-	${MAKE} -C b/skiboot -f ${CURDIR}/roms/skiboot/Makefile \
-	  SRC=${CURDIR}/roms/skiboot \
-	  OPTS='-Os -ffile-prefix-map="${CURDIR}/roms/skiboot/"=' \
-	  CROSS_COMPILE=${PPC64_CROSSPFX} V=${V}
-install-skiboot: b/skiboot/skiboot.lid
-	install -m 0644 -t ${sysdataidir} $<
-sysdata-components += skiboot
-
-build-vof: b/vof/vof.bin
-b/vof/vof.bin: | b
-	mkdir -p b/vof
-	printf 'CC=$${CROSS}gcc\nLD=$${CROSS}ld\nOBJCOPY=$${CROSS}objcopy\nEXTRA_CFLAGS=-m32 -mbig-endian' > b/vof/config.mak
-	${MAKE} -C b/vof CROSS=${PPC64_CROSSPFX} SRC_DIR=../../pc-bios/vof -f../../pc-bios/vof/Makefile
-install-vof: b/vof/vof.bin
-	install -m 0644 -t ${sysdataidir} $<
-sysdata-components += vof
-
 ### u-boot-e500 (u-boot.e500)
 build-u-boot-e500: b/u-boot/build-e500/u-boot
 b/u-boot/build-e500/u-boot: | b
@@ -624,15 +599,6 @@ b/qemu-palcode/palcode-clipper: | b
 install-palcode-clipper: b/qemu-palcode/palcode-clipper
 	install -m 0644 $< ${sysdataidir}/palcode-clipper
 # sysdata-components += palcode-clipper
-
-### SLOF
-build-slof: b/SLOF/boot_rom.bin
-b/SLOF/boot_rom.bin: | b
-	cp -al roms/SLOF b/
-	env -u LDFLAGS -u CFLAGS $(MAKE) -C b/SLOF qemu CROSS=${PPC64_CROSSPFX} V=${V}
-install-slof: b/SLOF/boot_rom.bin
-	install -m 0644 $< ${sysdataidir}/slof.bin
-sysdata-components += slof
 
 ### s390x firmware in pc-bios/s390-ccw
 build-s390x-fw: b/s390fw/built
