@@ -60,3 +60,6 @@ hw-vfio-add-device-hct-based-on-vfio.patch
 hw-vfio-hct-update-support-ccp-count-to-48.patch
 hw-vfio-hct-fix-ccp_index-error-caused-by-uninitiali.patch
 hw-vfio-hct-qemu-startup-terminate-once-error-happen.patch
+hw-i386-pc-add-mem2-option-for-qemu.patch
+hw-misc-psp-support-tkm-use-mem2-memory.patch
+hw-misc-psp-pin-the-hugepage-memory-specified-by-mem2.patch
