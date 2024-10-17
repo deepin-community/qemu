@@ -1,3 +1,9 @@
+qemu (1:8.2.0+ds-1deepin7) unstable; urgency=medium
+
+  * Supports running Hygon TKM in CSV virtual machine.
+
+ -- xiongmengbiao <xiongmengbiao@hygon.cn>  Thu Oct 17 15:07:25 2024 +0800
+
 qemu (1:8.2.0+ds-1deepin6) unstable; urgency=medium
 
   * Add hw/vfio/hct device, which support using ccp in VM.

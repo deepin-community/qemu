@@ -1,0 +1,310 @@
+From 7c5ae9fdcc82558d1a31bc01905bf47015d614f3 Mon Sep 17 00:00:00 2001
+From: xiongmengbiao <xiongmengbiao@hygon.cn>
+Date: Wed, 29 May 2024 00:05:44 +0800
+Subject: [PATCH 1/2] hw/i386/pc: add mem2 option for qemu
+
+The '-mem2' option is used to create a set of hugepages
+of memory and map them to a fixed address range of the guest.
+
+This allows some devices to easily obtain continuous host
+physical address ranges for performing DMA operations.
+
+Signed-off-by: xiongmengbiao <xiongmengbiao@hygon.cn>
+---
+ hw/i386/pc.c        | 129 ++++++++++++++++++++++++++++++++++++++++++++
+ include/hw/boards.h |   2 +
+ qemu-options.hx     |  12 +++++
+ system/vl.c         |  66 ++++++++++++++++++++++-
+ 4 files changed, 208 insertions(+), 1 deletion(-)
+
+diff --git a/hw/i386/pc.c b/hw/i386/pc.c
+index 29b99647..2bf03411 100644
+--- a/hw/i386/pc.c
++++ b/hw/i386/pc.c
+@@ -743,6 +743,119 @@ void xen_load_linux(PCMachineState *pcms)
+     x86ms->fw_cfg = fw_cfg;
+ }
+ 
++static int try_create_2MB_page(uint32_t page_num)
++{
++    char nr_hp_num_s[256] = {0};
++    char free_hp_num_s[256] = {0};
++    const char *nr_hugepages_dir = "/sys/kernel/mm/hugepages/hugepages-2048kB/nr_hugepages";
++    const char *free_hugepages_dir = "/sys/kernel/mm/hugepages/hugepages-2048kB/free_hugepages";
++    int nr_hp_num = -1, free_hp_num = -1, ret = -1;
++    int nr_fd = qemu_open_old(nr_hugepages_dir, O_RDWR);
++    int free_fd = qemu_open_old(free_hugepages_dir, O_RDONLY);
++
++    if (nr_fd < 0 || free_fd < 0) {
++        error_report("%s: qemu_open failed: %s\n", __func__, strerror(errno));
++        goto end;
++    }
++
++    if (read(nr_fd, nr_hp_num_s, 256) < 0)
++        goto end;
++    if (read(free_fd, free_hp_num_s, 256) < 0)
++        goto end;
++
++    nr_hp_num = atoi(nr_hp_num_s);
++    free_hp_num = atoi(free_hp_num_s);
++    if (nr_hp_num < 0 || free_hp_num < 0)
++        goto end;
++
++    if (page_num <= free_hp_num) {
++        ret = 0;
++        goto end;
++    }
++
++    nr_hp_num += (page_num - free_hp_num);
++    snprintf (nr_hp_num_s, 256, "%d", nr_hp_num);
++    if (write(nr_fd, nr_hp_num_s, strlen(nr_hp_num_s)) < 0)
++        goto end;
++
++    ret = 0;
++end:
++    if (nr_fd >= 0)
++        qemu_close(nr_fd);
++    if (free_fd >= 0)
++        qemu_close(free_fd);
++    return ret;
++}
++
++#define HUGEPAGE_NUM_MAX  128
++#define HUGEPAGE_SIZE     (1024*1024*2)
++static void mem2_init(MachineState *ms, MemoryRegion *system_memory)
++{
++    MemoryRegion *mem2_mr[HUGEPAGE_NUM_MAX] = {NULL};
++    char mr_name[128] = {0};
++    void *ram = NULL;
++    int ret = 0, lock_fd = 0;
++    const char *lock_file = "/sys/kernel/mm/hugepages/hugepages-2048kB/nr_hugepages";
++    uint32_t page_num = ms->ram2_size / HUGEPAGE_SIZE, i;
++
++    if (HUGEPAGE_NUM_MAX < page_num) {
++        error_report("\"-mem2 'size='\" needs to Less than %dM\n",
++                        (HUGEPAGE_SIZE * HUGEPAGE_NUM_MAX) / (1024 * 1024));
++        exit(EXIT_FAILURE);
++    }
++
++    // Apply for hugepages from OS and use them, which needs to be synchronized
++    lock_fd = qemu_open_old(lock_file, O_WRONLY);
++    if (lock_fd < 0) {
++        error_report("%s: open %s failed: %s\n", __func__, lock_file, strerror(errno));
++        exit(EXIT_FAILURE);
++    }
++
++    // Non-blocking
++    while (qemu_lock_fd(lock_fd, 0, 0, true)) {
++        if (errno != EACCES && errno != EAGAIN) {
++            error_report("qemu_lock_fd failed: %s\n", strerror(errno));
++            exit(EXIT_FAILURE);
++        }
++    }
++
++    /** try to create hugepage.
++     *  If there are enough free hugepages, then do nothing.
++     */
++    ret = try_create_2MB_page(page_num);
++    if (ret) {
++        error_report("%s: Failed to allocate hugepage\n", __func__);
++        goto unlock;
++    }
++
++    for (i = 0; i < page_num; ++i) {
++        mem2_mr[i] = g_malloc(sizeof(MemoryRegion));
++        ram = mmap(NULL, HUGEPAGE_SIZE, PROT_READ | PROT_WRITE,
++                    MAP_PRIVATE | MAP_ANONYMOUS | MAP_POPULATE | MAP_HUGETLB, -1, 0);
++        if (ram == MAP_FAILED) {
++            error_report("%s: mmap failed: %s", __func__, strerror(errno));
++            goto unlock;
++        }
++
++        sprintf(mr_name, "mem2-%d", i);
++        memory_region_init_ram_ptr(mem2_mr[i], NULL, mr_name, HUGEPAGE_SIZE, ram);
++        memory_region_add_subregion(system_memory, ms->ram2_base + (i * HUGEPAGE_SIZE), mem2_mr[i]);
++    }
++
++    ret = 0;
++unlock:
++    qemu_unlock_fd(lock_fd, 0, 0);
++    qemu_close(lock_fd);
++
++    if (ret) {
++        for (i = 0; i < page_num; ++i) {
++            if (mem2_mr[i])
++                g_free(mem2_mr[i]);
++        }
++        exit(EXIT_FAILURE);
++    }
++}
++
+ #define PC_ROM_MIN_VGA     0xc0000
+ #define PC_ROM_MIN_OPTION  0xc8000
+ #define PC_ROM_MAX         0xe0000
+@@ -965,6 +1078,22 @@ void pc_memory_init(PCMachineState *pcms,
+                        E820_RAM);
+     }
+ 
++    if (machine->ram2_size && machine->ram2_base) {
++        if (0x100000000ULL + x86ms->above_4g_mem_size > machine->ram2_base) {
++            error_report("\"-mem2 'base'\" needs to greater 0x%llx\n",
++                            0x100000000ULL + x86ms->above_4g_mem_size);
++            exit(EXIT_FAILURE);
++        }
++        if (machine->ram2_base & (HUGEPAGE_SIZE - 1) ||
++                machine->ram2_size & (HUGEPAGE_SIZE - 1)) {
++            error_report("\"-mem2 'base|size'\" needs to aligned to 0x%x\n", HUGEPAGE_SIZE);
++            exit(EXIT_FAILURE);
++        }
++
++        mem2_init(machine, system_memory);
++        e820_add_entry(machine->ram2_base, machine->ram2_size, E820_RAM);
++    }
++
+     if (pcms->sgx_epc.size != 0) {
+         e820_add_entry(pcms->sgx_epc.base, pcms->sgx_epc.size, E820_RESERVED);
+     }
+diff --git a/include/hw/boards.h b/include/hw/boards.h
+index da85f86e..8ac8cad2 100644
+--- a/include/hw/boards.h
++++ b/include/hw/boards.h
+@@ -389,6 +389,8 @@ struct MachineState {
+ 
+     ram_addr_t ram_size;
+     ram_addr_t maxram_size;
++    ram_addr_t ram2_base;
++    ram_addr_t ram2_size;
+     uint64_t   ram_slots;
+     BootConfiguration boot_config;
+     char *kernel_filename;
+diff --git a/qemu-options.hx b/qemu-options.hx
+index 42fd09e4..bc8e66a0 100644
+--- a/qemu-options.hx
++++ b/qemu-options.hx
+@@ -5845,6 +5845,18 @@ SRST
+             (qemu) qom-set /objects/iothread1 poll-max-ns 100000
+ ERST
+ 
++DEF("mem2", HAS_ARG, QEMU_OPTION_mem2,
++    "-mem2 base=addr[G],size=n[MG]\n"
++    "                Map guest memory using host hugepages\n"
++    "                base: starting position of guest physical address\n"
++    "                size: the size of mmaped memory\n"
++    "NOTE: Both `base` and `size` need to be aligned according to 2MB\n",
++    QEMU_ARCH_I386)
++SRST
++``-mem2 base=addr[G],size=n[MG]``
++    Map the host's large page memory at the specified guest address
++    so that some devices can use larger contiguous physical memory.
++ERST
+ 
+ HXCOMM This is the last statement. Insert new options before this line!
+ 
+diff --git a/system/vl.c b/system/vl.c
+index 2bcd9efb..2d5ad9a1 100644
+--- a/system/vl.c
++++ b/system/vl.c
+@@ -503,6 +503,23 @@ static QemuOptsList qemu_action_opts = {
+     },
+ };
+ 
++static QemuOptsList qemu_mem2_opts = {
++    .name = "mem2",
++    .merge_lists = true,
++    .head = QTAILQ_HEAD_INITIALIZER(qemu_mem2_opts.head),
++    .desc = {
++        {
++            .name = "base",
++            .type = QEMU_OPT_SIZE,
++        },
++        {
++            .name = "size",
++            .type = QEMU_OPT_SIZE,
++        },
++        { /* end of list */ }
++    },
++};
++
+ const char *qemu_get_vm_name(void)
+ {
+     return qemu_name;
+@@ -2086,6 +2103,45 @@ static void parse_memory_options(void)
+     loc_pop(&loc);
+ }
+ 
++static void parse_mem2_options(void)
++{
++    uint64_t sz, base;
++    const char *sz_str = NULL, *base_str = NULL;
++    QemuOpts *opts = qemu_find_opts_singleton("mem2");
++    Location loc;
++
++    loc_push_none(&loc);
++    qemu_opts_loc_restore(opts);
++
++    base_str = qemu_opt_get(opts, "base");
++    sz_str = qemu_opt_get(opts, "size");
++
++    if (!base_str && !sz_str)
++        return;
++
++    if ((!base_str || !*base_str)
++            || (!sz_str || !*sz_str)) {
++        error_report("missing 'base' or 'size' argument for -mem2 option");
++        exit(EXIT_FAILURE);
++    }
++
++    base = qemu_opt_get_size(opts, "base", 0);
++    if (!base) {
++        error_report("invalid 'base' value\n");
++        exit(EXIT_FAILURE);
++    }
++    current_machine->ram2_base = base;
++
++    sz = qemu_opt_get_size(opts, "size", 0);
++    if (!sz) {
++        error_report("invalid 'size' value\n");
++        exit(EXIT_FAILURE);
++    }
++    current_machine->ram2_size = sz;
++
++    loc_pop(&loc);
++}
++
+ static void qemu_create_machine(QDict *qdict)
+ {
+     MachineClass *machine_class = select_machine(qdict, &error_fatal);
+@@ -2097,6 +2153,7 @@ static void qemu_create_machine(QDict *qdict)
+     object_property_add_child(container_get(OBJECT(current_machine),
+                                             "/unattached"),
+                               "sysbus", OBJECT(sysbus_get_default()));
++    parse_mem2_options();
+ 
+     if (machine_class->minimum_page_bits) {
+         if (!set_preferred_target_page_bits(machine_class->minimum_page_bits)) {
+@@ -2768,6 +2825,7 @@ void qemu_init(int argc, char **argv)
+     qemu_add_opts(&qemu_semihosting_config_opts);
+     qemu_add_opts(&qemu_fw_cfg_opts);
+     qemu_add_opts(&qemu_action_opts);
++    qemu_add_opts(&qemu_mem2_opts);
+     qemu_add_run_with_opts();
+     module_call_init(MODULE_INIT_OPTS);
+ 
+@@ -3627,7 +3685,13 @@ void qemu_init(int argc, char **argv)
+                 break;
+             }
+ #endif /* CONFIG_POSIX */
+-
++            case QEMU_OPTION_mem2:
++                opts = qemu_opts_parse_noisily(qemu_find_opts("mem2"),
++                                               optarg, false);
++                if (!opts) {
++                    exit(EXIT_FAILURE);
++                }
++                break;
+             default:
+                 error_report("Option not supported in this build");
+                 exit(1);
+-- 
+2.36.6
+
