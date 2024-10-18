@@ -1,3 +1,9 @@
+qemu (1:8.2.0+ds-1deepin6) unstable; urgency=medium
+
+  * Add hw/vfio/hct device, which support using ccp in VM.
+
+ -- yangdepei <yangdepei@hygon.cn> Fri, 18 Oct 2024 16:56:07 +0800
+
 qemu (1:8.2.0+ds-1deepin5) unstable; urgency=medium
 
   * Support Hygon CSV3 VM, support live migration for Hygon CSV3 VM.

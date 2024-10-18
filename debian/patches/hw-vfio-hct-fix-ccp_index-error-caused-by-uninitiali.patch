@@ -1,0 +1,29 @@
+From 9e04d59f3a35a01e7a2ed87bb5964fa614d62405 Mon Sep 17 00:00:00 2001
+From: yangdepei <yangdepei@hygon.cn>
+Date: Mon, 26 Aug 2024 15:40:25 +0800
+Subject: [PATCH 3/4] hw/vfio/hct: fix ccp_index error caused by uninitialized
+ buf
+
+Signed-off-by: yangdepei <yangdepei@hygon.cn>
+---
+ hw/vfio/hct.c | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/hw/vfio/hct.c b/hw/vfio/hct.c
+index 790bb784..9374e95e 100644
+--- a/hw/vfio/hct.c
++++ b/hw/vfio/hct.c
+@@ -235,8 +235,8 @@ static int hct_check_duplicated_index(int index)
+ 
+ static int hct_get_ccp_index(HCTDevState *state)
+ {
+-    char path[PATH_MAX];
+-    char buf[CCP_INDEX_BYTES];
++    char path[PATH_MAX] = {0};
++    char buf[CCP_INDEX_BYTES] = {0};
+     int fd;
+     int ret;
+     int ccp_index;
+-- 
+2.17.1
+

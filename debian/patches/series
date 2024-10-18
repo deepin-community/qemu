@@ -56,3 +56,7 @@ kvm-Add-support-for-CSV2-reboot.patch
 0056-target-i386-csv-Add-support-to-migrate-the-incoming-.patch
 0057-target-i386-csv-Add-support-to-migrate-the-outgoing-.patch
 0058-target-i386-csv-Add-support-to-migrate-the-incoming-.patch
+hw-vfio-add-device-hct-based-on-vfio.patch
+hw-vfio-hct-update-support-ccp-count-to-48.patch
+hw-vfio-hct-fix-ccp_index-error-caused-by-uninitiali.patch
+hw-vfio-hct-qemu-startup-terminate-once-error-happen.patch
