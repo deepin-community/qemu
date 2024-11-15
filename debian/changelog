@@ -1,3 +1,10 @@
+qemu (1:8.2.0+ds-1deepin8) unstable; urgency=medium
+
+  * Support reuse ASID for Hygon CSV.
+  * Support kernel-hashes and secret injection for Hygon CSV3
+
+ -- hanliyang <hanliyang@hygon.cn>  Fri, 15 Nov 2024 11:57:11 +0800
+
 qemu (1:8.2.0+ds-1deepin7) unstable; urgency=medium
 
   * Supports running Hygon TKM in CSV virtual machine.

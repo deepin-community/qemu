@@ -1,0 +1,105 @@
+From ea5f1fd54597b69329f9f5d06420707da5aab7ab Mon Sep 17 00:00:00 2001
+From: hanliyang <hanliyang@hygon.cn>
+Date: Sat, 28 Sep 2024 14:46:28 +0800
+Subject: [PATCH 4/7] target/i386: kvm: Support to get and enable extensions
+ for Hygon CoCo guest
+
+To enable advanced Hygon CoCo features, we should detect these features
+during the initialization of VMs in the KVM accelerator. It is
+suggested to enable these features if they are detected, allowing the
+guest VM to run with additional functionalities.
+
+Signed-off-by: hanliyang <hanliyang@hygon.cn>
+---
+ linux-headers/linux/kvm.h  |  7 +++++++
+ target/i386/csv.c          |  2 ++
+ target/i386/csv.h          |  2 ++
+ target/i386/kvm/csv-stub.c |  2 ++
+ target/i386/kvm/kvm.c      | 17 +++++++++++++++++
+ 5 files changed, 30 insertions(+)
+
+diff --git a/linux-headers/linux/kvm.h b/linux-headers/linux/kvm.h
+index 09b37484..cb2e0a51 100644
+--- a/linux-headers/linux/kvm.h
++++ b/linux-headers/linux/kvm.h
+@@ -1191,6 +1191,13 @@ struct kvm_ppc_resize_hpt {
+ #define KVM_CAP_ARM_SUPPORTED_BLOCK_SIZES 229
+ 
+ #define KVM_CAP_SEV_ES_GHCB 500
++#define KVM_CAP_HYGON_COCO_EXT 501
++/* support userspace to request firmware to build CSV3 guest's memory space */
++#define KVM_CAP_HYGON_COCO_EXT_CSV3_SET_PRIV_MEM  (1 << 0)
++/* support request to update CSV3 guest's memory region multiple times */
++#define KVM_CAP_HYGON_COCO_EXT_CSV3_MULT_LUP_DATA (1 << 1)
++/* support request to inject secret to CSV3 guest */
++#define KVM_CAP_HYGON_COCO_EXT_CSV3_INJ_SECRET    (1 << 2)
+ 
+ #define KVM_EXIT_HYPERCALL_VALID_MASK (1 << KVM_HC_MAP_GPA_RANGE)
+ 
+diff --git a/target/i386/csv.c b/target/i386/csv.c
+index 0593f9b1..5f489818 100644
+--- a/target/i386/csv.c
++++ b/target/i386/csv.c
+@@ -34,6 +34,8 @@
+ #include "csv.h"
+ 
+ bool csv_kvm_cpu_reset_inhibit;
++uint32_t kvm_hygon_coco_ext;
++uint32_t kvm_hygon_coco_ext_inuse;
+ 
+ struct ConfidentialGuestMemoryEncryptionOps csv3_memory_encryption_ops = {
+     .save_setup = sev_save_setup,
+diff --git a/target/i386/csv.h b/target/i386/csv.h
+index e5e05d00..26ad700f 100644
+--- a/target/i386/csv.h
++++ b/target/i386/csv.h
+@@ -58,6 +58,8 @@ bool csv3_enabled(void);
+ #define CSV_OUTGOING_PAGE_WINDOW_SIZE     (4094 * TARGET_PAGE_SIZE)
+ 
+ extern bool csv_kvm_cpu_reset_inhibit;
++extern uint32_t kvm_hygon_coco_ext;
++extern uint32_t kvm_hygon_coco_ext_inuse;
+ 
+ typedef struct CsvBatchCmdList CsvBatchCmdList;
+ typedef void (*CsvDestroyCmdNodeFn) (void *data);
+diff --git a/target/i386/kvm/csv-stub.c b/target/i386/kvm/csv-stub.c
+index 4d1376f2..8662d332 100644
+--- a/target/i386/kvm/csv-stub.c
++++ b/target/i386/kvm/csv-stub.c
+@@ -15,3 +15,5 @@
+ #include "csv.h"
+ 
+ bool csv_kvm_cpu_reset_inhibit;
++uint32_t kvm_hygon_coco_ext;
++uint32_t kvm_hygon_coco_ext_inuse;
+diff --git a/target/i386/kvm/kvm.c b/target/i386/kvm/kvm.c
+index 38300ef0..0fb78856 100644
+--- a/target/i386/kvm/kvm.c
++++ b/target/i386/kvm/kvm.c
+@@ -2638,6 +2638,23 @@ int kvm_arch_init(MachineState *ms, KVMState *s)
+         }
+     }
+ 
++    if (is_hygon_cpu()) {
++        /* check and enable Hygon coco extensions */
++        kvm_hygon_coco_ext = (uint32_t)kvm_vm_check_extension(s,
++                                                    KVM_CAP_HYGON_COCO_EXT);
++        if (kvm_hygon_coco_ext) {
++            ret = kvm_vm_enable_cap(s, KVM_CAP_HYGON_COCO_EXT, 0,
++                                    (uint64_t)kvm_hygon_coco_ext);
++            if (ret == -EINVAL) {
++                error_report("kvm: Failed to enable KVM_CAP_HYGON_COCO_EXT cap: %s",
++                             strerror(-ret));
++                kvm_hygon_coco_ext_inuse = 0;
++            } else {
++                kvm_hygon_coco_ext_inuse = (uint32_t)ret;
++            }
++        }
++    }
++
+     ret = kvm_get_supported_msrs(s);
+     if (ret < 0) {
+         return ret;
+-- 
+2.25.1
+

@@ -1,0 +1,36 @@
+From e28ca4edb6604e6e014f00f3bfc4b3bc336941db Mon Sep 17 00:00:00 2001
+From: hanliyang <hanliyang@hygon.cn>
+Date: Fri, 1 Mar 2024 14:12:44 +0800
+Subject: [PATCH 1/7] target/i386: sev: Fix incompatibility between SEV and CSV
+ on the GET_ID API
+
+If the length of GET_ID request is too small, Hygon CSV will return
+SEV_RET_INVALID_PARAM. This return code doesn't comply with SEV API
+Spec.
+
+Hygon will consider to fix the compitibility issue of return value
+of the GET_ID API, so also check whether the return value is
+SEV_RET_INVALID_LEN on Hygon CPUs.
+
+Signed-off-by: hanliyang <hanliyang@hygon.cn>
+---
+ target/i386/sev.c | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/target/i386/sev.c b/target/i386/sev.c
+index 337f5441..95b16cc6 100644
+--- a/target/i386/sev.c
++++ b/target/i386/sev.c
+@@ -589,7 +589,8 @@ static int sev_get_cpu0_id(int fd, guchar **id, size_t *id_len, Error **errp)
+ 
+     /* query the ID length */
+     r = sev_platform_ioctl(fd, SEV_GET_ID2, &get_id2, &err);
+-    if (r < 0 && err != SEV_RET_INVALID_LEN) {
++    if (r < 0 && err != SEV_RET_INVALID_LEN &&
++        !(is_hygon_cpu() && err == SEV_RET_INVALID_PARAM)) {
+         error_setg(errp, "SEV: Failed to get ID ret=%d fw_err=%d (%s)",
+                    r, err, fw_error_to_str(err));
+         return 1;
+-- 
+2.25.1
+

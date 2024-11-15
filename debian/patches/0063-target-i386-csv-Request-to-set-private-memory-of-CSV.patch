@@ -1,0 +1,147 @@
+From 6fc3ea268d7ed302140f0d99bae6ae6ecedbd2e2 Mon Sep 17 00:00:00 2001
+From: hanliyang <hanliyang@hygon.cn>
+Date: Sat, 28 Sep 2024 17:37:17 +0800
+Subject: [PATCH] target/i386: csv: Request to set private memory of CSV3 guest
+ if the extension is enabled
+
+If Qemu negotiates with Linux KVM to enable the
+KVM_CAP_HYGON_COCO_EXT_CSV3_SET_PRIV_MEM capability, then Qemu should
+explicitly request the issuance of the CSV3_CMD_SET_GUEST_PRIVATE_MEMORY
+command.
+
+Signed-off-by: hanliyang <hanliyang@hygon.cn>
+---
+ hw/i386/pc_sysfw.c            |  3 +++
+ include/sysemu/kvm.h          |  9 +++++++++
+ linux-headers/linux/kvm.h     |  2 ++
+ target/i386/csv-sysemu-stub.c |  5 +++++
+ target/i386/csv.c             | 21 +++++++++++++++++++++
+ target/i386/csv.h             |  2 ++
+ target/i386/trace-events      |  3 ++-
+ 7 files changed, 44 insertions(+), 1 deletion(-)
+
+diff --git a/hw/i386/pc_sysfw.c b/hw/i386/pc_sysfw.c
+index 2bbcbb8d..7c6a9102 100644
+--- a/hw/i386/pc_sysfw.c
++++ b/hw/i386/pc_sysfw.c
+@@ -268,6 +268,9 @@ void x86_firmware_configure(void *ptr, int size)
+             ram_addr_t offset = 0;
+             MemoryRegion *mr;
+ 
++            if (kvm_csv3_should_set_priv_mem())
++                csv3_set_guest_private_memory(&error_fatal);
++
+             mr = memory_region_from_host(ptr, &offset);
+             if (!mr) {
+                 error_report("failed to get memory region of flash");
+diff --git a/include/sysemu/kvm.h b/include/sysemu/kvm.h
+index 1e15cfe9..a136b838 100644
+--- a/include/sysemu/kvm.h
++++ b/include/sysemu/kvm.h
+@@ -150,6 +150,14 @@ extern bool kvm_csv3_allowed;
+  */
+ #define kvm_csv3_enabled() (kvm_csv3_allowed)
+ 
++/**
++ * kvm_csv3_should_set_priv_mem:
++ * Returns: true if we should explicitly request
++ *          KVM_CSV3_SET_GUEST_PRIVATE_MEMORY.
++ */
++#define kvm_csv3_should_set_priv_mem() \
++        (kvm_hygon_coco_ext_inuse & KVM_CAP_HYGON_COCO_EXT_CSV3_SET_PRIV_MEM)
++
+ #else
+ 
+ #define kvm_enabled()           (0)
+@@ -165,6 +173,7 @@ extern bool kvm_csv3_allowed;
+ #define kvm_readonly_mem_enabled() (false)
+ #define kvm_msi_devid_required() (false)
+ #define kvm_csv3_enabled() (false)
++#define kvm_csv3_should_set_priv_mem() (false)
+ 
+ #endif  /* CONFIG_KVM_IS_POSSIBLE */
+ 
+diff --git a/linux-headers/linux/kvm.h b/linux-headers/linux/kvm.h
+index cb2e0a51..e26688e6 100644
+--- a/linux-headers/linux/kvm.h
++++ b/linux-headers/linux/kvm.h
+@@ -2073,6 +2073,8 @@ enum csv3_cmd_id {
+ 	KVM_CSV3_RECEIVE_ENCRYPT_DATA,
+ 	KVM_CSV3_RECEIVE_ENCRYPT_CONTEXT,
+ 
++	KVM_CSV3_SET_GUEST_PRIVATE_MEMORY = 0xc8,
++
+ 	KVM_CSV3_NR_MAX,
+ };
+ 
+diff --git a/target/i386/csv-sysemu-stub.c b/target/i386/csv-sysemu-stub.c
+index db22c299..e49755da 100644
+--- a/target/i386/csv-sysemu-stub.c
++++ b/target/i386/csv-sysemu-stub.c
+@@ -39,3 +39,8 @@ void csv3_shared_region_dma_unmap(uint64_t start, uint64_t end)
+ {
+ 
+ }
++
++int csv3_set_guest_private_memory(Error **errp)
++{
++    g_assert_not_reached();
++}
+diff --git a/target/i386/csv.c b/target/i386/csv.c
+index 5f489818..354d61ac 100644
+--- a/target/i386/csv.c
++++ b/target/i386/csv.c
+@@ -700,3 +700,24 @@ int csv3_load_incoming_context(QEMUFile *f)
+     /* receive csv3 context. */
+     return csv3_receive_encrypt_context(s, f);
+ }
++
++int csv3_set_guest_private_memory(Error **errp)
++{
++    int fw_error;
++    int ret = 0;
++
++    if (!csv3_enabled()) {
++        error_setg(errp, "%s: CSV3 is not enabled", __func__);
++        return -1;
++    }
++
++    /* if CSV3 is in update state then load the data to secure memory */
++    if (csv3_check_state(SEV_STATE_LAUNCH_UPDATE)) {
++        trace_kvm_csv3_set_guest_private_memory();
++        ret = csv3_ioctl(KVM_CSV3_SET_GUEST_PRIVATE_MEMORY, NULL, &fw_error);
++        if (ret)
++            error_setg(errp, "%s: CSV3 fail set private memory", __func__);
++    }
++
++    return ret;
++}
+diff --git a/target/i386/csv.h b/target/i386/csv.h
+index 26ad700f..a001ea0b 100644
+--- a/target/i386/csv.h
++++ b/target/i386/csv.h
+@@ -130,4 +130,6 @@ int csv3_queue_outgoing_page(uint8_t *ptr, uint32_t sz, uint64_t addr);
+ int csv3_save_queued_outgoing_pages(QEMUFile *f, uint64_t *bytes_sent);
+ int csv3_save_outgoing_context(QEMUFile *f, uint64_t *bytes_sent);
+ 
++int csv3_set_guest_private_memory(Error **errp);
++
+ #endif
+diff --git a/target/i386/trace-events b/target/i386/trace-events
+index 515441c4..5d4a709a 100644
+--- a/target/i386/trace-events
++++ b/target/i386/trace-events
+@@ -21,8 +21,9 @@ kvm_sev_send_update_vmsa(uint32_t cpu_id, uint32_t cpu_index, void *dst, int len
+ kvm_sev_receive_update_vmsa(uint32_t cpu_id, uint32_t cpu_index, void *src, int len, void *hdr, int hdr_len) "cpu_id %d cpu_index %d trans %p len %d hdr %p hdr_len %d"
+ 
+ # csv.c
+-kvm_csv3_launch_encrypt_data(uint64_t gpa, void *addr, uint64_t len) "gpa 0x%" PRIx64 "addr %p len 0x%" PRIu64
++kvm_csv3_launch_encrypt_data(uint64_t gpa, void *addr, uint64_t len) "gpa 0x%" PRIx64 " addr %p len 0x%" PRIx64
+ kvm_csv3_send_encrypt_data(void *dst, int len) "trans %p len %d"
+ kvm_csv3_send_encrypt_context(void *dst, int len) "trans %p len %d"
+ kvm_csv3_receive_encrypt_data(void *dst, int len, void *hdr, int hdr_len) "trans %p len %d hdr %p hdr_len %d"
+ kvm_csv3_receive_encrypt_context(void *dst, int len, void *hdr, int hdr_len) "trans %p len %d hdr %p hdr_len %d"
++kvm_csv3_set_guest_private_memory(void) ""
+-- 
+2.25.1
+

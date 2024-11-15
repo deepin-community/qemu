@@ -1,0 +1,187 @@
+From 5a4e809aa2ced6ca9be88e798ef6aacf979d59ee Mon Sep 17 00:00:00 2001
+From: appleLin <appleLin@hygon.cn>
+Date: Wed, 3 Aug 2022 21:02:41 +0800
+Subject: [PATCH 2/7] target/i386: sev: Add support for reuse ASID for
+ different CSV guests
+
+In you want to reuse one ASID for many CSV guests, you should provide a
+label (i.e. userid) and the length of the label when launch CSV guest.
+The CSV guests which were provided the same userid will share the same
+ASID.
+
+Signed-off-by: hanliyang <hanliyang@hygon.cn>
+---
+ linux-headers/linux/kvm.h |  5 +++++
+ qapi/qom.json             |  5 ++++-
+ qemu-options.hx           |  5 ++++-
+ target/i386/csv.h         |  5 +++--
+ target/i386/sev.c         | 47 ++++++++++++++++++++++++++++++++++++++-
+ 5 files changed, 62 insertions(+), 5 deletions(-)
+
+diff --git a/linux-headers/linux/kvm.h b/linux-headers/linux/kvm.h
+index 5eef0e27..09b37484 100644
+--- a/linux-headers/linux/kvm.h
++++ b/linux-headers/linux/kvm.h
+@@ -2049,6 +2049,11 @@ struct kvm_csv_command_batch {
+ 	__u64 csv_batch_list_uaddr;
+ };
+ 
++struct kvm_csv_init {
++	__u64 userid_addr;
++	__u32 len;
++};
++
+ /* CSV3 command */
+ enum csv3_cmd_id {
+ 	KVM_CSV3_NR_MIN = 0xc0,
+diff --git a/qapi/qom.json b/qapi/qom.json
+index c53ef978..89a2516b 100644
+--- a/qapi/qom.json
++++ b/qapi/qom.json
+@@ -866,6 +866,8 @@
+ #     designated guest firmware page for measured boot with -kernel
+ #     (default: false) (since 6.2)
+ #
++# @user-id: the user id of the guest owner, only support on Hygon CPUs
++#
+ # Since: 2.12
+ ##
+ { 'struct': 'SevGuestProperties',
+@@ -876,7 +878,8 @@
+             '*handle': 'uint32',
+             '*cbitpos': 'uint32',
+             'reduced-phys-bits': 'uint32',
+-            '*kernel-hashes': 'bool' } }
++            '*kernel-hashes': 'bool',
++            '*user-id': 'str' } }
+ 
+ ##
+ # @ThreadContextProperties:
+diff --git a/qemu-options.hx b/qemu-options.hx
+index 5ce0682e..8a3a183e 100644
+--- a/qemu-options.hx
++++ b/qemu-options.hx
+@@ -5637,7 +5637,7 @@ SRST
+                  -object secret,id=sec0,keyid=secmaster0,format=base64,\\
+                      data=$SECRET,iv=$(<iv.b64)
+ 
+-    ``-object sev-guest,id=id,cbitpos=cbitpos,reduced-phys-bits=val,[sev-device=string,policy=policy,handle=handle,dh-cert-file=file,session-file=file,kernel-hashes=on|off]``
++    ``-object sev-guest,id=id,cbitpos=cbitpos,reduced-phys-bits=val,[sev-device=string,policy=policy,handle=handle,dh-cert-file=file,session-file=file,kernel-hashes=on|off,user-id=id]``
+         Create a Secure Encrypted Virtualization (SEV) guest object,
+         which can be used to provide the guest memory encryption support
+         on AMD processors.
+@@ -5681,6 +5681,9 @@ SRST
+         cmdline to a designated guest firmware page for measured Linux
+         boot with -kernel. The default is off. (Since 6.2)
+ 
++        The ``user-id`` set the user id of the guest owner, this only
++        support on Hygon CPUs.
++
+         e.g to launch a SEV guest
+ 
+         .. parsed-literal::
+diff --git a/target/i386/csv.h b/target/i386/csv.h
+index bbe37249..e5e05d00 100644
+--- a/target/i386/csv.h
++++ b/target/i386/csv.h
+@@ -19,6 +19,9 @@
+ #include "qemu/queue.h"
+ #include "sev.h"
+ 
++#define GUEST_POLICY_CSV3_BIT     (1 << 6)
++#define GUEST_POLICY_REUSE_ASID  (1 << 7)
++
+ #ifdef CONFIG_CSV
+ 
+ #include "cpu.h"
+@@ -73,8 +76,6 @@ int csv_save_outgoing_cpu_state(QEMUFile *f, uint64_t *bytes_sent);
+ int csv_load_incoming_cpu_state(QEMUFile *f);
+ 
+ /* CSV3 */
+-#define GUEST_POLICY_CSV3_BIT     (1 << 6)
+-
+ struct dma_map_region {
+     uint64_t start, size;
+     QTAILQ_ENTRY(dma_map_region) list;
+diff --git a/target/i386/sev.c b/target/i386/sev.c
+index 95b16cc6..68bf5da3 100644
+--- a/target/i386/sev.c
++++ b/target/i386/sev.c
+@@ -72,6 +72,7 @@ struct SevGuestState {
+     uint32_t cbitpos;
+     uint32_t reduced_phys_bits;
+     bool kernel_hashes;
++    char *user_id;
+ 
+     /* runtime state */
+     uint32_t handle;
+@@ -373,6 +374,22 @@ sev_guest_set_dh_cert_file(Object *obj, const char *value, Error **errp)
+     s->dh_cert_file = g_strdup(value);
+ }
+ 
++static char *
++sev_guest_get_user_id(Object *obj, Error **errp)
++{
++    SevGuestState *s = SEV_GUEST(obj);
++
++    return g_strdup(s->user_id);
++}
++
++static void
++sev_guest_set_user_id(Object *obj, const char *value, Error **errp)
++{
++    SevGuestState *s = SEV_GUEST(obj);
++
++    s->user_id = g_strdup(value);
++}
++
+ static char *
+ sev_guest_get_sev_device(Object *obj, Error **errp)
+ {
+@@ -426,6 +443,11 @@ sev_guest_class_init(ObjectClass *oc, void *data)
+                                    sev_guest_set_kernel_hashes);
+     object_class_property_set_description(oc, "kernel-hashes",
+             "add kernel hashes to guest firmware for measured Linux boot");
++    object_class_property_add_str(oc, "user-id",
++                                  sev_guest_get_user_id,
++                                  sev_guest_set_user_id);
++    object_class_property_set_description(oc, "user-id",
++            "user id of the guest owner");
+ }
+ 
+ static void
+@@ -1178,7 +1200,30 @@ int sev_kvm_init(ConfidentialGuestSupport *cgs, Error **errp)
+     }
+ 
+     trace_kvm_sev_init();
+-    ret = sev_ioctl(sev->sev_fd, cmd, NULL, &fw_error);
++
++    /* Only support reuse asid for CSV/CSV2 guest */
++    if (is_hygon_cpu() &&
++        (sev_guest->policy & GUEST_POLICY_REUSE_ASID) &&
++        !(sev_guest->policy & GUEST_POLICY_CSV3_BIT)) {
++        char *user_id = NULL;
++        struct kvm_csv_init *init_cmd_buf = NULL;
++
++        user_id = object_property_get_str(OBJECT(sev), "user-id", NULL);
++        if (user_id && strlen(user_id)) {
++            init_cmd_buf = g_new0(struct kvm_csv_init, 1);
++            init_cmd_buf->len = strlen(user_id);
++            init_cmd_buf->userid_addr = (__u64)user_id;
++        }
++        ret = sev_ioctl(sev->sev_fd, cmd, init_cmd_buf, &fw_error);
++
++        if (user_id) {
++            g_free(user_id);
++            g_free(init_cmd_buf);
++        }
++    } else {
++        ret = sev_ioctl(sev->sev_fd, cmd, NULL, &fw_error);
++    }
++
+     if (ret) {
+         error_setg(errp, "%s: failed to initialize ret=%d fw_error=%d '%s'",
+                    __func__, ret, fw_error, fw_error_to_str(fw_error));
+-- 
+2.25.1
+
