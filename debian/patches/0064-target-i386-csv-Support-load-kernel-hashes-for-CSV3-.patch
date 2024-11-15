@@ -1,0 +1,40 @@
+From 67fa0c8d08113b6c42a82ce36d2ab10b483f070a Mon Sep 17 00:00:00 2001
+From: hanliyang <hanliyang@hygon.cn>
+Date: Sat, 28 Sep 2024 17:55:13 +0800
+Subject: [PATCH 6/7] target/i386: csv: Support load kernel hashes for CSV3
+ guest only if the extension is enabled
+
+The CSV3 guest can only update kernel hashes when the
+KVM_CAP_HYGON_COCO_EXT_CSV3_MULT_LUP_DATA capability is enabled.
+
+Signed-off-by: hanliyang <hanliyang@hygon.cn>
+---
+ target/i386/sev.c | 12 +++++++++++-
+ 1 file changed, 11 insertions(+), 1 deletion(-)
+
+diff --git a/target/i386/sev.c b/target/i386/sev.c
+index 7443f5b2..40f74967 100644
+--- a/target/i386/sev.c
++++ b/target/i386/sev.c
+@@ -2748,7 +2748,17 @@ bool sev_add_kernel_loader_hashes(SevKernelLoaderContext *ctx, Error **errp)
+     /* zero the excess data so the measurement can be reliably calculated */
+     memset(padded_ht->padding, 0, sizeof(padded_ht->padding));
+ 
+-    if (sev_encrypt_flash((uint8_t *)padded_ht, sizeof(*padded_ht), errp) < 0) {
++    if (csv3_enabled()) {
++        if (kvm_hygon_coco_ext_inuse & KVM_CAP_HYGON_COCO_EXT_CSV3_MULT_LUP_DATA) {
++            if (csv3_load_data(area->base, (uint8_t *)padded_ht,
++                               sizeof(*padded_ht), errp) < 0) {
++                ret = false;
++            }
++        } else {
++            error_report("%s: CSV3 load kernel hashes unsupported!", __func__);
++            ret = false;
++        }
++    } else if (sev_encrypt_flash((uint8_t *)padded_ht, sizeof(*padded_ht), errp) < 0) {
+         ret = false;
+     }
+ 
+-- 
+2.25.1
+

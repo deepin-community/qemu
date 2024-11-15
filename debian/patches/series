@@ -63,3 +63,10 @@ hw-vfio-hct-qemu-startup-terminate-once-error-happen.patch
 hw-i386-pc-add-mem2-option-for-qemu.patch
 hw-misc-psp-support-tkm-use-mem2-memory.patch
 hw-misc-psp-pin-the-hugepage-memory-specified-by-mem2.patch
+0059-target-i386-sev-Fix-incompatibility-between-SEV-and-.patch
+0060-target-i386-sev-Add-support-for-reuse-ASID-for-diffe.patch
+0061-qapi-qom-target-i386-csv-guest-Introduce-secret-head.patch
+0062-target-i386-kvm-Support-to-get-and-enable-extensions.patch
+0063-target-i386-csv-Request-to-set-private-memory-of-CSV.patch
+0064-target-i386-csv-Support-load-kernel-hashes-for-CSV3-.patch
+0065-target-i386-csv-Support-inject-secret-for-CSV3-guest.patch
