@@ -1,3 +1,9 @@
+qemu (1:8.2.0+ds-1deepin9) unstable; urgency=medium
+
+  * Enable loongarch64 targets.
+
+ -- Mingcong Bai <baimingcong@uniontech.com>  Wed, 08 Jan 2025 10:08:10 +0000
+
 qemu (1:8.2.0+ds-1deepin8) unstable; urgency=medium
 
   * Support reuse ASID for Hygon CSV.
@@ -15,7 +21,7 @@ qemu (1:8.2.0+ds-1deepin6) unstable; urgency=medium
 
   * Add hw/vfio/hct device, which support using ccp in VM.
 
- -- yangdepei <yangdepei@hygon.cn> Fri, 18 Oct 2024 16:56:07 +0800
+ -- yangdepei <yangdepei@hygon.cn>  Fri, 18 Oct 2024 16:56:07 +0800
 
 qemu (1:8.2.0+ds-1deepin5) unstable; urgency=medium
 

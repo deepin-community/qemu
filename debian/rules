@@ -41,15 +41,17 @@ include /usr/share/dpkg/buildflags.mk
 # needs to be done for build deps and --enable options.
 system-arch-linux = \
 	amd64 arm arm64 armel armhf i386 mips mipsel mips64 mips64el \
-	powerpc powerpcspe ppc64 ppc64el riscv64 s390x sparc sparc64 x32
+	powerpc powerpcspe ppc64 ppc64el riscv64 s390x sparc sparc64 x32 \
+	loong64
 system-arch = ${system-arch-linux}
 user-arch = \
 	amd64 arm arm64 armel armhf i386 mips mipsel mips64 mips64el \
-	ppc64 ppc64el riscv64 s390x sparc sparc64 x32
+	ppc64 ppc64el riscv64 s390x sparc sparc64 x32 loong64
 utils-arch = $(sort ${system-arch} ${user-arch} ia64 hppa m68k sh4 \
 	kfreebsd-amd64 kfreebsd-i386)
 # subset of system-arch
-spice-arch = amd64 i386 arm64 armel armhf mips64el mipsel ppc64el x32
+spice-arch = amd64 i386 arm64 armel armhf mips64el mipsel ppc64el x32 \
+	loong64
 
 # DEB_BUILD_OPTIONS=parallel=N
 MAKEFLAGS += $(subst parallel=,-j,$(filter parallel=%,${DEB_BUILD_OPTIONS}))
@@ -132,6 +134,10 @@ system-alias-arm = armel armhf
 system-kvmcpus-arm = arm64 arm
 system-kvmlink-arm64 = aarch64
 system-kvmlink-arm = arm
+
+system-alias-loongarch64 = loong64
+system-kvmcpus-loongarch64 = loong64
+systemd-kvmlink-loong64 = loongarch64
 
 system-archlist-mips = mips mipsel mips64 mips64el
 
