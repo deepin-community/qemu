@@ -1,3 +1,9 @@
+qemu (1:8.2.0+ds-1deepin10) unstable; urgency=medium
+
+  * virtio-net: Fix network stall at the host side waiting for kick.
+
+ -- hanliyang <hanliyang@hygon.cn>  Mon, 13 Jan 2025 10:13:11 +0800
+
 qemu (1:8.2.0+ds-1deepin9) unstable; urgency=medium
 
   * Enable loongarch64 targets.
