@@ -70,3 +70,4 @@ hw-misc-psp-pin-the-hugepage-memory-specified-by-mem2.patch
 0063-target-i386-csv-Request-to-set-private-memory-of-CSV.patch
 0064-target-i386-csv-Support-load-kernel-hashes-for-CSV3-.patch
 0065-target-i386-csv-Support-inject-secret-for-CSV3-guest.patch
+0066-virtio-net-Fix-network-stall-at-the-host-side-waitin.patch
