@@ -1,0 +1,184 @@
+From 0bd9220eca3d683d88f5b21704458e0cc281dbd5 Mon Sep 17 00:00:00 2001
+From: Bibo Mao <maobibo@loongson.cn>
+Date: Sun, 29 Sep 2024 15:04:05 +0800
+Subject: [PATCH 42/76] target/loongarch: Implement lbt registers save/restore
+ function
+
+Six registers scr0 - scr3, eflags and ftop are added in percpu vmstate.
+And two functions kvm_loongarch_get_lbt/kvm_loongarch_put_lbt are added
+to save/restore lbt registers.
+
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+Reviewed-by: Song Gao <gaosong@loongson.cn>
+Message-Id: <20240929070405.235200-3-maobibo@loongson.cn>
+Signed-off-by: Song Gao <gaosong@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+---
+ target/loongarch/cpu.h     | 12 ++++++++
+ target/loongarch/kvm/kvm.c | 62 ++++++++++++++++++++++++++++++++++++++
+ target/loongarch/machine.c | 25 +++++++++++++++
+ 3 files changed, 99 insertions(+)
+
+diff --git a/target/loongarch/cpu.h b/target/loongarch/cpu.h
+index a0cc9b59..41f95214 100644
+--- a/target/loongarch/cpu.h
++++ b/target/loongarch/cpu.h
+@@ -287,6 +287,17 @@ enum loongarch_features {
+     LOONGARCH_FEATURE_LBT, /* loongson binary translation extension */
+ };
+ 
++typedef struct  LoongArchBT {
++    /* scratch registers */
++    uint64_t scr0;
++    uint64_t scr1;
++    uint64_t scr2;
++    uint64_t scr3;
++    /* loongarch eflags */
++    uint32_t eflags;
++    uint32_t ftop;
++} lbt_t;
++
+ typedef struct CPUArchState {
+     uint64_t gpr[32];
+     uint64_t pc;
+@@ -296,6 +307,7 @@ typedef struct CPUArchState {
+     bool cf[8];
+ 
+     uint32_t fcsr0;
++    lbt_t  lbt;
+     uint32_t fcsr0_mask;
+ 
+     uint32_t cpucfg[21];
+diff --git a/target/loongarch/kvm/kvm.c b/target/loongarch/kvm/kvm.c
+index 4cf37880..111ef508 100644
+--- a/target/loongarch/kvm/kvm.c
++++ b/target/loongarch/kvm/kvm.c
+@@ -486,6 +486,58 @@ static int kvm_loongarch_put_regs_fp(CPUState *cs)
+     return ret;
+ }
+ 
++static int kvm_loongarch_put_lbt(CPUState *cs)
++{
++    CPULoongArchState *env = cpu_env(cs);
++    uint64_t val;
++    int ret;
++
++    /* check whether vm support LBT firstly */
++    if (FIELD_EX32(env->cpucfg[2], CPUCFG2, LBT_ALL) != 7) {
++        return 0;
++    }
++
++    /* set six LBT registers including scr0-scr3, eflags, ftop */
++    ret = kvm_set_one_reg(cs, KVM_REG_LOONGARCH_LBT_SCR0, &env->lbt.scr0);
++    ret |= kvm_set_one_reg(cs, KVM_REG_LOONGARCH_LBT_SCR1, &env->lbt.scr1);
++    ret |= kvm_set_one_reg(cs, KVM_REG_LOONGARCH_LBT_SCR2, &env->lbt.scr2);
++    ret |= kvm_set_one_reg(cs, KVM_REG_LOONGARCH_LBT_SCR3, &env->lbt.scr3);
++    /*
++     * Be cautious, KVM_REG_LOONGARCH_LBT_FTOP is defined as 64-bit however
++     * lbt.ftop is 32-bit; the same with KVM_REG_LOONGARCH_LBT_EFLAGS register
++     */
++    val = env->lbt.eflags;
++    ret |= kvm_set_one_reg(cs, KVM_REG_LOONGARCH_LBT_EFLAGS, &val);
++    val = env->lbt.ftop;
++    ret |= kvm_set_one_reg(cs, KVM_REG_LOONGARCH_LBT_FTOP, &val);
++
++    return ret;
++}
++
++static int kvm_loongarch_get_lbt(CPUState *cs)
++{
++    CPULoongArchState *env = cpu_env(cs);
++    uint64_t val;
++    int ret;
++
++    /* check whether vm support LBT firstly */
++    if (FIELD_EX32(env->cpucfg[2], CPUCFG2, LBT_ALL) != 7) {
++        return 0;
++    }
++
++    /* get six LBT registers including scr0-scr3, eflags, ftop */
++    ret = kvm_get_one_reg(cs, KVM_REG_LOONGARCH_LBT_SCR0, &env->lbt.scr0);
++    ret |= kvm_get_one_reg(cs, KVM_REG_LOONGARCH_LBT_SCR1, &env->lbt.scr1);
++    ret |= kvm_get_one_reg(cs, KVM_REG_LOONGARCH_LBT_SCR2, &env->lbt.scr2);
++    ret |= kvm_get_one_reg(cs, KVM_REG_LOONGARCH_LBT_SCR3, &env->lbt.scr3);
++    ret |= kvm_get_one_reg(cs, KVM_REG_LOONGARCH_LBT_EFLAGS, &val);
++    env->lbt.eflags = (uint32_t)val;
++    ret |= kvm_get_one_reg(cs, KVM_REG_LOONGARCH_LBT_FTOP, &val);
++    env->lbt.ftop = (uint32_t)val;
++
++    return ret;
++}
++
+ void kvm_arch_reset_vcpu(CPUState *cs)
+ {
+     CPULoongArchState *env = cpu_env(cs);
+@@ -625,6 +677,11 @@ int kvm_arch_get_registers(CPUState *cs)
+         return ret;
+     }
+ 
++    ret = kvm_loongarch_get_lbt(cs);
++    if (ret) {
++        return ret;
++    }
++
+     ret = kvm_loongarch_get_mpstate(cs);
+     if (ret) {
+         return ret;
+@@ -653,6 +710,11 @@ int kvm_arch_put_registers(CPUState *cs, int level)
+         return ret;
+     }
+ 
++    ret = kvm_loongarch_put_lbt(cs);
++    if (ret) {
++        return ret;
++    }
++
+     ret = kvm_loongarch_put_mpstate(cs);
+     if (ret) {
+         return ret;
+diff --git a/target/loongarch/machine.c b/target/loongarch/machine.c
+index 5a7df713..fc666a64 100644
+--- a/target/loongarch/machine.c
++++ b/target/loongarch/machine.c
+@@ -109,6 +109,30 @@ static const VMStateDescription vmstate_lasx = {
+     },
+ };
+ 
++static bool lbt_needed(void *opaque)
++{
++    LoongArchCPU *cpu = opaque;
++
++    return !!FIELD_EX64(cpu->env.cpucfg[2], CPUCFG2, LBT_ALL);
++}
++
++static const VMStateDescription vmstate_lbt = {
++    .name = "cpu/lbt",
++    .version_id = 0,
++    .minimum_version_id = 0,
++    .needed = lbt_needed,
++    .fields = (const VMStateField[]) {
++        VMSTATE_UINT64(env.lbt.scr0,   LoongArchCPU),
++        VMSTATE_UINT64(env.lbt.scr1,   LoongArchCPU),
++        VMSTATE_UINT64(env.lbt.scr2,   LoongArchCPU),
++        VMSTATE_UINT64(env.lbt.scr3,   LoongArchCPU),
++        VMSTATE_UINT32(env.lbt.eflags, LoongArchCPU),
++        VMSTATE_UINT32(env.lbt.ftop,   LoongArchCPU),
++        VMSTATE_END_OF_LIST()
++    },
++};
++
++
+ /* TLB state */
+ const VMStateDescription vmstate_tlb = {
+     .name = "cpu/tlb",
+@@ -199,6 +223,7 @@ const VMStateDescription vmstate_loongarch_cpu = {
+         &vmstate_fpu,
+         &vmstate_lsx,
+         &vmstate_lasx,
++        &vmstate_lbt,
+         NULL
+     }
+ };
+-- 
+2.45.2
+

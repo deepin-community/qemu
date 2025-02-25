@@ -1,3 +1,9 @@
+qemu (1:8.2.0+ds-1deepin11) unstable; urgency=medium
+
+  * Synchronize the latest patch of upstream loongarch.
+
+ -- Xianglai Li <lixianglai@loongson.cn>  Tue, 25 Feb 2025 19:37:11 +0800
+
 qemu (1:8.2.0+ds-1deepin10) unstable; urgency=medium
 
   * virtio-net: Fix network stall at the host side waiting for kick.

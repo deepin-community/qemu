@@ -1,0 +1,109 @@
+From 4f2c0058612b564e0cfafd620264f1c80c63f5db Mon Sep 17 00:00:00 2001
+From: Salil Mehta <salil.mehta@huawei.com>
+Date: Tue, 16 Jul 2024 12:15:01 +0100
+Subject: [PATCH 52/76] physmem: Add helper function to destroy CPU
+ AddressSpace
+
+Virtual CPU Hot-unplug leads to unrealization of a CPU object. This also
+involves destruction of the CPU AddressSpace. Add common function to help
+destroy the CPU AddressSpace.
+
+Signed-off-by: Salil Mehta <salil.mehta@huawei.com>
+Tested-by: Vishnu Pajjuri <vishnu@os.amperecomputing.com>
+Reviewed-by: Gavin Shan <gshan@redhat.com>
+Tested-by: Xianglai Li <lixianglai@loongson.cn>
+Tested-by: Miguel Luis <miguel.luis@oracle.com>
+Reviewed-by: Shaoqin Huang <shahuang@redhat.com>
+Tested-by: Zhao Liu <zhao1.liu@intel.com>
+Acked-by: Igor Mammedov <imammedo@redhat.com>
+Message-Id: <20240716111502.202344-7-salil.mehta@huawei.com>
+Reviewed-by: Michael S. Tsirkin <mst@redhat.com>
+Signed-off-by: Michael S. Tsirkin <mst@redhat.com>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+---
+ include/exec/cpu-common.h |  8 ++++++++
+ include/hw/core/cpu.h     |  1 +
+ system/physmem.c          | 29 +++++++++++++++++++++++++++++
+ 3 files changed, 38 insertions(+)
+
+diff --git a/include/exec/cpu-common.h b/include/exec/cpu-common.h
+index 41115d89..2a3d4aa1 100644
+--- a/include/exec/cpu-common.h
++++ b/include/exec/cpu-common.h
+@@ -139,6 +139,14 @@ size_t qemu_ram_pagesize_largest(void);
+  */
+ void cpu_address_space_init(CPUState *cpu, int asidx,
+                             const char *prefix, MemoryRegion *mr);
++/**
++ * cpu_address_space_destroy:
++ * @cpu: CPU for which address space needs to be destroyed
++ * @asidx: integer index of this address space
++ *
++ * Note that with KVM only one address space is supported.
++ */
++void cpu_address_space_destroy(CPUState *cpu, int asidx);
+ 
+ void cpu_physical_memory_rw(hwaddr addr, void *buf,
+                             hwaddr len, bool is_write);
+diff --git a/include/hw/core/cpu.h b/include/hw/core/cpu.h
+index c0c83204..0ae9efab 100644
+--- a/include/hw/core/cpu.h
++++ b/include/hw/core/cpu.h
+@@ -496,6 +496,7 @@ struct CPUState {
+     QSIMPLEQ_HEAD(, qemu_work_item) work_list;
+ 
+     CPUAddressSpace *cpu_ases;
++    int cpu_ases_count;
+     int num_ases;
+     AddressSpace *as;
+     MemoryRegion *memory;
+diff --git a/system/physmem.c b/system/physmem.c
+index a63853a7..d74f6d46 100644
+--- a/system/physmem.c
++++ b/system/physmem.c
+@@ -761,6 +761,7 @@ void cpu_address_space_init(CPUState *cpu, int asidx,
+ 
+     if (!cpu->cpu_ases) {
+         cpu->cpu_ases = g_new0(CPUAddressSpace, cpu->num_ases);
++        cpu->cpu_ases_count = cpu->num_ases;
+     }
+ 
+     newas = &cpu->cpu_ases[asidx];
+@@ -774,6 +775,34 @@ void cpu_address_space_init(CPUState *cpu, int asidx,
+     }
+ }
+ 
++void cpu_address_space_destroy(CPUState *cpu, int asidx)
++{
++    CPUAddressSpace *cpuas;
++
++    assert(cpu->cpu_ases);
++    assert(asidx >= 0 && asidx < cpu->num_ases);
++    /* KVM cannot currently support multiple address spaces. */
++    assert(asidx == 0 || !kvm_enabled());
++
++    cpuas = &cpu->cpu_ases[asidx];
++    if (tcg_enabled()) {
++        memory_listener_unregister(&cpuas->tcg_as_listener);
++    }
++
++    address_space_destroy(cpuas->as);
++    g_free_rcu(cpuas->as, rcu);
++
++    if (asidx == 0) {
++        /* reset the convenience alias for address space 0 */
++        cpu->as = NULL;
++    }
++
++    if (--cpu->cpu_ases_count == 0) {
++        g_free(cpu->cpu_ases);
++        cpu->cpu_ases = NULL;
++    }
++}
++
+ AddressSpace *cpu_get_address_space(CPUState *cpu, int asidx)
+ {
+     /* Return the AddressSpace corresponding to the specified index */
+-- 
+2.45.2
+

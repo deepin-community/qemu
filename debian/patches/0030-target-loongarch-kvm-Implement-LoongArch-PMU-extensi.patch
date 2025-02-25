@@ -1,0 +1,231 @@
+From b129575a7d81ab2b9b7f4a43fe4016e2c2046029 Mon Sep 17 00:00:00 2001
+From: Song Gao <gaosong@loongson.cn>
+Date: Fri, 14 Jun 2024 09:38:48 +0800
+Subject: [PATCH 30/76] target/loongarch/kvm: Implement LoongArch PMU
+ extension.
+
+Implement PMU extension for LoongArch kvm mode. Use OnOffAuto type
+variable pmu to check the PMU feature. If the PMU Feature is not supported
+with KVM host, it reports error if there is pmu=on command line.
+
+If there is no any command line about pmu parameter, it checks whether
+KVM host supports the PMU Feature and set the corresponding value in cpucfg.
+
+Signed-off-by: Song Gao <gaosong@loongson.cn>
+Message-Id: <20240614013848.53474-1-gaosong@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+---
+ linux-headers/asm-loongarch/kvm.h     |  3 ++
+ target/loongarch/cpu.c                | 64 ++++++++++++++++++++++++---
+ target/loongarch/cpu.h                |  6 +++
+ target/loongarch/kvm/kvm.c            | 16 +++++++
+ target/loongarch/kvm/kvm_loongarch.h  | 16 +++++++
+ target/loongarch/loongarch-qmp-cmds.c |  2 +-
+ 6 files changed, 99 insertions(+), 8 deletions(-)
+
+diff --git a/linux-headers/asm-loongarch/kvm.h b/linux-headers/asm-loongarch/kvm.h
+index 4cec8c16..b40b640a 100644
+--- a/linux-headers/asm-loongarch/kvm.h
++++ b/linux-headers/asm-loongarch/kvm.h
+@@ -85,6 +85,9 @@ struct kvm_fpu {
+ #define KVM_IOC_CPUCFG(REG)		LOONGARCH_REG_64(KVM_REG_LOONGARCH_CPUCFG, REG)
+ #define KVM_LOONGARCH_VCPU_CPUCFG	0
+ 
++#define KVM_LOONGARCH_VM_FEAT_CTRL 	1000
++#define  KVM_LOONGARCH_VM_FEAT_PMU 	1000
++
+ struct kvm_debug_exit_arch {
+ };
+ 
+diff --git a/target/loongarch/cpu.c b/target/loongarch/cpu.c
+index b098b1c6..17d94487 100644
+--- a/target/loongarch/cpu.c
++++ b/target/loongarch/cpu.c
+@@ -582,6 +582,35 @@ static void loongarch_cpu_disas_set_info(CPUState *s, disassemble_info *info)
+     info->print_insn = print_insn_loongarch;
+ }
+ 
++static void loongarch_cpu_check_pmu(CPUState *cs, Error **errp)
++{
++    LoongArchCPU *cpu = LOONGARCH_CPU(cs);
++    bool kvm_supported;
++
++    kvm_supported = kvm_feature_supported(cs, LOONGARCH_FEATURE_PMU);
++    if (cpu->pmu == ON_OFF_AUTO_ON) {
++        if (kvm_supported) {
++            cpu->env.cpucfg[6] = FIELD_DP32(cpu->env.cpucfg[6], CPUCFG6, PMP, 1);
++            cpu->env.cpucfg[6] = FIELD_DP32(cpu->env.cpucfg[6], CPUCFG6, PMNUM, 3);
++            cpu->env.cpucfg[6] = FIELD_DP32(cpu->env.cpucfg[6], CPUCFG6, PMBITS, 63);
++            cpu->env.cpucfg[6] = FIELD_DP32(cpu->env.cpucfg[6], CPUCFG6, UPM, 1);
++        } else {
++            error_setg(errp, "'pmu' feature not supported by KVM on this host.");
++            return;
++        }
++    } else if ((cpu->pmu == ON_OFF_AUTO_AUTO) && kvm_supported) {
++        cpu->env.cpucfg[6] = FIELD_DP32(cpu->env.cpucfg[6], CPUCFG6, PMP, 1);
++        cpu->env.cpucfg[6] = FIELD_DP32(cpu->env.cpucfg[6], CPUCFG6, PMNUM, 3);
++        cpu->env.cpucfg[6] = FIELD_DP32(cpu->env.cpucfg[6], CPUCFG6, PMBITS, 63);
++        cpu->env.cpucfg[6] = FIELD_DP32(cpu->env.cpucfg[6], CPUCFG6, UPM, 1);
++    }
++}
++
++static void loongarch_cpu_feature_realize(CPUState *cs, Error **errp)
++{
++    loongarch_cpu_check_pmu(cs, errp);
++}
++
+ static void loongarch_cpu_realizefn(DeviceState *dev, Error **errp)
+ {
+     CPUState *cs = CPU(dev);
+@@ -595,6 +624,11 @@ static void loongarch_cpu_realizefn(DeviceState *dev, Error **errp)
+     }
+ 
+     loongarch_cpu_register_gdb_regs_for_features(cs);
++    loongarch_cpu_feature_realize(cs, &local_err);
++    if (local_err != NULL) {
++        error_propagate(errp, local_err);
++        return;
++    }
+ 
+     cpu_reset(cs);
+     qemu_init_vcpu(cs);
+@@ -654,17 +688,33 @@ static void loongarch_set_lasx(Object *obj, bool value, Error **errp)
+     }
+ }
+ 
++static bool loongarch_get_pmu(Object *obj, Error **errp)
++{
++    return LOONGARCH_CPU(obj)->pmu != ON_OFF_AUTO_OFF;
++}
++
++static void loongarch_set_pmu(Object *obj, bool value, Error **errp)
++{
++    LoongArchCPU *cpu = LOONGARCH_CPU(obj);
++
++    cpu->pmu = value ? ON_OFF_AUTO_ON : ON_OFF_AUTO_OFF;
++}
++
+ void loongarch_cpu_post_init(Object *obj)
+ {
+     LoongArchCPU *cpu = LOONGARCH_CPU(obj);
+ 
+-    if (FIELD_EX32(cpu->env.cpucfg[2], CPUCFG2, LSX)) {
+-        object_property_add_bool(obj, "lsx", loongarch_get_lsx,
+-                                 loongarch_set_lsx);
+-    }
+-    if (FIELD_EX32(cpu->env.cpucfg[2], CPUCFG2, LASX)) {
+-        object_property_add_bool(obj, "lasx", loongarch_get_lasx,
+-                                 loongarch_set_lasx);
++    object_property_add_bool(obj, "lsx", loongarch_get_lsx,
++                             loongarch_set_lsx);
++    object_property_add_bool(obj, "lasx", loongarch_get_lasx,
++                             loongarch_set_lasx);
++
++    if (kvm_enabled()) {
++        cpu->pmu = ON_OFF_AUTO_AUTO;
++        object_property_add_bool(obj, "pmu", loongarch_get_pmu,
++                                 loongarch_set_pmu);
++    } else {
++        cpu->pmu = ON_OFF_AUTO_OFF;
+     }
+ }
+ 
+diff --git a/target/loongarch/cpu.h b/target/loongarch/cpu.h
+index 4749d41c..f07ed497 100644
+--- a/target/loongarch/cpu.h
++++ b/target/loongarch/cpu.h
+@@ -18,6 +18,7 @@
+ #endif
+ #include "cpu-csr.h"
+ #include "cpu-qom.h"
++#include "qapi/qapi-types-common.h"
+ 
+ #define IOCSRF_TEMP             0
+ #define IOCSRF_NODECNT          1
+@@ -281,6 +282,10 @@ struct LoongArchTLB {
+ };
+ typedef struct LoongArchTLB LoongArchTLB;
+ 
++enum loongarch_features {
++    LOONGARCH_FEATURE_PMU,
++};
++
+ typedef struct CPUArchState {
+     uint64_t gpr[32];
+     uint64_t pc;
+@@ -377,6 +382,7 @@ struct ArchCPU {
+     CPULoongArchState env;
+     QEMUTimer timer;
+     uint32_t  phy_id;
++    OnOffAuto pmu;
+ 
+     /* 'compatible' string for this CPU for Linux device trees */
+     const char *dtb_compatible;
+diff --git a/target/loongarch/kvm/kvm.c b/target/loongarch/kvm/kvm.c
+index 49d02076..afcd917b 100644
+--- a/target/loongarch/kvm/kvm.c
++++ b/target/loongarch/kvm/kvm.c
+@@ -874,6 +874,22 @@ int kvm_loongarch_set_interrupt(LoongArchCPU *cpu, int irq, int level)
+     return kvm_vcpu_ioctl(cs, KVM_INTERRUPT, &intr);
+ }
+ 
++bool kvm_feature_supported(CPUState *cs, enum loongarch_features feature)
++{
++    struct kvm_device_attr attr;
++    int ret;
++
++    switch (feature) {
++    case LOONGARCH_FEATURE_PMU:
++        attr.group = KVM_LOONGARCH_VM_FEAT_CTRL;
++        attr.attr = KVM_LOONGARCH_VM_FEAT_PMU;
++        ret = kvm_vm_ioctl(kvm_state, KVM_HAS_DEVICE_ATTR, &attr);
++        return (ret == 0);
++    default:
++        return false;
++    }
++}
++
+ void kvm_arch_accel_class_init(ObjectClass *oc)
+ {
+ }
+diff --git a/target/loongarch/kvm/kvm_loongarch.h b/target/loongarch/kvm/kvm_loongarch.h
+index d945b6bb..bdb4f180 100644
+--- a/target/loongarch/kvm/kvm_loongarch.h
++++ b/target/loongarch/kvm/kvm_loongarch.h
+@@ -13,4 +13,20 @@
+ int  kvm_loongarch_set_interrupt(LoongArchCPU *cpu, int irq, int level);
+ void kvm_arch_reset_vcpu(CPULoongArchState *env);
+ 
++#ifdef CONFIG_KVM
++/*
++ * kvm_feature_supported:
++ *
++ * Returns: true if KVM supports specified feature
++ * and false otherwise.
++ */
++bool kvm_feature_supported(CPUState *cs, enum loongarch_features feature);
++#else
++static inline bool kvm_feature_supported(CPUState *cs,
++                                         enum loongarch_features feature)
++{
++    return false;
++}
++#endif
++
+ #endif
+diff --git a/target/loongarch/loongarch-qmp-cmds.c b/target/loongarch/loongarch-qmp-cmds.c
+index 645672ff..de92ec6c 100644
+--- a/target/loongarch/loongarch-qmp-cmds.c
++++ b/target/loongarch/loongarch-qmp-cmds.c
+@@ -42,7 +42,7 @@ CpuDefinitionInfoList *qmp_query_cpu_definitions(Error **errp)
+ }
+ 
+ static const char *cpu_model_advertised_features[] = {
+-    "lsx", "lasx", NULL
++    "lsx", "lasx", "pmu", NULL
+ };
+ 
+ CpuModelExpansionInfo *qmp_query_cpu_model_expansion(CpuModelExpansionType type,
+-- 
+2.45.2
+

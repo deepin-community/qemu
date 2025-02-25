@@ -1,0 +1,216 @@
+From b6aef280aad6919bd000b6e110db1591797d59d0 Mon Sep 17 00:00:00 2001
+From: Song Gao <gaosong@loongson.cn>
+Date: Tue, 2 Jan 2024 10:02:00 +0800
+Subject: [PATCH 03/76] target/loongarch: move translate modules to tcg/
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Introduce the target/loongarch/tcg directory. Its purpose is to hold the TCG
+code that is selected by CONFIG_TCG
+
+Reviewed-by: Philippe Mathieu-Daudé <philmd@linaro.org>
+Signed-off-by: Song Gao <gaosong@loongson.cn>
+Message-Id: <20240102020200.3462097-2-gaosong@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+---
+ target/loongarch/meson.build                  | 15 +--------------
+ target/loongarch/{ => tcg}/constant_timer.c   |  0
+ target/loongarch/{ => tcg}/csr_helper.c       |  0
+ target/loongarch/{ => tcg}/fpu_helper.c       |  0
+ .../{ => tcg}/insn_trans/trans_arith.c.inc    |  0
+ .../{ => tcg}/insn_trans/trans_atomic.c.inc   |  0
+ .../{ => tcg}/insn_trans/trans_bit.c.inc      |  0
+ .../{ => tcg}/insn_trans/trans_branch.c.inc   |  0
+ .../{ => tcg}/insn_trans/trans_extra.c.inc    |  0
+ .../{ => tcg}/insn_trans/trans_farith.c.inc   |  0
+ .../{ => tcg}/insn_trans/trans_fcmp.c.inc     |  0
+ .../{ => tcg}/insn_trans/trans_fcnv.c.inc     |  0
+ .../{ => tcg}/insn_trans/trans_fmemory.c.inc  |  0
+ .../{ => tcg}/insn_trans/trans_fmov.c.inc     |  0
+ .../{ => tcg}/insn_trans/trans_memory.c.inc   |  0
+ .../insn_trans/trans_privileged.c.inc         |  0
+ .../{ => tcg}/insn_trans/trans_shift.c.inc    |  0
+ .../{ => tcg}/insn_trans/trans_vec.c.inc      |  0
+ target/loongarch/{ => tcg}/iocsr_helper.c     |  0
+ target/loongarch/tcg/meson.build              | 19 +++++++++++++++++++
+ target/loongarch/{ => tcg}/op_helper.c        |  0
+ target/loongarch/{ => tcg}/tlb_helper.c       |  0
+ target/loongarch/{ => tcg}/translate.c        |  0
+ target/loongarch/{ => tcg}/vec_helper.c       |  0
+ 24 files changed, 20 insertions(+), 14 deletions(-)
+ rename target/loongarch/{ => tcg}/constant_timer.c (100%)
+ rename target/loongarch/{ => tcg}/csr_helper.c (100%)
+ rename target/loongarch/{ => tcg}/fpu_helper.c (100%)
+ rename target/loongarch/{ => tcg}/insn_trans/trans_arith.c.inc (100%)
+ rename target/loongarch/{ => tcg}/insn_trans/trans_atomic.c.inc (100%)
+ rename target/loongarch/{ => tcg}/insn_trans/trans_bit.c.inc (100%)
+ rename target/loongarch/{ => tcg}/insn_trans/trans_branch.c.inc (100%)
+ rename target/loongarch/{ => tcg}/insn_trans/trans_extra.c.inc (100%)
+ rename target/loongarch/{ => tcg}/insn_trans/trans_farith.c.inc (100%)
+ rename target/loongarch/{ => tcg}/insn_trans/trans_fcmp.c.inc (100%)
+ rename target/loongarch/{ => tcg}/insn_trans/trans_fcnv.c.inc (100%)
+ rename target/loongarch/{ => tcg}/insn_trans/trans_fmemory.c.inc (100%)
+ rename target/loongarch/{ => tcg}/insn_trans/trans_fmov.c.inc (100%)
+ rename target/loongarch/{ => tcg}/insn_trans/trans_memory.c.inc (100%)
+ rename target/loongarch/{ => tcg}/insn_trans/trans_privileged.c.inc (100%)
+ rename target/loongarch/{ => tcg}/insn_trans/trans_shift.c.inc (100%)
+ rename target/loongarch/{ => tcg}/insn_trans/trans_vec.c.inc (100%)
+ rename target/loongarch/{ => tcg}/iocsr_helper.c (100%)
+ create mode 100644 target/loongarch/tcg/meson.build
+ rename target/loongarch/{ => tcg}/op_helper.c (100%)
+ rename target/loongarch/{ => tcg}/tlb_helper.c (100%)
+ rename target/loongarch/{ => tcg}/translate.c (100%)
+ rename target/loongarch/{ => tcg}/vec_helper.c (100%)
+
+diff --git a/target/loongarch/meson.build b/target/loongarch/meson.build
+index b3a0fb12..e84e4c51 100644
+--- a/target/loongarch/meson.build
++++ b/target/loongarch/meson.build
+@@ -5,29 +5,16 @@ loongarch_ss.add(files(
+   'cpu.c',
+   'gdbstub.c',
+ ))
+-loongarch_tcg_ss = ss.source_set()
+-loongarch_tcg_ss.add(gen)
+-loongarch_tcg_ss.add(files(
+-  'fpu_helper.c',
+-  'op_helper.c',
+-  'translate.c',
+-  'vec_helper.c',
+-))
+-loongarch_tcg_ss.add(zlib)
+ 
+ loongarch_system_ss = ss.source_set()
+ loongarch_system_ss.add(files(
+   'loongarch-qmp-cmds.c',
+   'machine.c',
+-  'tlb_helper.c',
+-  'constant_timer.c',
+-  'csr_helper.c',
+-  'iocsr_helper.c',
+ ))
+ 
+ common_ss.add(when: 'CONFIG_LOONGARCH_DIS', if_true: [files('disas.c'), gen])
+ 
+-loongarch_ss.add_all(when: 'CONFIG_TCG', if_true: [loongarch_tcg_ss])
++subdir('tcg')
+ 
+ target_arch += {'loongarch': loongarch_ss}
+ target_system_arch += {'loongarch': loongarch_system_ss}
+diff --git a/target/loongarch/constant_timer.c b/target/loongarch/tcg/constant_timer.c
+similarity index 100%
+rename from target/loongarch/constant_timer.c
+rename to target/loongarch/tcg/constant_timer.c
+diff --git a/target/loongarch/csr_helper.c b/target/loongarch/tcg/csr_helper.c
+similarity index 100%
+rename from target/loongarch/csr_helper.c
+rename to target/loongarch/tcg/csr_helper.c
+diff --git a/target/loongarch/fpu_helper.c b/target/loongarch/tcg/fpu_helper.c
+similarity index 100%
+rename from target/loongarch/fpu_helper.c
+rename to target/loongarch/tcg/fpu_helper.c
+diff --git a/target/loongarch/insn_trans/trans_arith.c.inc b/target/loongarch/tcg/insn_trans/trans_arith.c.inc
+similarity index 100%
+rename from target/loongarch/insn_trans/trans_arith.c.inc
+rename to target/loongarch/tcg/insn_trans/trans_arith.c.inc
+diff --git a/target/loongarch/insn_trans/trans_atomic.c.inc b/target/loongarch/tcg/insn_trans/trans_atomic.c.inc
+similarity index 100%
+rename from target/loongarch/insn_trans/trans_atomic.c.inc
+rename to target/loongarch/tcg/insn_trans/trans_atomic.c.inc
+diff --git a/target/loongarch/insn_trans/trans_bit.c.inc b/target/loongarch/tcg/insn_trans/trans_bit.c.inc
+similarity index 100%
+rename from target/loongarch/insn_trans/trans_bit.c.inc
+rename to target/loongarch/tcg/insn_trans/trans_bit.c.inc
+diff --git a/target/loongarch/insn_trans/trans_branch.c.inc b/target/loongarch/tcg/insn_trans/trans_branch.c.inc
+similarity index 100%
+rename from target/loongarch/insn_trans/trans_branch.c.inc
+rename to target/loongarch/tcg/insn_trans/trans_branch.c.inc
+diff --git a/target/loongarch/insn_trans/trans_extra.c.inc b/target/loongarch/tcg/insn_trans/trans_extra.c.inc
+similarity index 100%
+rename from target/loongarch/insn_trans/trans_extra.c.inc
+rename to target/loongarch/tcg/insn_trans/trans_extra.c.inc
+diff --git a/target/loongarch/insn_trans/trans_farith.c.inc b/target/loongarch/tcg/insn_trans/trans_farith.c.inc
+similarity index 100%
+rename from target/loongarch/insn_trans/trans_farith.c.inc
+rename to target/loongarch/tcg/insn_trans/trans_farith.c.inc
+diff --git a/target/loongarch/insn_trans/trans_fcmp.c.inc b/target/loongarch/tcg/insn_trans/trans_fcmp.c.inc
+similarity index 100%
+rename from target/loongarch/insn_trans/trans_fcmp.c.inc
+rename to target/loongarch/tcg/insn_trans/trans_fcmp.c.inc
+diff --git a/target/loongarch/insn_trans/trans_fcnv.c.inc b/target/loongarch/tcg/insn_trans/trans_fcnv.c.inc
+similarity index 100%
+rename from target/loongarch/insn_trans/trans_fcnv.c.inc
+rename to target/loongarch/tcg/insn_trans/trans_fcnv.c.inc
+diff --git a/target/loongarch/insn_trans/trans_fmemory.c.inc b/target/loongarch/tcg/insn_trans/trans_fmemory.c.inc
+similarity index 100%
+rename from target/loongarch/insn_trans/trans_fmemory.c.inc
+rename to target/loongarch/tcg/insn_trans/trans_fmemory.c.inc
+diff --git a/target/loongarch/insn_trans/trans_fmov.c.inc b/target/loongarch/tcg/insn_trans/trans_fmov.c.inc
+similarity index 100%
+rename from target/loongarch/insn_trans/trans_fmov.c.inc
+rename to target/loongarch/tcg/insn_trans/trans_fmov.c.inc
+diff --git a/target/loongarch/insn_trans/trans_memory.c.inc b/target/loongarch/tcg/insn_trans/trans_memory.c.inc
+similarity index 100%
+rename from target/loongarch/insn_trans/trans_memory.c.inc
+rename to target/loongarch/tcg/insn_trans/trans_memory.c.inc
+diff --git a/target/loongarch/insn_trans/trans_privileged.c.inc b/target/loongarch/tcg/insn_trans/trans_privileged.c.inc
+similarity index 100%
+rename from target/loongarch/insn_trans/trans_privileged.c.inc
+rename to target/loongarch/tcg/insn_trans/trans_privileged.c.inc
+diff --git a/target/loongarch/insn_trans/trans_shift.c.inc b/target/loongarch/tcg/insn_trans/trans_shift.c.inc
+similarity index 100%
+rename from target/loongarch/insn_trans/trans_shift.c.inc
+rename to target/loongarch/tcg/insn_trans/trans_shift.c.inc
+diff --git a/target/loongarch/insn_trans/trans_vec.c.inc b/target/loongarch/tcg/insn_trans/trans_vec.c.inc
+similarity index 100%
+rename from target/loongarch/insn_trans/trans_vec.c.inc
+rename to target/loongarch/tcg/insn_trans/trans_vec.c.inc
+diff --git a/target/loongarch/iocsr_helper.c b/target/loongarch/tcg/iocsr_helper.c
+similarity index 100%
+rename from target/loongarch/iocsr_helper.c
+rename to target/loongarch/tcg/iocsr_helper.c
+diff --git a/target/loongarch/tcg/meson.build b/target/loongarch/tcg/meson.build
+new file mode 100644
+index 00000000..1a3cd589
+--- /dev/null
++++ b/target/loongarch/tcg/meson.build
+@@ -0,0 +1,19 @@
++if 'CONFIG_TCG' not in config_all
++  subdir_done()
++endif
++
++loongarch_ss.add([zlib, gen])
++
++loongarch_ss.add(files(
++  'fpu_helper.c',
++  'op_helper.c',
++  'translate.c',
++  'vec_helper.c',
++))
++
++loongarch_system_ss.add(files(
++  'constant_timer.c',
++  'csr_helper.c',
++  'iocsr_helper.c',
++  'tlb_helper.c',
++))
+diff --git a/target/loongarch/op_helper.c b/target/loongarch/tcg/op_helper.c
+similarity index 100%
+rename from target/loongarch/op_helper.c
+rename to target/loongarch/tcg/op_helper.c
+diff --git a/target/loongarch/tlb_helper.c b/target/loongarch/tcg/tlb_helper.c
+similarity index 100%
+rename from target/loongarch/tlb_helper.c
+rename to target/loongarch/tcg/tlb_helper.c
+diff --git a/target/loongarch/translate.c b/target/loongarch/tcg/translate.c
+similarity index 100%
+rename from target/loongarch/translate.c
+rename to target/loongarch/tcg/translate.c
+diff --git a/target/loongarch/vec_helper.c b/target/loongarch/tcg/vec_helper.c
+similarity index 100%
+rename from target/loongarch/vec_helper.c
+rename to target/loongarch/tcg/vec_helper.c
+-- 
+2.45.2
+

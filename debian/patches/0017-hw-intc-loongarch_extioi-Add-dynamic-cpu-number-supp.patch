@@ -1,0 +1,299 @@
+From 062f9a9eeaa41e3ba46afde8de5b47882471cb6f Mon Sep 17 00:00:00 2001
+From: Bibo Mao <maobibo@loongson.cn>
+Date: Fri, 15 Dec 2023 11:07:36 +0800
+Subject: [PATCH 17/76] hw/intc/loongarch_extioi: Add dynamic cpu number
+ support
+
+On LoongArch physical machine, one extioi interrupt controller only
+supports 4 cpus. With processor more than 4 cpus, there are multiple
+extioi interrupt controllers; if interrupts need to be routed to
+other cpus, they are forwarded from extioi node0 to other extioi nodes.
+
+On virt machine model, there is simple extioi interrupt device model.
+All cpus can access register of extioi interrupt controller, however
+interrupt can only be route to 4 vcpu for compatible with old kernel.
+
+This patch adds dynamic cpu number support about extioi interrupt.
+With old kernel legacy extioi model is used, however kernel can detect
+and choose new route method in future, so that interrupt can be routed to
+all vcpus.
+
+confict:
+
+++<<<<<<< HEAD
+ +    .fields = (VMStateField[]) {
+++=======
++     .fields = (const VMStateField[]) {
++         VMSTATE_UINT32_ARRAY(coreisr, ExtIOICore, EXTIOI_IRQS_GROUP_COUNT),
++         VMSTATE_END_OF_LIST()
++     }
++ };
++
++ static const VMStateDescription vmstate_loongarch_extioi = {
++     .name = TYPE_LOONGARCH_EXTIOI,
++     .version_id = 2,
++     .minimum_version_id = 2,
++     .fields = (const VMStateField[]) {
+++>>>>>>> hw/intc/loongarch_extioi: Add dynamic cpu number support
+
+solve:
+
+save: hw/intc/loongarch_extioi: Add dynamic cpu number support
+
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+Reviewed-by: Song Gao <gaosong@loongson.cn>
+Message-Id: <20231215100333.3933632-4-maobibo@loongson.cn>
+Signed-off-by: Song Gao <gaosong@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+---
+ hw/intc/loongarch_extioi.c         | 109 +++++++++++++++++++----------
+ hw/loongarch/virt.c                |   3 +-
+ include/hw/intc/loongarch_extioi.h |  11 ++-
+ 3 files changed, 82 insertions(+), 41 deletions(-)
+
+diff --git a/hw/intc/loongarch_extioi.c b/hw/intc/loongarch_extioi.c
+index 77b47769..28802bf3 100644
+--- a/hw/intc/loongarch_extioi.c
++++ b/hw/intc/loongarch_extioi.c
+@@ -8,6 +8,7 @@
+ #include "qemu/osdep.h"
+ #include "qemu/module.h"
+ #include "qemu/log.h"
++#include "qapi/error.h"
+ #include "hw/irq.h"
+ #include "hw/sysbus.h"
+ #include "hw/loongarch/virt.h"
+@@ -32,23 +33,23 @@ static void extioi_update_irq(LoongArchExtIOI *s, int irq, int level)
+         if (((s->enable[irq_index]) & irq_mask) == 0) {
+             return;
+         }
+-        s->coreisr[cpu][irq_index] |= irq_mask;
+-        found = find_first_bit(s->sw_isr[cpu][ipnum], EXTIOI_IRQS);
+-        set_bit(irq, s->sw_isr[cpu][ipnum]);
++        s->cpu[cpu].coreisr[irq_index] |= irq_mask;
++        found = find_first_bit(s->cpu[cpu].sw_isr[ipnum], EXTIOI_IRQS);
++        set_bit(irq, s->cpu[cpu].sw_isr[ipnum]);
+         if (found < EXTIOI_IRQS) {
+             /* other irq is handling, need not update parent irq level */
+             return;
+         }
+     } else {
+-        s->coreisr[cpu][irq_index] &= ~irq_mask;
+-        clear_bit(irq, s->sw_isr[cpu][ipnum]);
+-        found = find_first_bit(s->sw_isr[cpu][ipnum], EXTIOI_IRQS);
++        s->cpu[cpu].coreisr[irq_index] &= ~irq_mask;
++        clear_bit(irq, s->cpu[cpu].sw_isr[ipnum]);
++        found = find_first_bit(s->cpu[cpu].sw_isr[ipnum], EXTIOI_IRQS);
+         if (found < EXTIOI_IRQS) {
+             /* other irq is handling, need not update parent irq level */
+             return;
+         }
+     }
+-    qemu_set_irq(s->parent_irq[cpu][ipnum], level);
++    qemu_set_irq(s->cpu[cpu].parent_irq[ipnum], level);
+ }
+ 
+ static void extioi_setirq(void *opaque, int irq, int level)
+@@ -96,7 +97,7 @@ static MemTxResult extioi_readw(void *opaque, hwaddr addr, uint64_t *data,
+         index = (offset - EXTIOI_COREISR_START) >> 2;
+         /* using attrs to get current cpu index */
+         cpu = attrs.requester_id;
+-        *data = s->coreisr[cpu][index];
++        *data = s->cpu[cpu].coreisr[index];
+         break;
+     case EXTIOI_COREMAP_START ... EXTIOI_COREMAP_END - 1:
+         index = (offset - EXTIOI_COREMAP_START) >> 2;
+@@ -189,8 +190,8 @@ static MemTxResult extioi_writew(void *opaque, hwaddr addr,
+         index = (offset - EXTIOI_COREISR_START) >> 2;
+         /* using attrs to get current cpu index */
+         cpu = attrs.requester_id;
+-        old_data = s->coreisr[cpu][index];
+-        s->coreisr[cpu][index] = old_data & ~val;
++        old_data = s->cpu[cpu].coreisr[index];
++        s->cpu[cpu].coreisr[index] = old_data & ~val;
+         /* write 1 to clear interrupt */
+         old_data &= val;
+         irq = ctz32(old_data);
+@@ -248,14 +249,61 @@ static const MemoryRegionOps extioi_ops = {
+     .endianness = DEVICE_LITTLE_ENDIAN,
+ };
+ 
+-static const VMStateDescription vmstate_loongarch_extioi = {
+-    .name = TYPE_LOONGARCH_EXTIOI,
++static void loongarch_extioi_realize(DeviceState *dev, Error **errp)
++{
++    LoongArchExtIOI *s = LOONGARCH_EXTIOI(dev);
++    SysBusDevice *sbd = SYS_BUS_DEVICE(dev);
++    int i, pin;
++
++    if (s->num_cpu == 0) {
++        error_setg(errp, "num-cpu must be at least 1");
++        return;
++    }
++
++    for (i = 0; i < EXTIOI_IRQS; i++) {
++        sysbus_init_irq(sbd, &s->irq[i]);
++    }
++
++    qdev_init_gpio_in(dev, extioi_setirq, EXTIOI_IRQS);
++    memory_region_init_io(&s->extioi_system_mem, OBJECT(s), &extioi_ops,
++                          s, "extioi_system_mem", 0x900);
++    sysbus_init_mmio(sbd, &s->extioi_system_mem);
++    s->cpu = g_new0(ExtIOICore, s->num_cpu);
++    if (s->cpu == NULL) {
++        error_setg(errp, "Memory allocation for ExtIOICore faile");
++        return;
++    }
++
++    for (i = 0; i < s->num_cpu; i++) {
++        for (pin = 0; pin < LS3A_INTC_IP; pin++) {
++            qdev_init_gpio_out(dev, &s->cpu[i].parent_irq[pin], 1);
++        }
++    }
++}
++
++static void loongarch_extioi_finalize(Object *obj)
++{
++    LoongArchExtIOI *s = LOONGARCH_EXTIOI(obj);
++
++    g_free(s->cpu);
++}
++
++static const VMStateDescription vmstate_extioi_core = {
++    .name = "extioi-core",
+     .version_id = 1,
+     .minimum_version_id = 1,
+-    .fields = (VMStateField[]) {
++    .fields = (const VMStateField[]) {
++        VMSTATE_UINT32_ARRAY(coreisr, ExtIOICore, EXTIOI_IRQS_GROUP_COUNT),
++        VMSTATE_END_OF_LIST()
++    }
++};
++
++static const VMStateDescription vmstate_loongarch_extioi = {
++    .name = TYPE_LOONGARCH_EXTIOI,
++    .version_id = 2,
++    .minimum_version_id = 2,
++    .fields = (const VMStateField[]) {
+         VMSTATE_UINT32_ARRAY(bounce, LoongArchExtIOI, EXTIOI_IRQS_GROUP_COUNT),
+-        VMSTATE_UINT32_2DARRAY(coreisr, LoongArchExtIOI, EXTIOI_CPUS,
+-                               EXTIOI_IRQS_GROUP_COUNT),
+         VMSTATE_UINT32_ARRAY(nodetype, LoongArchExtIOI,
+                              EXTIOI_IRQS_NODETYPE_COUNT / 2),
+         VMSTATE_UINT32_ARRAY(enable, LoongArchExtIOI, EXTIOI_IRQS / 32),
+@@ -265,45 +313,32 @@ static const VMStateDescription vmstate_loongarch_extioi = {
+         VMSTATE_UINT8_ARRAY(sw_ipmap, LoongArchExtIOI, EXTIOI_IRQS_IPMAP_SIZE),
+         VMSTATE_UINT8_ARRAY(sw_coremap, LoongArchExtIOI, EXTIOI_IRQS),
+ 
++        VMSTATE_STRUCT_VARRAY_POINTER_UINT32(cpu, LoongArchExtIOI, num_cpu,
++                         vmstate_extioi_core, ExtIOICore),
+         VMSTATE_END_OF_LIST()
+     }
+ };
+ 
+-static void loongarch_extioi_instance_init(Object *obj)
+-{
+-    SysBusDevice *dev = SYS_BUS_DEVICE(obj);
+-    LoongArchExtIOI *s = LOONGARCH_EXTIOI(obj);
+-    int i, cpu, pin;
+-
+-    for (i = 0; i < EXTIOI_IRQS; i++) {
+-        sysbus_init_irq(dev, &s->irq[i]);
+-    }
+-
+-    qdev_init_gpio_in(DEVICE(obj), extioi_setirq, EXTIOI_IRQS);
+-
+-    for (cpu = 0; cpu < EXTIOI_CPUS; cpu++) {
+-        for (pin = 0; pin < LS3A_INTC_IP; pin++) {
+-            qdev_init_gpio_out(DEVICE(obj), &s->parent_irq[cpu][pin], 1);
+-        }
+-    }
+-    memory_region_init_io(&s->extioi_system_mem, OBJECT(s), &extioi_ops,
+-                          s, "extioi_system_mem", 0x900);
+-    sysbus_init_mmio(dev, &s->extioi_system_mem);
+-}
++static Property extioi_properties[] = {
++    DEFINE_PROP_UINT32("num-cpu", LoongArchExtIOI, num_cpu, 1),
++    DEFINE_PROP_END_OF_LIST(),
++};
+ 
+ static void loongarch_extioi_class_init(ObjectClass *klass, void *data)
+ {
+     DeviceClass *dc = DEVICE_CLASS(klass);
+ 
++    dc->realize = loongarch_extioi_realize;
++    device_class_set_props(dc, extioi_properties);
+     dc->vmsd = &vmstate_loongarch_extioi;
+ }
+ 
+ static const TypeInfo loongarch_extioi_info = {
+     .name          = TYPE_LOONGARCH_EXTIOI,
+     .parent        = TYPE_SYS_BUS_DEVICE,
+-    .instance_init = loongarch_extioi_instance_init,
+     .instance_size = sizeof(struct LoongArchExtIOI),
+     .class_init    = loongarch_extioi_class_init,
++    .instance_finalize = loongarch_extioi_finalize,
+ };
+ 
+ static void loongarch_extioi_register_types(void)
+diff --git a/hw/loongarch/virt.c b/hw/loongarch/virt.c
+index 13d19b6d..c9a680e6 100644
+--- a/hw/loongarch/virt.c
++++ b/hw/loongarch/virt.c
+@@ -582,6 +582,7 @@ static void loongarch_irq_init(LoongArchMachineState *lams)
+ 
+     /* Create EXTIOI device */
+     extioi = qdev_new(TYPE_LOONGARCH_EXTIOI);
++    qdev_prop_set_uint32(extioi, "num-cpu", ms->smp.cpus);
+     sysbus_realize_and_unref(SYS_BUS_DEVICE(extioi), &error_fatal);
+     memory_region_add_subregion(&lams->system_iocsr, APIC_BASE,
+                    sysbus_mmio_get_region(SYS_BUS_DEVICE(extioi), 0));
+@@ -590,7 +591,7 @@ static void loongarch_irq_init(LoongArchMachineState *lams)
+      * connect ext irq to the cpu irq
+      * cpu_pin[9:2] <= intc_pin[7:0]
+      */
+-    for (cpu = 0; cpu < MIN(ms->smp.cpus, EXTIOI_CPUS); cpu++) {
++    for (cpu = 0; cpu < ms->smp.cpus; cpu++) {
+         cpudev = DEVICE(qemu_get_cpu(cpu));
+         for (pin = 0; pin < LS3A_INTC_IP; pin++) {
+             qdev_connect_gpio_out(extioi, (cpu * 8 + pin),
+diff --git a/include/hw/intc/loongarch_extioi.h b/include/hw/intc/loongarch_extioi.h
+index 110e5e88..a0a46b88 100644
+--- a/include/hw/intc/loongarch_extioi.h
++++ b/include/hw/intc/loongarch_extioi.h
+@@ -40,24 +40,29 @@
+ #define EXTIOI_COREMAP_START         (0xC00 - APIC_OFFSET)
+ #define EXTIOI_COREMAP_END           (0xD00 - APIC_OFFSET)
+ 
++typedef struct ExtIOICore {
++    uint32_t coreisr[EXTIOI_IRQS_GROUP_COUNT];
++    DECLARE_BITMAP(sw_isr[LS3A_INTC_IP], EXTIOI_IRQS);
++    qemu_irq parent_irq[LS3A_INTC_IP];
++} ExtIOICore;
++
+ #define TYPE_LOONGARCH_EXTIOI "loongarch.extioi"
+ OBJECT_DECLARE_SIMPLE_TYPE(LoongArchExtIOI, LOONGARCH_EXTIOI)
+ struct LoongArchExtIOI {
+     SysBusDevice parent_obj;
++    uint32_t num_cpu;
+     /* hardware state */
+     uint32_t nodetype[EXTIOI_IRQS_NODETYPE_COUNT / 2];
+     uint32_t bounce[EXTIOI_IRQS_GROUP_COUNT];
+     uint32_t isr[EXTIOI_IRQS / 32];
+-    uint32_t coreisr[EXTIOI_CPUS][EXTIOI_IRQS_GROUP_COUNT];
+     uint32_t enable[EXTIOI_IRQS / 32];
+     uint32_t ipmap[EXTIOI_IRQS_IPMAP_SIZE / 4];
+     uint32_t coremap[EXTIOI_IRQS / 4];
+     uint32_t sw_pending[EXTIOI_IRQS / 32];
+-    DECLARE_BITMAP(sw_isr[EXTIOI_CPUS][LS3A_INTC_IP], EXTIOI_IRQS);
+     uint8_t  sw_ipmap[EXTIOI_IRQS_IPMAP_SIZE];
+     uint8_t  sw_coremap[EXTIOI_IRQS];
+-    qemu_irq parent_irq[EXTIOI_CPUS][LS3A_INTC_IP];
+     qemu_irq irq[EXTIOI_IRQS];
++    ExtIOICore *cpu;
+     MemoryRegion extioi_system_mem;
+ };
+ #endif /* LOONGARCH_EXTIOI_H */
+-- 
+2.45.2
+

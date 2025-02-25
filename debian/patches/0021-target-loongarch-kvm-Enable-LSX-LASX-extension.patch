@@ -1,0 +1,99 @@
+From 4d69ff5a80b5d82e4b0859e32d14fa2cfa1f053d Mon Sep 17 00:00:00 2001
+From: Song Gao <gaosong@loongson.cn>
+Date: Mon, 22 Jan 2024 17:02:06 +0800
+Subject: [PATCH 21/76] target/loongarch/kvm: Enable LSX/LASX extension
+
+The kernel had already support LSX and LASX [1],
+but QEMU is disable LSX/LASX for kvm. This patch adds
+kvm_check_cpucfg2() to check CPUCFG2.
+
+[1]: https://lore.kernel.org/all/CABgObfZHRf7E_7Jk4uPRmSyxTy3EiuuYwHC35jQncNL9s-zTDA@mail.gmail.com/
+
+Signed-off-by: Song Gao <gaosong@loongson.cn>
+Reviewed-by: Bibo Mao <maobibo@loongson.cn>
+Message-Id: <20240122090206.1083584-1-gaosong@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+---
+ linux-headers/asm-loongarch/kvm.h |  1 +
+ target/loongarch/kvm/kvm.c        | 45 ++++++++++++++++++++++++++-----
+ 2 files changed, 39 insertions(+), 7 deletions(-)
+
+diff --git a/linux-headers/asm-loongarch/kvm.h b/linux-headers/asm-loongarch/kvm.h
+index c6ad2ee6..923d0bd3 100644
+--- a/linux-headers/asm-loongarch/kvm.h
++++ b/linux-headers/asm-loongarch/kvm.h
+@@ -79,6 +79,7 @@ struct kvm_fpu {
+ #define LOONGARCH_REG_64(TYPE, REG)	(TYPE | KVM_REG_SIZE_U64 | (REG << LOONGARCH_REG_SHIFT))
+ #define KVM_IOC_CSRID(REG)		LOONGARCH_REG_64(KVM_REG_LOONGARCH_CSR, REG)
+ #define KVM_IOC_CPUCFG(REG)		LOONGARCH_REG_64(KVM_REG_LOONGARCH_CPUCFG, REG)
++#define KVM_LOONGARCH_VCPU_CPUCFG	0
+ 
+ struct kvm_debug_exit_arch {
+ };
+diff --git a/target/loongarch/kvm/kvm.c b/target/loongarch/kvm/kvm.c
+index 2230f029..c19978a9 100644
+--- a/target/loongarch/kvm/kvm.c
++++ b/target/loongarch/kvm/kvm.c
+@@ -540,6 +540,38 @@ static int kvm_loongarch_get_cpucfg(CPUState *cs)
+     return ret;
+ }
+ 
++static int kvm_check_cpucfg2(CPUState *cs)
++{
++    int ret;
++    uint64_t val;
++    struct kvm_device_attr attr = {
++        .group = KVM_LOONGARCH_VCPU_CPUCFG,
++        .attr = 2,
++        .addr = (uint64_t)&val,
++    };
++    LoongArchCPU *cpu = LOONGARCH_CPU(cs);
++    CPULoongArchState *env = &cpu->env;
++
++    ret = kvm_vcpu_ioctl(cs, KVM_HAS_DEVICE_ATTR, &attr);
++
++    if (!ret) {
++        kvm_vcpu_ioctl(cs, KVM_GET_DEVICE_ATTR, &attr);
++        env->cpucfg[2] &= val;
++
++        if (FIELD_EX32(env->cpucfg[2], CPUCFG2, FP)) {
++            /* The FP minimal version is 1. */
++            env->cpucfg[2] = FIELD_DP32(env->cpucfg[2], CPUCFG2, FP_VER, 1);
++        }
++
++        if (FIELD_EX32(env->cpucfg[2], CPUCFG2, LLFTP)) {
++            /* The LLFTP minimal version is 1. */
++            env->cpucfg[2] = FIELD_DP32(env->cpucfg[2], CPUCFG2, LLFTP_VER, 1);
++        }
++    }
++
++    return ret;
++}
++
+ static int kvm_loongarch_put_cpucfg(CPUState *cs)
+ {
+     int i, ret = 0;
+@@ -548,14 +580,13 @@ static int kvm_loongarch_put_cpucfg(CPUState *cs)
+     uint64_t val;
+ 
+     for (i = 0; i < 21; i++) {
++	if (i == 2) {
++            ret = kvm_check_cpucfg2(cs);
++            if (ret) {
++                return ret;
++            }
++	}
+         val = env->cpucfg[i];
+-        /* LSX and LASX and LBT are not supported in kvm now */
+-        if (i == 2) {
+-            val &= ~(BIT(R_CPUCFG2_LSX_SHIFT) | BIT(R_CPUCFG2_LASX_SHIFT));
+-            val &= ~(BIT(R_CPUCFG2_LBT_X86_SHIFT) |
+-                     BIT(R_CPUCFG2_LBT_ARM_SHIFT) |
+-                     BIT(R_CPUCFG2_LBT_MIPS_SHIFT));
+-        }
+         ret = kvm_set_one_reg(cs, KVM_IOC_CPUCFG(i), &val);
+         if (ret < 0) {
+             trace_kvm_failed_put_cpucfg(strerror(errno));
+-- 
+2.45.2
+

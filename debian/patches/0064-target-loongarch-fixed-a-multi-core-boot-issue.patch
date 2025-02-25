@@ -1,0 +1,65 @@
+From 310f94004580c7e5e06f46e948d3319734494abd Mon Sep 17 00:00:00 2001
+From: Xianglai Li <lixianglai@loongson.cn>
+Date: Mon, 28 Oct 2024 20:19:01 +0800
+Subject: [PATCH 64/76] target/loongarch: fixed a multi-core boot issue
+
+Fixed multiple cpu startup errors and
+reboot failure after cpu plug.
+
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+---
+ hw/loongarch/boot.c         | 2 +-
+ hw/loongarch/virt.c         | 6 +++++-
+ include/hw/loongarch/virt.h | 1 +
+ 3 files changed, 7 insertions(+), 2 deletions(-)
+
+diff --git a/hw/loongarch/boot.c b/hw/loongarch/boot.c
+index cb668703..fb9496dc 100644
+--- a/hw/loongarch/boot.c
++++ b/hw/loongarch/boot.c
+@@ -216,7 +216,7 @@ static int64_t load_kernel_info(struct loongarch_boot_info *info)
+     return kernel_entry;
+ }
+ 
+-static void reset_load_elf(void *opaque)
++void reset_load_elf(void *opaque)
+ {
+     LoongArchCPU *cpu = opaque;
+     CPULoongArchState *env = &cpu->env;
+diff --git a/hw/loongarch/virt.c b/hw/loongarch/virt.c
+index c7492e56..556af5c6 100644
+--- a/hw/loongarch/virt.c
++++ b/hw/loongarch/virt.c
+@@ -875,6 +875,10 @@ static void virt_irq_init(LoongArchVirtMachineState *lvms)
+         lacpu = LOONGARCH_CPU(cpu_state);
+         env = &(lacpu->env);
+         env->address_space_iocsr = &lvms->as_iocsr;
++
++        /* connect ipi irq to cpu irq */
++        qdev_connect_gpio_out(ipi, cpu, qdev_get_gpio_in(cpudev, IRQ_IPI));
++        env->ipistate = ipi;
+     }
+ 
+     lvms->ipi = ipi;
+@@ -1511,7 +1515,7 @@ static void virt_cpu_plug(HotplugHandler *hotplug_dev,
+         env = &(cpu->env);
+         env->address_space_iocsr = &lvms->as_iocsr;
+ 
+-
++        qemu_register_reset(reset_load_elf, LOONGARCH_CPU(qemu_get_cpu(cs->cpu_index)));
+         env->ipistate = lvms->ipi;
+         if (!(kvm_enabled() && kvm_irqchip_in_kernel())) {
+             /* connect ipi irq to cpu irq, logic cpu index used here */
+diff --git a/include/hw/loongarch/virt.h b/include/hw/loongarch/virt.h
+index d4bca71b..a99693b1 100644
+--- a/include/hw/loongarch/virt.h
++++ b/include/hw/loongarch/virt.h
+@@ -84,4 +84,5 @@ struct LoongArchVirtMachineState {
+ #define TYPE_LOONGARCH_VIRT_MACHINE  MACHINE_TYPE_NAME("virt")
+ OBJECT_DECLARE_SIMPLE_TYPE(LoongArchVirtMachineState, LOONGARCH_VIRT_MACHINE)
+ void loongarch_acpi_setup(LoongArchVirtMachineState *lvms);
++void reset_load_elf(void *opaque);
+ #endif
+-- 
+2.45.2
+

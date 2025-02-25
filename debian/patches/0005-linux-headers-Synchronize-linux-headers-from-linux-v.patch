@@ -1,0 +1,58 @@
+From a4ea38350e5cbd9fae9bfdd52ebbd3a3f9aa33c6 Mon Sep 17 00:00:00 2001
+From: Tianrui Zhao <zhaotianrui@loongson.cn>
+Date: Fri, 5 Jan 2024 15:57:56 +0800
+Subject: [PATCH 05/76] linux-headers: Synchronize linux headers from linux
+ v6.7.0-rc8
+
+Use the scripts/update-linux-headers.sh to synchronize linux
+headers from linux v6.7.0-rc8. We mainly want to add the
+loongarch linux headers and then add the loongarch kvm support
+based on it.
+
+Signed-off-by: Tianrui Zhao <zhaotianrui@loongson.cn>
+Acked-by: Song Gao <gaosong@loongson.cn>
+Message-Id: <20240105075804.1228596-2-zhaotianrui@loongson.cn>
+Signed-off-by: Song Gao <gaosong@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+---
+ include/standard-headers/linux/fuse.h | 10 ++++++----
+ 1 file changed, 6 insertions(+), 4 deletions(-)
+
+diff --git a/include/standard-headers/linux/fuse.h b/include/standard-headers/linux/fuse.h
+index 6b979384..fc0dcd10 100644
+--- a/include/standard-headers/linux/fuse.h
++++ b/include/standard-headers/linux/fuse.h
+@@ -209,7 +209,7 @@
+  *  - add FUSE_HAS_EXPIRE_ONLY
+  *
+  *  7.39
+- *  - add FUSE_DIRECT_IO_RELAX
++ *  - add FUSE_DIRECT_IO_ALLOW_MMAP
+  *  - add FUSE_STATX and related structures
+  */
+ 
+@@ -405,8 +405,7 @@ struct fuse_file_lock {
+  * FUSE_CREATE_SUPP_GROUP: add supplementary group info to create, mkdir,
+  *			symlink and mknod (single group that matches parent)
+  * FUSE_HAS_EXPIRE_ONLY: kernel supports expiry-only entry invalidation
+- * FUSE_DIRECT_IO_RELAX: relax restrictions in FOPEN_DIRECT_IO mode, for now
+- *                       allow shared mmap
++ * FUSE_DIRECT_IO_ALLOW_MMAP: allow shared mmap in FOPEN_DIRECT_IO mode.
+  */
+ #define FUSE_ASYNC_READ		(1 << 0)
+ #define FUSE_POSIX_LOCKS	(1 << 1)
+@@ -445,7 +444,10 @@ struct fuse_file_lock {
+ #define FUSE_HAS_INODE_DAX	(1ULL << 33)
+ #define FUSE_CREATE_SUPP_GROUP	(1ULL << 34)
+ #define FUSE_HAS_EXPIRE_ONLY	(1ULL << 35)
+-#define FUSE_DIRECT_IO_RELAX	(1ULL << 36)
++#define FUSE_DIRECT_IO_ALLOW_MMAP (1ULL << 36)
++
++/* Obsolete alias for FUSE_DIRECT_IO_ALLOW_MMAP */
++#define FUSE_DIRECT_IO_RELAX	FUSE_DIRECT_IO_ALLOW_MMAP
+ 
+ /**
+  * CUSE INIT request/reply flags
+-- 
+2.45.2
+

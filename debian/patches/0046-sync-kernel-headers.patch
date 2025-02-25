@@ -1,0 +1,116 @@
+From 973ad30ae6dec52004fd34bc45b5c1f585836a7c Mon Sep 17 00:00:00 2001
+From: Xianglai Li <lixianglai@loongson.cn>
+Date: Sat, 26 Oct 2024 17:08:30 +0800
+Subject: [PATCH 46/76] sync kernel headers
+
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+---
+ linux-headers/asm-loongarch/bitsperlong.h |  8 +++++
+ linux-headers/asm-loongarch/kvm.h         | 40 +++++++++++++++++++++--
+ linux-headers/asm-loongarch/unistd.h      |  1 +
+ 3 files changed, 46 insertions(+), 3 deletions(-)
+
+diff --git a/linux-headers/asm-loongarch/bitsperlong.h b/linux-headers/asm-loongarch/bitsperlong.h
+index 6dc0bb0c..00b4ba1e 100644
+--- a/linux-headers/asm-loongarch/bitsperlong.h
++++ b/linux-headers/asm-loongarch/bitsperlong.h
+@@ -1 +1,9 @@
++/* SPDX-License-Identifier: GPL-2.0 WITH Linux-syscall-note */
++#ifndef __ASM_LOONGARCH_BITSPERLONG_H
++#define __ASM_LOONGARCH_BITSPERLONG_H
++
++#define __BITS_PER_LONG (__SIZEOF_LONG__ * 8)
++
+ #include <asm-generic/bitsperlong.h>
++
++#endif /* __ASM_LOONGARCH_BITSPERLONG_H */
+diff --git a/linux-headers/asm-loongarch/kvm.h b/linux-headers/asm-loongarch/kvm.h
+index b40b640a..d619b943 100644
+--- a/linux-headers/asm-loongarch/kvm.h
++++ b/linux-headers/asm-loongarch/kvm.h
+@@ -19,8 +19,10 @@
+ 
+ #define KVM_COALESCED_MMIO_PAGE_OFFSET	1
+ #define KVM_DIRTY_LOG_PAGE_OFFSET	64
++#define __KVM_HAVE_IRQ_LINE
+ 
+ #define KVM_GUESTDBG_USE_SW_BP		0x00010000
++
+ /*
+  * for KVM_GET_REGS and KVM_SET_REGS
+  */
+@@ -66,6 +68,7 @@ struct kvm_fpu {
+ #define KVM_REG_LOONGARCH_KVM		(KVM_REG_LOONGARCH | 0x20000ULL)
+ #define KVM_REG_LOONGARCH_FPSIMD	(KVM_REG_LOONGARCH | 0x30000ULL)
+ #define KVM_REG_LOONGARCH_CPUCFG	(KVM_REG_LOONGARCH | 0x40000ULL)
++#define KVM_REG_LOONGARCH_LBT		(KVM_REG_LOONGARCH | 0x50000ULL)
+ #define KVM_REG_LOONGARCH_MASK		(KVM_REG_LOONGARCH | 0x70000ULL)
+ #define KVM_CSR_IDX_MASK		0x7fff
+ #define KVM_CPUCFG_IDX_MASK		0x7fff
+@@ -79,14 +82,34 @@ struct kvm_fpu {
+ /* Debugging: Special instruction for software breakpoint */
+ #define KVM_REG_LOONGARCH_DEBUG_INST	(KVM_REG_LOONGARCH_KVM | KVM_REG_SIZE_U64 | 3)
+ 
++/* LBT registers */
++#define KVM_REG_LOONGARCH_LBT_SCR0	(KVM_REG_LOONGARCH_LBT | KVM_REG_SIZE_U64 | 1)
++#define KVM_REG_LOONGARCH_LBT_SCR1	(KVM_REG_LOONGARCH_LBT | KVM_REG_SIZE_U64 | 2)
++#define KVM_REG_LOONGARCH_LBT_SCR2	(KVM_REG_LOONGARCH_LBT | KVM_REG_SIZE_U64 | 3)
++#define KVM_REG_LOONGARCH_LBT_SCR3	(KVM_REG_LOONGARCH_LBT | KVM_REG_SIZE_U64 | 4)
++#define KVM_REG_LOONGARCH_LBT_EFLAGS	(KVM_REG_LOONGARCH_LBT | KVM_REG_SIZE_U64 | 5)
++#define KVM_REG_LOONGARCH_LBT_FTOP	(KVM_REG_LOONGARCH_LBT | KVM_REG_SIZE_U64 | 6)
++
+ #define LOONGARCH_REG_SHIFT		3
+ #define LOONGARCH_REG_64(TYPE, REG)	(TYPE | KVM_REG_SIZE_U64 | (REG << LOONGARCH_REG_SHIFT))
+ #define KVM_IOC_CSRID(REG)		LOONGARCH_REG_64(KVM_REG_LOONGARCH_CSR, REG)
+ #define KVM_IOC_CPUCFG(REG)		LOONGARCH_REG_64(KVM_REG_LOONGARCH_CPUCFG, REG)
+-#define KVM_LOONGARCH_VCPU_CPUCFG	0
+ 
+-#define KVM_LOONGARCH_VM_FEAT_CTRL 	1000
+-#define  KVM_LOONGARCH_VM_FEAT_PMU 	1000
++/* Device Control API on vm fd */
++#define KVM_LOONGARCH_VM_FEAT_CTRL		0
++#define  KVM_LOONGARCH_VM_FEAT_LSX		0
++#define  KVM_LOONGARCH_VM_FEAT_LASX		1
++#define  KVM_LOONGARCH_VM_FEAT_X86BT		2
++#define  KVM_LOONGARCH_VM_FEAT_ARMBT		3
++#define  KVM_LOONGARCH_VM_FEAT_MIPSBT		4
++#define  KVM_LOONGARCH_VM_FEAT_PMU		5
++#define  KVM_LOONGARCH_VM_FEAT_PV_IPI		6
++#define  KVM_LOONGARCH_VM_FEAT_PV_STEALTIME	7
++
++/* Device Control API on vcpu fd */
++#define KVM_LOONGARCH_VCPU_CPUCFG	0
++#define KVM_LOONGARCH_VCPU_PVTIME_CTRL	1
++#define  KVM_LOONGARCH_VCPU_PVTIME_GPA	0
+ 
+ struct kvm_debug_exit_arch {
+ };
+@@ -113,4 +136,15 @@ struct kvm_iocsr_entry {
+ #define KVM_IRQCHIP_NUM_PINS	64
+ #define KVM_MAX_CORES		256
+ 
++#define KVM_LOONGARCH_VM_HAVE_IRQCHIP		0x40000001
++
++#define KVM_DEV_LOONGARCH_IPI_GRP_REGS		0x40000002
++
++#define KVM_DEV_LOONGARCH_EXTIOI_GRP_REGS	0x40000003
++
++#define KVM_DEV_LOONGARCH_PCH_PIC_GRP_CTRL	0x40000004
++#define KVM_DEV_LOONGARCH_PCH_PIC_CTRL_INIT	0
++
++#define KVM_DEV_LOONGARCH_PCH_PIC_GRP_REGS	0x40000005
++
+ #endif /* __UAPI_ASM_LOONGARCH_KVM_H */
+diff --git a/linux-headers/asm-loongarch/unistd.h b/linux-headers/asm-loongarch/unistd.h
+index fcb66898..b344b1f9 100644
+--- a/linux-headers/asm-loongarch/unistd.h
++++ b/linux-headers/asm-loongarch/unistd.h
+@@ -1,4 +1,5 @@
+ /* SPDX-License-Identifier: GPL-2.0 WITH Linux-syscall-note */
++#define __ARCH_WANT_NEW_STAT
+ #define __ARCH_WANT_SYS_CLONE
+ #define __ARCH_WANT_SYS_CLONE3
+ 
+-- 
+2.45.2
+

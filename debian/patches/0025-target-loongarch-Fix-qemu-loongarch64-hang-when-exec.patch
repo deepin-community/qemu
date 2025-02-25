@@ -1,0 +1,46 @@
+From f36d2a238bd53c9968ff66ac94a06079381a0e34 Mon Sep 17 00:00:00 2001
+From: Song Gao <gaosong@loongson.cn>
+Date: Wed, 20 Mar 2024 09:39:55 +0800
+Subject: [PATCH 25/76] target/loongarch: Fix qemu-loongarch64 hang when
+ executing 'll.d $t0, $t0, 0'
+
+On gen_ll, if a->imm is zero, make_address_x return src1,
+but the load to destination may clobber src1. We use a new
+destination to fix this problem.
+
+Fixes: c5af6628f4be (target/loongarch: Extract make_address_i() helper)
+Reviewed-by: Richard Henderson <richard.henderson@linaro.org>
+Suggested-by: Richard Henderson <richard.henderson@linaro.org>
+Signed-off-by: Song Gao <gaosong@loongson.cn>
+Message-Id: <20240320013955.1561311-1-gaosong@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+---
+ target/loongarch/tcg/insn_trans/trans_atomic.c.inc | 8 ++++----
+ 1 file changed, 4 insertions(+), 4 deletions(-)
+
+diff --git a/target/loongarch/tcg/insn_trans/trans_atomic.c.inc b/target/loongarch/tcg/insn_trans/trans_atomic.c.inc
+index 80c2e286..974bc2a7 100644
+--- a/target/loongarch/tcg/insn_trans/trans_atomic.c.inc
++++ b/target/loongarch/tcg/insn_trans/trans_atomic.c.inc
+@@ -5,14 +5,14 @@
+ 
+ static bool gen_ll(DisasContext *ctx, arg_rr_i *a, MemOp mop)
+ {
+-    TCGv dest = gpr_dst(ctx, a->rd, EXT_NONE);
++    TCGv t1 = tcg_temp_new();
+     TCGv src1 = gpr_src(ctx, a->rj, EXT_NONE);
+     TCGv t0 = make_address_i(ctx, src1, a->imm);
+ 
+-    tcg_gen_qemu_ld_i64(dest, t0, ctx->mem_idx, mop);
++    tcg_gen_qemu_ld_i64(t1, t0, ctx->mem_idx, mop);
+     tcg_gen_st_tl(t0, tcg_env, offsetof(CPULoongArchState, lladdr));
+-    tcg_gen_st_tl(dest, tcg_env, offsetof(CPULoongArchState, llval));
+-    gen_set_gpr(a->rd, dest, EXT_NONE);
++    tcg_gen_st_tl(t1, tcg_env, offsetof(CPULoongArchState, llval));
++    gen_set_gpr(a->rd, t1, EXT_NONE);
+ 
+     return true;
+ }
+-- 
+2.45.2
+

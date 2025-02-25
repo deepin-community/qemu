@@ -1,0 +1,67 @@
+From 6246022a82468e15af9d2b9c81a810a24441d4b0 Mon Sep 17 00:00:00 2001
+From: Salil Mehta <salil.mehta@huawei.com>
+Date: Tue, 16 Jul 2024 12:14:59 +0100
+Subject: [PATCH 50/76] hw/acpi: Update GED _EVT method AML with CPU scan
+
+OSPM evaluates _EVT method to map the event. The CPU hotplug event eventually
+results in start of the CPU scan. Scan figures out the CPU and the kind of
+event(plug/unplug) and notifies it back to the guest. Update the GED AML _EVT
+method with the call to method \\_SB.CPUS.CSCN (via \\_SB.GED.CSCN)
+
+Architecture specific code [1] might initialize its CPUs AML code by calling
+common function build_cpus_aml() like below for ARM:
+
+build_cpus_aml(scope, ms, opts, xx_madt_cpu_entry, memmap[VIRT_CPUHP_ACPI].base,
+               "\\_SB", "\\_SB.GED.CSCN", AML_SYSTEM_MEMORY);
+
+[1] https://lore.kernel.org/qemu-devel/20240613233639.202896-13-salil.mehta@huawei.com/
+
+Co-developed-by: Keqian Zhu <zhukeqian1@huawei.com>
+Signed-off-by: Keqian Zhu <zhukeqian1@huawei.com>
+Signed-off-by: Salil Mehta <salil.mehta@huawei.com>
+Reviewed-by: Jonathan Cameron <Jonathan.Cameron@huawei.com>
+Reviewed-by: Gavin Shan <gshan@redhat.com>
+Tested-by: Vishnu Pajjuri <vishnu@os.amperecomputing.com>
+Tested-by: Xianglai Li <lixianglai@loongson.cn>
+Tested-by: Miguel Luis <miguel.luis@oracle.com>
+Reviewed-by: Shaoqin Huang <shahuang@redhat.com>
+Tested-by: Zhao Liu <zhao1.liu@intel.com>
+Reviewed-by: Igor Mammedov <imammedo@redhat.com>
+Message-Id: <20240716111502.202344-5-salil.mehta@huawei.com>
+Reviewed-by: Michael S. Tsirkin <mst@redhat.com>
+Signed-off-by: Michael S. Tsirkin <mst@redhat.com>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+---
+ hw/acpi/generic_event_device.c         | 3 +++
+ include/hw/acpi/generic_event_device.h | 1 +
+ 2 files changed, 4 insertions(+)
+
+diff --git a/hw/acpi/generic_event_device.c b/hw/acpi/generic_event_device.c
+index d797df06..48f03cdc 100644
+--- a/hw/acpi/generic_event_device.c
++++ b/hw/acpi/generic_event_device.c
+@@ -108,6 +108,9 @@ void build_ged_aml(Aml *table, const char *name, HotplugHandler *hotplug_dev,
+                 aml_append(if_ctx, aml_call0(MEMORY_DEVICES_CONTAINER "."
+                                              MEMORY_SLOT_SCAN_METHOD));
+                 break;
++            case ACPI_GED_CPU_HOTPLUG_EVT:
++                aml_append(if_ctx, aml_call0(AML_GED_EVT_CPU_SCAN_METHOD));
++                break;
+             case ACPI_GED_PWR_DOWN_EVT:
+                 aml_append(if_ctx,
+                            aml_notify(aml_name(ACPI_POWER_BUTTON_DEVICE),
+diff --git a/include/hw/acpi/generic_event_device.h b/include/hw/acpi/generic_event_device.h
+index c4e0e96a..d2dac87b 100644
+--- a/include/hw/acpi/generic_event_device.h
++++ b/include/hw/acpi/generic_event_device.h
+@@ -90,6 +90,7 @@ OBJECT_DECLARE_SIMPLE_TYPE(AcpiGedState, ACPI_GED)
+ #define GED_DEVICE      "GED"
+ #define AML_GED_EVT_REG "EREG"
+ #define AML_GED_EVT_SEL "ESEL"
++#define AML_GED_EVT_CPU_SCAN_METHOD "\\_SB.GED.CSCN"
+ 
+ /*
+  * Platforms need to specify the GED event bitmap
+-- 
+2.45.2
+

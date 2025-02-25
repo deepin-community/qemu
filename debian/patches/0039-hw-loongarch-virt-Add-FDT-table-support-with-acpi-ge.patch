@@ -1,0 +1,84 @@
+From 4a8d3fee67f4698827f5393df5c04a3a9410f45f Mon Sep 17 00:00:00 2001
+From: Bibo Mao <maobibo@loongson.cn>
+Date: Wed, 18 Sep 2024 09:42:06 +0800
+Subject: [PATCH 39/76] hw/loongarch/virt: Add FDT table support with acpi ged
+ pm register
+
+ACPI ged is used for power management on LoongArch virt platform, in
+general it is parsed from acpi table. However if system boot directly from
+elf kernel, no UEFI bios is provided and acpi table cannot be used also.
+
+Here acpi ged pm register is exposed with FDT table, it is compatbile
+with syscon method in FDT table, only that acpi ged pm register is accessed
+with 8-bit mode, rather with 32-bit mode.
+
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+Reviewed-by: Song Gao <gaosong@loongson.cn>
+Tested-by: Song Gao <gaosong@loongson.cn>
+Message-Id: <20240918014206.2165821-3-maobibo@loongson.cn>
+Signed-off-by: Song Gao <gaosong@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+---
+ hw/loongarch/virt.c | 39 +++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 39 insertions(+)
+
+diff --git a/hw/loongarch/virt.c b/hw/loongarch/virt.c
+index 4e77901e..08660228 100644
+--- a/hw/loongarch/virt.c
++++ b/hw/loongarch/virt.c
+@@ -280,6 +280,44 @@ static void fdt_add_rtc_node(LoongArchVirtMachineState *lvms,
+     g_free(nodename);
+ }
+ 
++static void fdt_add_ged_reset(LoongArchVirtMachineState *lvms)
++{
++    char *name;
++    uint32_t ged_handle;
++    MachineState *ms = MACHINE(lvms);
++    hwaddr base = VIRT_GED_REG_ADDR;
++    hwaddr size = ACPI_GED_REG_COUNT;
++
++    ged_handle = qemu_fdt_alloc_phandle(ms->fdt);
++    name = g_strdup_printf("/ged@%" PRIx64, base);
++    qemu_fdt_add_subnode(ms->fdt, name);
++    qemu_fdt_setprop_string(ms->fdt, name, "compatible", "syscon");
++    qemu_fdt_setprop_cells(ms->fdt, name, "reg", 0x0, base, 0x0, size);
++    /* 8 bit registers */
++    qemu_fdt_setprop_cell(ms->fdt, name, "reg-shift", 0);
++    qemu_fdt_setprop_cell(ms->fdt, name, "reg-io-width", 1);
++    qemu_fdt_setprop_cell(ms->fdt, name, "phandle", ged_handle);
++    ged_handle = qemu_fdt_get_phandle(ms->fdt, name);
++    g_free(name);
++
++    name = g_strdup_printf("/reboot");
++    qemu_fdt_add_subnode(ms->fdt, name);
++    qemu_fdt_setprop_string(ms->fdt, name, "compatible", "syscon-reboot");
++    qemu_fdt_setprop_cell(ms->fdt, name, "regmap", ged_handle);
++    qemu_fdt_setprop_cell(ms->fdt, name, "offset", ACPI_GED_REG_RESET);
++    qemu_fdt_setprop_cell(ms->fdt, name, "value", ACPI_GED_RESET_VALUE);
++    g_free(name);
++
++    name = g_strdup_printf("/poweroff");
++    qemu_fdt_add_subnode(ms->fdt, name);
++    qemu_fdt_setprop_string(ms->fdt, name, "compatible", "syscon-poweroff");
++    qemu_fdt_setprop_cell(ms->fdt, name, "regmap", ged_handle);
++    qemu_fdt_setprop_cell(ms->fdt, name, "offset", ACPI_GED_REG_SLEEP_CTL);
++    qemu_fdt_setprop_cell(ms->fdt, name, "value", ACPI_GED_SLP_EN |
++                          (ACPI_GED_SLP_TYP_S5 << ACPI_GED_SLP_TYP_POS));
++    g_free(name);
++}
++
+ static void fdt_add_uart_node(LoongArchVirtMachineState *lvms,
+                               uint32_t *pch_pic_phandle, hwaddr base,
+                               int irq, bool chosen)
+@@ -737,6 +775,7 @@ static void virt_devices_init(DeviceState *pch_pic,
+                          qdev_get_gpio_in(pch_pic,
+                          VIRT_RTC_IRQ - VIRT_GSI_BASE));
+     fdt_add_rtc_node(lvms, pch_pic_phandle);
++    fdt_add_ged_reset(lvms);
+ 
+     /* acpi ged */
+     lvms->acpi_ged = create_acpi_ged(pch_pic, lvms);
+-- 
+2.45.2
+

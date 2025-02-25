@@ -1,0 +1,62 @@
+From 1580e4a21b3b436f8e3f37e4dfee940c2f9fd71b Mon Sep 17 00:00:00 2001
+From: Salil Mehta <salil.mehta@huawei.com>
+Date: Tue, 16 Jul 2024 12:14:57 +0100
+Subject: [PATCH 48/76] hw/acpi: Move CPU ctrl-dev MMIO region len macro to
+ common header file
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+CPU ctrl-dev MMIO region length could be used in ACPI GED and various other
+architecture specific places. Move ACPI_CPU_HOTPLUG_REG_LEN macro to more
+appropriate common header file.
+
+Signed-off-by: Salil Mehta <salil.mehta@huawei.com>
+Reviewed-by: Alex Bennée <alex.bennee@linaro.org>
+Reviewed-by: Jonathan Cameron <Jonathan.Cameron@huawei.com>
+Reviewed-by: Gavin Shan <gshan@redhat.com>
+Reviewed-by: David Hildenbrand <david@redhat.com>
+Reviewed-by: Shaoqin Huang <shahuang@redhat.com>
+Tested-by: Vishnu Pajjuri <vishnu@os.amperecomputing.com>
+Tested-by: Xianglai Li <lixianglai@loongson.cn>
+Tested-by: Miguel Luis <miguel.luis@oracle.com>
+Tested-by: Zhao Liu <zhao1.liu@intel.com>
+Reviewed-by: Zhao Liu <zhao1.liu@intel.com>
+Reviewed-by: Igor Mammedov <imammedo@redhat.com>
+Message-Id: <20240716111502.202344-3-salil.mehta@huawei.com>
+Reviewed-by: Michael S. Tsirkin <mst@redhat.com>
+Signed-off-by: Michael S. Tsirkin <mst@redhat.com>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+---
+ hw/acpi/cpu.c         | 1 -
+ include/hw/acpi/cpu.h | 2 ++
+ 2 files changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/hw/acpi/cpu.c b/hw/acpi/cpu.c
+index 011d2c6c..1a4c2a8c 100644
+--- a/hw/acpi/cpu.c
++++ b/hw/acpi/cpu.c
+@@ -7,7 +7,6 @@
+ #include "trace.h"
+ #include "sysemu/numa.h"
+ 
+-#define ACPI_CPU_HOTPLUG_REG_LEN 12
+ #define ACPI_CPU_SELECTOR_OFFSET_WR 0
+ #define ACPI_CPU_FLAGS_OFFSET_RW 4
+ #define ACPI_CPU_CMD_OFFSET_WR 5
+diff --git a/include/hw/acpi/cpu.h b/include/hw/acpi/cpu.h
+index bc901660..f4a28df0 100644
+--- a/include/hw/acpi/cpu.h
++++ b/include/hw/acpi/cpu.h
+@@ -18,6 +18,8 @@
+ #include "hw/boards.h"
+ #include "hw/hotplug.h"
+ 
++#define ACPI_CPU_HOTPLUG_REG_LEN 12
++
+ typedef struct AcpiCpuStatus {
+     struct CPUState *cpu;
+     uint64_t arch_id;
+-- 
+2.45.2
+

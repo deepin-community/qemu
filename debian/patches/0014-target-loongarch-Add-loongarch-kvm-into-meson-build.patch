@@ -1,0 +1,57 @@
+From 9d4916da5aaf9f563d0620815cacc2a22bf4b1bd Mon Sep 17 00:00:00 2001
+From: Tianrui Zhao <zhaotianrui@loongson.cn>
+Date: Fri, 5 Jan 2024 15:58:04 +0800
+Subject: [PATCH 14/76] target/loongarch: Add loongarch kvm into meson build
+
+Add kvm.c into meson.build to compile it when kvm
+is configed. Meanwhile in meson.build, we set the
+kvm_targets to loongarch64-softmmu when the cpu is
+loongarch. And fix the compiling error when config
+is enable-kvm,disable-tcg.
+
+Signed-off-by: Tianrui Zhao <zhaotianrui@loongson.cn>
+Signed-off-by: xianglai li <lixianglai@loongson.cn>
+Reviewed-by: Richard Henderson <richard.henderson@linaro.org>
+Reviewed-by: Song Gao <gaosong@loongson.cn>
+Message-Id: <20240105075804.1228596-10-zhaotianrui@loongson.cn>
+Signed-off-by: Song Gao <gaosong@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+---
+ meson.build                      | 2 ++
+ target/loongarch/kvm/meson.build | 1 +
+ target/loongarch/meson.build     | 1 +
+ 3 files changed, 4 insertions(+)
+ create mode 100644 target/loongarch/kvm/meson.build
+
+diff --git a/meson.build b/meson.build
+index aaf6ec21..0ffa9766 100644
+--- a/meson.build
++++ b/meson.build
+@@ -119,6 +119,8 @@ elif cpu in ['riscv32']
+   kvm_targets = ['riscv32-softmmu']
+ elif cpu in ['riscv64']
+   kvm_targets = ['riscv64-softmmu']
++elif cpu in ['loongarch64']
++  kvm_targets = ['loongarch64-softmmu']
+ else
+   kvm_targets = []
+ endif
+diff --git a/target/loongarch/kvm/meson.build b/target/loongarch/kvm/meson.build
+new file mode 100644
+index 00000000..2266de6c
+--- /dev/null
++++ b/target/loongarch/kvm/meson.build
+@@ -0,0 +1 @@
++loongarch_ss.add(when: 'CONFIG_KVM', if_true: files('kvm.c'))
+diff --git a/target/loongarch/meson.build b/target/loongarch/meson.build
+index e84e4c51..db310f60 100644
+--- a/target/loongarch/meson.build
++++ b/target/loongarch/meson.build
+@@ -18,3 +18,4 @@ subdir('tcg')
+ 
+ target_arch += {'loongarch': loongarch_ss}
+ target_system_arch += {'loongarch': loongarch_system_ss}
++subdir('kvm')
+-- 
+2.45.2
+

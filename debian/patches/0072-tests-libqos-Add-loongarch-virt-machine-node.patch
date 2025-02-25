@@ -1,0 +1,162 @@
+From e8731a1f45b5cae726db9bf1aa8c30fcf1dc74c5 Mon Sep 17 00:00:00 2001
+From: Bibo Mao <maobibo@loongson.cn>
+Date: Tue, 28 May 2024 16:20:53 +0800
+Subject: [PATCH 72/76] tests/libqos: Add loongarch virt machine node
+
+Add loongarch virt machine to the graph. It is a modified copy of
+the existing riscv virtmachine in riscv-virt-machine.c
+
+It contains a generic-pcihost controller, and an extra function
+loongarch_config_qpci_bus() to configure GPEX pci host controller
+information, such as ecam and pio_base addresses.
+
+Also hotplug handle checking about TYPE_VIRTIO_IOMMU_PCI device is
+added on loongarch virt machine, since virtio_mmu_pci device requires
+it.
+
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+Acked-by: Thomas Huth <thuth@redhat.com>
+Message-Id: <20240528082053.938564-1-maobibo@loongson.cn>
+Signed-off-by: Song Gao <gaosong@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+---
+ tests/qtest/libqos/loongarch-virt-machine.c | 114 ++++++++++++++++++++
+ tests/qtest/libqos/meson.build              |   1 +
+ 2 files changed, 115 insertions(+)
+ create mode 100644 tests/qtest/libqos/loongarch-virt-machine.c
+
+diff --git a/tests/qtest/libqos/loongarch-virt-machine.c b/tests/qtest/libqos/loongarch-virt-machine.c
+new file mode 100644
+index 00000000..c12089c0
+--- /dev/null
++++ b/tests/qtest/libqos/loongarch-virt-machine.c
+@@ -0,0 +1,114 @@
++/*
++ * libqos driver framework
++ *
++ * Copyright (c) 2018 Emanuele Giuseppe Esposito <e.emanuelegiuseppe@gmail.com>
++ *
++ * This library is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU Lesser General Public
++ * License version 2.1 as published by the Free Software Foundation.
++ *
++ * This library is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++ * Lesser General Public License for more details.
++ *
++ * You should have received a copy of the GNU Lesser General Public
++ * License along with this library; if not, see <http://www.gnu.org/licenses/>
++ */
++
++#include "qemu/osdep.h"
++#include "../libqtest.h"
++#include "qemu/module.h"
++#include "libqos-malloc.h"
++#include "qgraph.h"
++#include "virtio-mmio.h"
++#include "generic-pcihost.h"
++#include "hw/pci/pci_regs.h"
++
++#define LOONGARCH_PAGE_SIZE               0x1000
++#define LOONGARCH_VIRT_RAM_ADDR           0x100000
++#define LOONGARCH_VIRT_RAM_SIZE           0xFF00000
++
++#define LOONGARCH_VIRT_PIO_BASE           0x18000000
++#define LOONGARCH_VIRT_PCIE_PIO_OFFSET    0x4000
++#define LOONGARCH_VIRT_PCIE_PIO_LIMIT     0x10000
++#define LOONGARCH_VIRT_PCIE_ECAM_BASE     0x20000000
++#define LOONGARCH_VIRT_PCIE_MMIO32_BASE   0x40000000
++#define LOONGARCH_VIRT_PCIE_MMIO32_LIMIT  0x80000000
++
++typedef struct QVirtMachine QVirtMachine;
++
++struct QVirtMachine {
++    QOSGraphObject obj;
++    QGuestAllocator alloc;
++    QVirtioMMIODevice virtio_mmio;
++    QGenericPCIHost bridge;
++};
++
++static void virt_destructor(QOSGraphObject *obj)
++{
++    QVirtMachine *machine = (QVirtMachine *) obj;
++    alloc_destroy(&machine->alloc);
++}
++
++static void *virt_get_driver(void *object, const char *interface)
++{
++    QVirtMachine *machine = object;
++    if (!g_strcmp0(interface, "memory")) {
++        return &machine->alloc;
++    }
++
++    fprintf(stderr, "%s not present in loongarch/virtio\n", interface);
++    g_assert_not_reached();
++}
++
++static QOSGraphObject *virt_get_device(void *obj, const char *device)
++{
++    QVirtMachine *machine = obj;
++    if (!g_strcmp0(device, "generic-pcihost")) {
++        return &machine->bridge.obj;
++    } else if (!g_strcmp0(device, "virtio-mmio")) {
++        return &machine->virtio_mmio.obj;
++    }
++
++    fprintf(stderr, "%s not present in loongarch/virt\n", device);
++    g_assert_not_reached();
++}
++
++static void loongarch_config_qpci_bus(QGenericPCIBus *qpci)
++{
++    qpci->gpex_pio_base = LOONGARCH_VIRT_PIO_BASE;
++    qpci->bus.pio_alloc_ptr = LOONGARCH_VIRT_PCIE_PIO_OFFSET;
++    qpci->bus.pio_limit = LOONGARCH_VIRT_PCIE_PIO_LIMIT;
++    qpci->bus.mmio_alloc_ptr = LOONGARCH_VIRT_PCIE_MMIO32_BASE;
++    qpci->bus.mmio_limit = LOONGARCH_VIRT_PCIE_MMIO32_LIMIT;
++    qpci->ecam_alloc_ptr = LOONGARCH_VIRT_PCIE_ECAM_BASE;
++}
++
++static void *qos_create_machine_loongarch_virt(QTestState *qts)
++{
++    QVirtMachine *machine = g_new0(QVirtMachine, 1);
++
++    alloc_init(&machine->alloc, 0,
++               LOONGARCH_VIRT_RAM_ADDR,
++               LOONGARCH_VIRT_RAM_ADDR + LOONGARCH_VIRT_RAM_SIZE,
++               LOONGARCH_PAGE_SIZE);
++
++    qos_create_generic_pcihost(&machine->bridge, qts, &machine->alloc);
++    loongarch_config_qpci_bus(&machine->bridge.pci);
++
++    machine->obj.get_device = virt_get_device;
++    machine->obj.get_driver = virt_get_driver;
++    machine->obj.destructor = virt_destructor;
++    return machine;
++}
++
++static void virt_machine_register_nodes(void)
++{
++    qos_node_create_machine_args("loongarch64/virt",
++                                 qos_create_machine_loongarch_virt,
++                                 " -cpu la464");
++    qos_node_contains("loongarch64/virt", "generic-pcihost", NULL);
++}
++
++libqos_init(virt_machine_register_nodes);
+diff --git a/tests/qtest/libqos/meson.build b/tests/qtest/libqos/meson.build
+index 90aae42a..482c9b2a 100644
+--- a/tests/qtest/libqos/meson.build
++++ b/tests/qtest/libqos/meson.build
+@@ -60,6 +60,7 @@ libqos_srcs = files(
+         'arm-xilinx-zynq-a9-machine.c',
+         'ppc64_pseries-machine.c',
+         'x86_64_pc-machine.c',
++        'loongarch-virt-machine.c',
+ )
+ 
+ if have_virtfs
+-- 
+2.45.2
+

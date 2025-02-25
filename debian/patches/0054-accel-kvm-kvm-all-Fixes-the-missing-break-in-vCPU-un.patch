@@ -1,0 +1,46 @@
+From 969ef69d230c03bff102903e916435448a6138dd Mon Sep 17 00:00:00 2001
+From: Salil Mehta <salil.mehta@huawei.com>
+Date: Thu, 1 Aug 2024 10:15:03 +0100
+Subject: [PATCH 54/76] accel/kvm/kvm-all: Fixes the missing break in vCPU
+ unpark logic
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Loop should exit prematurely on successfully finding out the parked vCPU (struct
+KVMParkedVcpu) in the 'struct KVMState' maintained 'kvm_parked_vcpus' list of
+parked vCPUs.
+
+Fixes: Coverity CID 1558552
+Fixes: 08c3286822 ("accel/kvm: Extract common KVM vCPU {creation,parking} code")
+Reported-by: Peter Maydell <peter.maydell@linaro.org>
+Signed-off-by: Salil Mehta <salil.mehta@huawei.com>
+Reviewed-by: Philippe Mathieu-Daudé <philmd@linaro.org>
+Reviewed-by: Gavin Shan <gshan@redhat.com>
+Reviewed-by: Zhao Liu <zhao1.liu@intel.com>
+Reviewed-by: Igor Mammedov <imammedo@redhat.com>
+Message-id: 20240725145132.99355-1-salil.mehta@huawei.com
+Suggested-by: Peter Maydell <peter.maydell@linaro.org>
+Message-ID: <CAFEAcA-3_d1c7XSXWkFubD-LsW5c5i95e6xxV09r2C9yGtzcdA@mail.gmail.com>
+Signed-off-by: Salil Mehta <salil.mehta@huawei.com>
+Signed-off-by: Peter Maydell <peter.maydell@linaro.org>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+---
+ accel/kvm/kvm-all.c | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/accel/kvm/kvm-all.c b/accel/kvm/kvm-all.c
+index 169d828f..6db60854 100644
+--- a/accel/kvm/kvm-all.c
++++ b/accel/kvm/kvm-all.c
+@@ -347,6 +347,7 @@ int kvm_unpark_vcpu(KVMState *s, unsigned long vcpu_id)
+             QLIST_REMOVE(cpu, node);
+             kvm_fd = cpu->kvm_fd;
+             g_free(cpu);
++            break;
+         }
+     }
+ 
+-- 
+2.45.2
+

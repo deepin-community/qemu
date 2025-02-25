@@ -1,0 +1,49 @@
+From 4755e7a40b3c5a1da08db4a4db38121e7ad027fd Mon Sep 17 00:00:00 2001
+From: Gao Jiazhen <gaojiazhen_yewu@cmss.chinamobile.com>
+Date: Thu, 12 Sep 2024 11:27:12 +0800
+Subject: [PATCH 70/76] target/loongarch: fix a wrong print in cpu dump
+
+cherry picked from commit 78f932ea1f7b3b9b0ac628dc2a91281318fe51fa
+
+description:
+    loongarch_cpu_dump_state() want to dump all loongarch cpu
+state registers, but there is a tiny typographical error when
+printing "PRCFG2".
+
+Cc: qemu-stable@nongnu.org
+Signed-off-by: lanyanzhi <lanyanzhi22b@ict.ac.cn>
+Reviewed-by: Richard Henderson <richard.henderson@linaro.org>
+Reviewed-by: Song Gao <gaosong@loongson.cn>
+Message-Id: <20240604073831.666690-1-lanyanzhi22b@ict.ac.cn>
+Signed-off-by: Song Gao <gaosong@loongson.cn>
+Signed-off-by: Gao Jiazhen <gaojiazhen_yewu@cmss.chinamobile.com>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+---
+ target/loongarch/cpu.c | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/target/loongarch/cpu.c b/target/loongarch/cpu.c
+index b80dde5e..bfc7df30 100644
+--- a/target/loongarch/cpu.c
++++ b/target/loongarch/cpu.c
+@@ -91,7 +91,7 @@ void G_NORETURN do_raise_exception(CPULoongArchState *env,
+ {
+     CPUState *cs = env_cpu(env);
+ 
+-    qemu_log_mask(CPU_LOG_INT, "%s: expection: %d (%s)\n",
++    qemu_log_mask(CPU_LOG_INT, "%s: exception: %d (%s)\n",
+                   __func__,
+                   exception,
+                   loongarch_exception_name(exception));
+@@ -810,7 +810,7 @@ void loongarch_cpu_dump_state(CPUState *cs, FILE *f, int flags)
+     qemu_fprintf(f, "EENTRY=%016" PRIx64 "\n", env->CSR_EENTRY);
+     qemu_fprintf(f, "PRCFG1=%016" PRIx64 ", PRCFG2=%016" PRIx64 ","
+                  " PRCFG3=%016" PRIx64 "\n",
+-                 env->CSR_PRCFG1, env->CSR_PRCFG3, env->CSR_PRCFG3);
++                 env->CSR_PRCFG1, env->CSR_PRCFG2, env->CSR_PRCFG3);
+     qemu_fprintf(f, "TLBRENTRY=%016" PRIx64 "\n", env->CSR_TLBRENTRY);
+     qemu_fprintf(f, "TLBRBADV=%016" PRIx64 "\n", env->CSR_TLBRBADV);
+     qemu_fprintf(f, "TLBRERA=%016" PRIx64 "\n", env->CSR_TLBRERA);
+-- 
+2.45.2
+

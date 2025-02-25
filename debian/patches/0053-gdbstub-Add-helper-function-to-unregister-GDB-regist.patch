@@ -1,0 +1,92 @@
+From 92e2906ef728ea8be1f9b54b606df9291fdf1d4a Mon Sep 17 00:00:00 2001
+From: Salil Mehta <salil.mehta@huawei.com>
+Date: Tue, 16 Jul 2024 12:15:02 +0100
+Subject: [PATCH 53/76] gdbstub: Add helper function to unregister GDB register
+ space
+
+Add common function to help unregister the GDB register space. This shall be
+done in context to the CPU unrealization.
+
+Note: These are common functions exported to arch specific code. For example,
+for ARM this code is being referred in associated arch specific patch-set:
+
+Link: https://lore.kernel.org/qemu-devel/20230926103654.34424-1-salil.mehta@huawei.com/
+
+Signed-off-by: Salil Mehta <salil.mehta@huawei.com>
+Tested-by: Vishnu Pajjuri <vishnu@os.amperecomputing.com>
+Reviewed-by: Gavin Shan <gshan@redhat.com>
+Tested-by: Xianglai Li <lixianglai@loongson.cn>
+Tested-by: Miguel Luis <miguel.luis@oracle.com>
+Reviewed-by: Shaoqin Huang <shahuang@redhat.com>
+Reviewed-by: Vishnu Pajjuri <vishnu@os.amperecomputing.com>
+Tested-by: Zhao Liu <zhao1.liu@intel.com>
+Acked-by: Igor Mammedov <imammedo@redhat.com>
+Message-Id: <20240716111502.202344-8-salil.mehta@huawei.com>
+Reviewed-by: Michael S. Tsirkin <mst@redhat.com>
+Signed-off-by: Michael S. Tsirkin <mst@redhat.com>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+---
+ gdbstub/gdbstub.c      | 13 +++++++++++++
+ hw/core/cpu-common.c   |  4 ++++
+ include/exec/gdbstub.h |  6 ++++++
+ 3 files changed, 23 insertions(+)
+
+diff --git a/gdbstub/gdbstub.c b/gdbstub/gdbstub.c
+index 46d752bb..31c3dae5 100644
+--- a/gdbstub/gdbstub.c
++++ b/gdbstub/gdbstub.c
+@@ -582,6 +582,19 @@ void gdb_register_coprocessor(CPUState *cpu,
+     }
+ }
+ 
++void gdb_unregister_coprocessor_all(CPUState *cpu)
++{
++    /*
++     * Safe to nuke everything. GDBRegisterState::xml is static const char so
++     * it won't be freed
++     */
++    g_array_free(cpu->gdb_regs, true);
++
++    cpu->gdb_regs = NULL;
++    cpu->gdb_num_regs = 0;
++    cpu->gdb_num_g_regs = 0;
++}
++
+ static void gdb_process_breakpoint_remove_all(GDBProcess *p)
+ {
+     CPUState *cpu = gdb_get_first_cpu_in_process(p);
+diff --git a/hw/core/cpu-common.c b/hw/core/cpu-common.c
+index 82dae51a..e36ca2c2 100644
+--- a/hw/core/cpu-common.c
++++ b/hw/core/cpu-common.c
+@@ -262,6 +262,10 @@ static void cpu_common_finalize(Object *obj)
+ {
+     CPUState *cpu = CPU(obj);
+ 
++    /* If cleanup didn't happen in context to gdb_unregister_coprocessor_all */
++    if (cpu->gdb_regs) {
++        g_array_free(cpu->gdb_regs, TRUE);
++    }
+     qemu_lockcnt_destroy(&cpu->in_ioctl_lock);
+     qemu_mutex_destroy(&cpu->work_mutex);
+ }
+diff --git a/include/exec/gdbstub.h b/include/exec/gdbstub.h
+index d8a3c56f..e2e8dff0 100644
+--- a/include/exec/gdbstub.h
++++ b/include/exec/gdbstub.h
+@@ -40,6 +40,12 @@ void gdb_register_coprocessor(CPUState *cpu,
+                               gdb_get_reg_cb get_reg, gdb_set_reg_cb set_reg,
+                               int num_regs, const char *xml, int g_pos);
+ 
++/**
++ * gdb_unregister_coprocessor_all() - unregisters supplemental set of registers
++ * @cpu - the CPU associated with registers
++ */
++void gdb_unregister_coprocessor_all(CPUState *cpu);
++
+ /**
+  * gdbserver_start: start the gdb server
+  * @port_or_device: connection spec for gdb
+-- 
+2.45.2
+
