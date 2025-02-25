@@ -1,0 +1,42 @@
+From 909a64b52521eebc6aeb7367ff14e1f38a34c34c Mon Sep 17 00:00:00 2001
+From: Song Gao <gaosong@loongson.cn>
+Date: Tue, 2 Jan 2024 10:01:59 +0800
+Subject: [PATCH 02/76] target/loongarch/meson: move gdbstub.c to loongarch.ss
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+gdbstub.c is not specific to TCG and can be used by
+other accelerators, such as KVM accelerator
+
+Reviewed-by: Philippe Mathieu-Daudé <philmd@linaro.org>
+Signed-off-by: Song Gao <gaosong@loongson.cn>
+Message-Id: <20240102020200.3462097-1-gaosong@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+---
+ target/loongarch/meson.build | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/target/loongarch/meson.build b/target/loongarch/meson.build
+index 18e8191e..b3a0fb12 100644
+--- a/target/loongarch/meson.build
++++ b/target/loongarch/meson.build
+@@ -3,6 +3,7 @@ gen = decodetree.process('insns.decode')
+ loongarch_ss = ss.source_set()
+ loongarch_ss.add(files(
+   'cpu.c',
++  'gdbstub.c',
+ ))
+ loongarch_tcg_ss = ss.source_set()
+ loongarch_tcg_ss.add(gen)
+@@ -10,7 +11,6 @@ loongarch_tcg_ss.add(files(
+   'fpu_helper.c',
+   'op_helper.c',
+   'translate.c',
+-  'gdbstub.c',
+   'vec_helper.c',
+ ))
+ loongarch_tcg_ss.add(zlib)
+-- 
+2.45.2
+

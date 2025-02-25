@@ -1,0 +1,40 @@
+From cc998150a6f2ebeb1760f63ba60600fe6f473b44 Mon Sep 17 00:00:00 2001
+From: Bibo Mao <maobibo@loongson.cn>
+Date: Thu, 17 Oct 2024 10:07:07 +0800
+Subject: [PATCH 44/76] linux-headers: loongarch: Add kvm_para.h and
+ unistd_64.h
+
+KVM LBT supports on LoongArch depends on the linux-header file
+kvm_para.h, also unistd_64.h is required by unistd.h on LoongArch
+since 6.11, otherwise there will be compiling error such as:
+
+linux-headers/asm/unistd.h:3:10: fatal error: asm/unistd_64.h: No such file or directory
+ #include <asm/unistd_64.h>
+
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+Acked-by: Song Gao <gaosong@loongson.cn>
+Message-Id: <20241017020708.1728620-2-maobibo@loongson.cn>
+Signed-off-by: Song Gao <gaosong@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+---
+ scripts/update-linux-headers.sh | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/scripts/update-linux-headers.sh b/scripts/update-linux-headers.sh
+index 34295c0f..88c76b8f 100755
+--- a/scripts/update-linux-headers.sh
++++ b/scripts/update-linux-headers.sh
+@@ -156,6 +156,10 @@ for arch in $ARCHLIST; do
+         cp_portable "$tmpdir/bootparam.h" \
+                     "$output/include/standard-headers/asm-$arch"
+     fi
++    if [ $arch = loongarch ]; then
++        cp "$hdrdir/include/asm/kvm_para.h" "$output/linux-headers/asm-loongarch/"
++        cp "$hdrdir/include/asm/unistd_64.h" "$output/linux-headers/asm-loongarch/"
++    fi
+ done
+ 
+ rm -rf "$output/linux-headers/linux"
+-- 
+2.45.2
+

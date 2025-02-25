@@ -1,0 +1,216 @@
+From 7ba05d8a12cb2676fc52a3f7e5d3c44db2d40d28 Mon Sep 17 00:00:00 2001
+From: Bibo Mao <maobibo@loongson.cn>
+Date: Mon, 6 May 2024 09:19:12 +0800
+Subject: [PATCH 62/76] target/loongarch: Add TCG macro in structure
+ CPUArchState
+
+In structure CPUArchState some struct elements are only used in TCG
+mode, and it is not used in KVM mode. Macro CONFIG_TCG is added to
+make it simpiler in KVM mode, also there is the same modification
+in c code when these structure elements are used.
+
+When VM runs in KVM mode, TLB entries are not used and do not need
+migrate. It is only useful when it runs in TCG mode.
+
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+Reviewed-by: Richard Henderson <richard.henderson@linaro.org>
+Message-Id: <20240506011912.2108842-1-maobibo@loongson.cn>
+Signed-off-by: Song Gao <gaosong@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+---
+ target/loongarch/cpu.c        |  7 +++++--
+ target/loongarch/cpu.h        | 15 ++++++++++-----
+ target/loongarch/cpu_helper.c |  9 +++++++++
+ target/loongarch/machine.c    | 30 +++++++++++++++++++++++++-----
+ 4 files changed, 49 insertions(+), 12 deletions(-)
+
+diff --git a/target/loongarch/cpu.c b/target/loongarch/cpu.c
+index 78f4a95c..2a562afd 100644
+--- a/target/loongarch/cpu.c
++++ b/target/loongarch/cpu.c
+@@ -527,7 +527,9 @@ static void loongarch_cpu_reset_hold(Object *obj)
+         lacc->parent_phases.hold(obj);
+     }
+ 
++#ifdef CONFIG_TCG
+     env->fcsr0_mask = FCSR0_M1 | FCSR0_M2 | FCSR0_M3;
++#endif
+     env->fcsr0 = 0x0;
+ 
+     int n;
+@@ -586,7 +588,9 @@ static void loongarch_cpu_reset_hold(Object *obj)
+ 
+ #ifndef CONFIG_USER_ONLY
+     env->pc = 0x1c000000;
++#ifdef CONFIG_TCG
+     memset(env->tlb, 0, sizeof(env->tlb));
++#endif
+     if (kvm_enabled()) {
+         kvm_arch_reset_vcpu(cs);
+     }
+@@ -776,8 +780,7 @@ void loongarch_cpu_dump_state(CPUState *cs, FILE *f, int flags)
+     int i;
+ 
+     qemu_fprintf(f, " PC=%016" PRIx64 " ", env->pc);
+-    qemu_fprintf(f, " FCSR0 0x%08x  fp_status 0x%02x\n", env->fcsr0,
+-                 get_float_exception_flags(&env->fp_status));
++    qemu_fprintf(f, " FCSR0 0x%08x\n", env->fcsr0);
+ 
+     /* gpr */
+     for (i = 0; i < 32; i++) {
+diff --git a/target/loongarch/cpu.h b/target/loongarch/cpu.h
+index 4a3ae6fa..9afa831e 100644
+--- a/target/loongarch/cpu.h
++++ b/target/loongarch/cpu.h
+@@ -275,6 +275,7 @@ union fpr_t {
+     VReg  vreg;
+ };
+ 
++#ifdef CONFIG_TCG
+ struct LoongArchTLB {
+     uint64_t tlb_misc;
+     /* Fields corresponding to CSR_TLBELO0/1 */
+@@ -282,6 +283,7 @@ struct LoongArchTLB {
+     uint64_t tlb_entry1;
+ };
+ typedef struct LoongArchTLB LoongArchTLB;
++#endif
+ 
+ enum loongarch_features {
+     LOONGARCH_FEATURE_LBT, /* loongson binary translation extension */
+@@ -304,18 +306,13 @@ typedef struct CPUArchState {
+     uint64_t pc;
+ 
+     fpr_t fpr[32];
+-    float_status fp_status;
+     bool cf[8];
+ 
+     uint32_t fcsr0;
+     lbt_t  lbt;
+-    uint32_t fcsr0_mask;
+ 
+     uint32_t cpucfg[21];
+ 
+-    uint64_t lladdr; /* LL virtual address compared against SC */
+-    uint64_t llval;
+-
+     /* LoongArch CSRs */
+     uint64_t CSR_CRMD;
+     uint64_t CSR_PRMD;
+@@ -375,8 +372,16 @@ typedef struct CPUArchState {
+         uint64_t guest_addr;
+     } stealtime;
+ 
++#ifdef CONFIG_TCG
++    float_status fp_status;
++    uint32_t fcsr0_mask;
++    uint64_t lladdr; /* LL virtual address compared against SC */
++    uint64_t llval;
++#endif
+ #ifndef CONFIG_USER_ONLY
++#ifdef CONFIG_TCG
+     LoongArchTLB  tlb[LOONGARCH_TLB_MAX];
++#endif
+ 
+     AddressSpace *address_space_iocsr;
+     bool load_elf;
+diff --git a/target/loongarch/cpu_helper.c b/target/loongarch/cpu_helper.c
+index f68d63f4..39037eec 100644
+--- a/target/loongarch/cpu_helper.c
++++ b/target/loongarch/cpu_helper.c
+@@ -11,6 +11,7 @@
+ #include "internals.h"
+ #include "cpu-csr.h"
+ 
++#ifdef CONFIG_TCG
+ static int loongarch_map_tlb_entry(CPULoongArchState *env, hwaddr *physical,
+                                    int *prot, target_ulong address,
+                                    int access_type, int index, int mmu_idx)
+@@ -154,6 +155,14 @@ static int loongarch_map_address(CPULoongArchState *env, hwaddr *physical,
+ 
+     return TLBRET_NOMATCH;
+ }
++#else
++static int loongarch_map_address(CPULoongArchState *env, hwaddr *physical,
++                                 int *prot, target_ulong address,
++                                 MMUAccessType access_type, int mmu_idx)
++{
++    return TLBRET_NOMATCH;
++}
++#endif
+ 
+ static hwaddr dmw_va2pa(CPULoongArchState *env, target_ulong va,
+                         target_ulong dmw)
+diff --git a/target/loongarch/machine.c b/target/loongarch/machine.c
+index dc768453..818aa71a 100644
+--- a/target/loongarch/machine.c
++++ b/target/loongarch/machine.c
+@@ -8,6 +8,7 @@
+ #include "qemu/osdep.h"
+ #include "cpu.h"
+ #include "migration/cpu.h"
++#include "sysemu/tcg.h"
+ #include "vec.h"
+ 
+ static const VMStateDescription vmstate_fpu_reg = {
+@@ -133,9 +134,15 @@ static const VMStateDescription vmstate_lbt = {
+ };
+ 
+ 
++#if defined(CONFIG_TCG) && !defined(CONFIG_USER_ONLY)
++static bool tlb_needed(void *opaque)
++{
++    return tcg_enabled();
++}
++
+ /* TLB state */
+-const VMStateDescription vmstate_tlb = {
+-    .name = "cpu/tlb",
++static const VMStateDescription vmstate_tlb_entry = {
++    .name = "cpu/tlb_entry",
+     .version_id = 0,
+     .minimum_version_id = 0,
+     .fields = (VMStateField[]) {
+@@ -146,6 +153,19 @@ const VMStateDescription vmstate_tlb = {
+     }
+ };
+ 
++static const VMStateDescription vmstate_tlb = {
++    .name = "cpu/tlb",
++    .version_id = 0,
++    .minimum_version_id = 0,
++    .needed = tlb_needed,
++    .fields = (const VMStateField[]) {
++        VMSTATE_STRUCT_ARRAY(env.tlb, LoongArchCPU, LOONGARCH_TLB_MAX,
++                             0, vmstate_tlb_entry, LoongArchTLB),
++        VMSTATE_END_OF_LIST()
++    }
++};
++#endif
++
+ /* LoongArch CPU state */
+ const VMStateDescription vmstate_loongarch_cpu = {
+     .name = "cpu",
+@@ -211,9 +231,6 @@ const VMStateDescription vmstate_loongarch_cpu = {
+         VMSTATE_UINT64(env.CSR_DBG, LoongArchCPU),
+         VMSTATE_UINT64(env.CSR_DERA, LoongArchCPU),
+         VMSTATE_UINT64(env.CSR_DSAVE, LoongArchCPU),
+-        /* TLB */
+-        VMSTATE_STRUCT_ARRAY(env.tlb, LoongArchCPU, LOONGARCH_TLB_MAX,
+-                             0, vmstate_tlb, LoongArchTLB),
+ 
+         VMSTATE_UINT64(kvm_state_counter, LoongArchCPU),
+         /* PV steal time */
+@@ -225,6 +242,9 @@ const VMStateDescription vmstate_loongarch_cpu = {
+         &vmstate_fpu,
+         &vmstate_lsx,
+         &vmstate_lasx,
++#if defined(CONFIG_TCG) && !defined(CONFIG_USER_ONLY)
++        &vmstate_tlb,
++#endif
+         &vmstate_lbt,
+         NULL
+     }
+-- 
+2.45.2
+

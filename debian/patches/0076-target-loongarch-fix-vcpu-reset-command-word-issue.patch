@@ -1,0 +1,56 @@
+From 0b27472af841e2916c8dacb86590b562376395b4 Mon Sep 17 00:00:00 2001
+From: Xianglai Li <lixianglai@loongson.cn>
+Date: Wed, 5 Feb 2025 19:56:54 +0800
+Subject: [PATCH 76/76] target/loongarch: fix vcpu reset command word issue
+
+When the KVM_REG_LOONGARCH_VCPU_RESET command word
+is sent to the kernel through the kvm_set_one_reg interface,
+the parameter source needs to be a legal address,
+otherwise the kernel will return an error and the command word
+will fail to be sent.
+
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+---
+ target/loongarch/cpu.c     | 2 +-
+ target/loongarch/kvm/kvm.c | 9 ++++++++-
+ 2 files changed, 9 insertions(+), 2 deletions(-)
+
+diff --git a/target/loongarch/cpu.c b/target/loongarch/cpu.c
+index bfc7df30..9aa90965 100644
+--- a/target/loongarch/cpu.c
++++ b/target/loongarch/cpu.c
+@@ -628,8 +628,8 @@ static void loongarch_cpu_realizefn(DeviceState *dev, Error **errp)
+ 
+     loongarch_cpu_register_gdb_regs_for_features(cs);
+ 
+-    cpu_reset(cs);
+     qemu_init_vcpu(cs);
++    cpu_reset(cs);
+ 
+     lacc->parent_realize(dev, errp);
+ }
+diff --git a/target/loongarch/kvm/kvm.c b/target/loongarch/kvm/kvm.c
+index 719d6c29..8f9f39b1 100644
+--- a/target/loongarch/kvm/kvm.c
++++ b/target/loongarch/kvm/kvm.c
+@@ -590,9 +590,16 @@ static int kvm_loongarch_get_lbt(CPUState *cs)
+ void kvm_arch_reset_vcpu(CPUState *cs)
+ {
+     CPULoongArchState *env = cpu_env(cs);
++    int ret = 0;
++    uint64_t unused = 0;
+ 
+     env->mp_state = KVM_MP_STATE_RUNNABLE;
+-    kvm_set_one_reg(cs, KVM_REG_LOONGARCH_VCPU_RESET, 0);
++    ret = kvm_set_one_reg(cs, KVM_REG_LOONGARCH_VCPU_RESET, &unused);
++    if (ret) {
++        error_report("Failed to set KVM_REG_LOONGARCH_VCPU_RESET: %s",
++                     strerror(errno));
++        exit(EXIT_FAILURE);
++    }
+ }
+ 
+ static int kvm_loongarch_get_mpstate(CPUState *cs)
+-- 
+2.45.2
+

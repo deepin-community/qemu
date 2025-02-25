@@ -1,0 +1,60 @@
+From 56757706dfa74c1ea44a55e6048305d8c65672f5 Mon Sep 17 00:00:00 2001
+From: Paolo Bonzini <pbonzini@redhat.com>
+Date: Thu, 25 Jan 2024 13:36:37 +0100
+Subject: [PATCH 71/76] loongarch: switch boards to "default y"
+
+Some targets use "default y" for boards to filter out those that require
+TCG.  For consistency we are switching all other targets to do the same.
+Continue with Loongarch.
+
+No changes to generated config-devices.mak file.
+
+Signed-off-by: Paolo Bonzini <pbonzini@redhat.com>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+---
+ .gitlab-ci.d/buildtest.yml                      | 2 ++
+ configs/devices/loongarch64-softmmu/default.mak | 6 +++++-
+ hw/loongarch/Kconfig                            | 2 ++
+ 3 files changed, 9 insertions(+), 1 deletion(-)
+
+diff --git a/.gitlab-ci.d/buildtest.yml b/.gitlab-ci.d/buildtest.yml
+index 91663946..3fb99e79 100644
+--- a/.gitlab-ci.d/buildtest.yml
++++ b/.gitlab-ci.d/buildtest.yml
+@@ -579,6 +579,8 @@ build-tci:
+     - make check-tcg
+ 
+ # Check our reduced build configurations
++# requires libfdt: aarch64, arm, i386, loongarch64, x86_64
++# does not build without boards: i386, loongarch64, x86_64
+ build-without-defaults:
+   extends: .native_build_job_template
+   needs:
+diff --git a/configs/devices/loongarch64-softmmu/default.mak b/configs/devices/loongarch64-softmmu/default.mak
+index 928bc117..ffe70583 100644
+--- a/configs/devices/loongarch64-softmmu/default.mak
++++ b/configs/devices/loongarch64-softmmu/default.mak
+@@ -1,3 +1,7 @@
+ # Default configuration for loongarch64-softmmu
+ 
+-CONFIG_LOONGARCH_VIRT=y
++# Uncomment the following lines to disable these optional devices:
++# CONFIG_PCI_DEVICES=n
++
++# Boards are selected by default, uncomment to keep out of the build.
++# CONFIG_LOONGARCH_VIRT=n
+diff --git a/hw/loongarch/Kconfig b/hw/loongarch/Kconfig
+index 9b687b4c..16c854c0 100644
+--- a/hw/loongarch/Kconfig
++++ b/hw/loongarch/Kconfig
+@@ -1,5 +1,7 @@
+ config LOONGARCH_VIRT
+     bool
++    default y
++    depends on LOONGARCH64
+     select PCI
+     select PCI_EXPRESS_GENERIC_BRIDGE
+     imply PCI_DEVICES
+-- 
+2.45.2
+

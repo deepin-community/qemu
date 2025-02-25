@@ -1,0 +1,54 @@
+From 92365abc912a34a4e83b24a4ffdf6d749a63757e Mon Sep 17 00:00:00 2001
+From: Bibo Mao <maobibo@loongson.cn>
+Date: Fri, 20 Sep 2024 08:46:31 +0800
+Subject: [PATCH 36/76] target/loongarch: Add compatible support about VM
+ reboot
+
+commit a840d70ee474c514b939f6f16fd51396c73d01c7 upstream
+
+With edk2-stable202408 LoongArch UEFI bios, CSR PGD register is set only
+if its value is equal to zero for boot cpu, it causes reboot issue. Since
+CSR PGD register is changed with linux kernel, UEFI BIOS cannot use it.
+
+Add workaround to clear CSR registers relative with TLB in function
+loongarch_cpu_reset_hold(), so that VM can reboot with edk2-stable202408
+UEFI bios.
+
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+Reviewed-by: Song Gao <gaosong@loongson.cn>
+Message-Id: <20240827035807.3326293-1-maobibo@loongson.cn>
+Signed-off-by: Song Gao <gaosong@loongson.cn>
+
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+---
+ target/loongarch/cpu.c | 14 ++++++++++++++
+ 1 file changed, 14 insertions(+)
+
+diff --git a/target/loongarch/cpu.c b/target/loongarch/cpu.c
+index 20ad11d9..a1962358 100644
+--- a/target/loongarch/cpu.c
++++ b/target/loongarch/cpu.c
+@@ -556,6 +556,20 @@ static void loongarch_cpu_reset_hold(Object *obj)
+     env->CSR_TLBRERA = FIELD_DP64(env->CSR_TLBRERA, CSR_TLBRERA, ISTLBR, 0);
+     env->CSR_MERRCTL = FIELD_DP64(env->CSR_MERRCTL, CSR_MERRCTL, ISMERR, 0);
+     env->CSR_TID = cs->cpu_index;
++    /*
++     * Workaround for edk2-stable202408, CSR PGD register is set only if
++     * its value is equal to zero for boot cpu, it causes reboot issue.
++     *
++     * Here clear CSR registers relative with TLB.
++     */
++    env->CSR_PGDH = 0;
++    env->CSR_PGDL = 0;
++    env->CSR_PWCL = 0;
++    env->CSR_PWCH = 0;
++    env->CSR_STLBPS = 0;
++    env->CSR_EENTRY = 0;
++    env->CSR_TLBRENTRY = 0;
++    env->CSR_MERRENTRY = 0;
+ 
+     env->CSR_PRCFG3 = FIELD_DP64(env->CSR_PRCFG3, CSR_PRCFG3, TLB_TYPE, 2);
+     env->CSR_PRCFG3 = FIELD_DP64(env->CSR_PRCFG3, CSR_PRCFG3, MTLB_ENTRY, 63);
+-- 
+2.45.2
+

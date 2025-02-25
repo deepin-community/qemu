@@ -1,0 +1,34 @@
+From 710fbc11c08a3cdbb652f74f3ab6d4009e61691a Mon Sep 17 00:00:00 2001
+From: Tianrui Zhao <zhaotianrui@loongson.cn>
+Date: Fri, 5 Jan 2024 15:58:00 +0800
+Subject: [PATCH 09/76] target/loongarch: Implement kvm_arch_init function
+
+Implement the kvm_arch_init of loongarch, in the function, the
+KVM_CAP_MP_STATE cap is checked by kvm ioctl.
+
+Signed-off-by: Tianrui Zhao <zhaotianrui@loongson.cn>
+Signed-off-by: xianglai li <lixianglai@loongson.cn>
+Reviewed-by: Richard Henderson <richard.henderson@linaro.org>
+Reviewed-by: Song Gao <gaosong@loongson.cn>
+Message-Id: <20240105075804.1228596-6-zhaotianrui@loongson.cn>
+Signed-off-by: Song Gao <gaosong@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+---
+ target/loongarch/kvm/kvm.c | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/target/loongarch/kvm/kvm.c b/target/loongarch/kvm/kvm.c
+index e7c9ef83..29944b9e 100644
+--- a/target/loongarch/kvm/kvm.c
++++ b/target/loongarch/kvm/kvm.c
+@@ -665,6 +665,7 @@ int kvm_arch_get_default_type(MachineState *ms)
+ 
+ int kvm_arch_init(MachineState *ms, KVMState *s)
+ {
++    cap_has_mp_state = kvm_check_extension(s, KVM_CAP_MP_STATE);
+     return 0;
+ }
+ 
+-- 
+2.45.2
+

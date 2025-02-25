@@ -1,0 +1,57 @@
+From ef5c2ada62ac434c32b83bd67cb2a463f568a544 Mon Sep 17 00:00:00 2001
+From: Bibo Mao <maobibo@loongson.cn>
+Date: Wed, 18 Sep 2024 09:42:05 +0800
+Subject: [PATCH 38/76] acpi: ged: Add macro for acpi sleep control register
+
+Macro definition is added for acpi sleep control register, ged emulation
+driver can use the macro , also it can be used in FDT table if ged is
+exposed with FDT table.
+
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+Reviewed-by: Igor Mammedov <imammedo@redhat.com>
+Message-Id: <20240918014206.2165821-2-maobibo@loongson.cn>
+Signed-off-by: Song Gao <gaosong@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+---
+ hw/acpi/generic_event_device.c         | 6 +++---
+ include/hw/acpi/generic_event_device.h | 7 +++++--
+ 2 files changed, 8 insertions(+), 5 deletions(-)
+
+diff --git a/hw/acpi/generic_event_device.c b/hw/acpi/generic_event_device.c
+index a3d31631..889ae968 100644
+--- a/hw/acpi/generic_event_device.c
++++ b/hw/acpi/generic_event_device.c
+@@ -197,9 +197,9 @@ static void ged_regs_write(void *opaque, hwaddr addr, uint64_t data,
+ 
+     switch (addr) {
+     case ACPI_GED_REG_SLEEP_CTL:
+-        slp_typ = (data >> 2) & 0x07;
+-        slp_en  = (data >> 5) & 0x01;
+-        if (slp_en && slp_typ == 5) {
++        slp_typ = (data >> ACPI_GED_SLP_TYP_POS) & ACPI_GED_SLP_TYP_MASK;
++        slp_en  = !!(data & ACPI_GED_SLP_EN);
++        if (slp_en && slp_typ == ACPI_GED_SLP_TYP_S5) {
+             qemu_system_shutdown_request(SHUTDOWN_CAUSE_GUEST_SHUTDOWN);
+         }
+         return;
+diff --git a/include/hw/acpi/generic_event_device.h b/include/hw/acpi/generic_event_device.h
+index ba84ce02..30069169 100644
+--- a/include/hw/acpi/generic_event_device.h
++++ b/include/hw/acpi/generic_event_device.h
+@@ -80,8 +80,11 @@ OBJECT_DECLARE_SIMPLE_TYPE(AcpiGedState, ACPI_GED)
+ /* ACPI_GED_REG_RESET value for reset*/
+ #define ACPI_GED_RESET_VALUE       0x42
+ 
+-/* ACPI_GED_REG_SLEEP_CTL.SLP_TYP value for S5 (aka poweroff) */
+-#define ACPI_GED_SLP_TYP_S5        0x05
++/* [ACPI 5.0 Chapter 4.8.3.7] Sleep Control and Status Register */
++#define ACPI_GED_SLP_TYP_POS       0x2   /* SLP_TYPx Bit Offset */
++#define ACPI_GED_SLP_TYP_MASK      0x07  /* SLP_TYPx 3-bit mask */
++#define ACPI_GED_SLP_TYP_S5        0x05  /* System _S5 State (Soft Off) */
++#define ACPI_GED_SLP_EN            0x20  /* SLP_EN write-only bit */
+ 
+ #define GED_DEVICE      "GED"
+ #define AML_GED_EVT_REG "EREG"
+-- 
+2.45.2
+

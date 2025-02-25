@@ -1,0 +1,55 @@
+From 153bf65737229682168e7288e47be41279ddb7b6 Mon Sep 17 00:00:00 2001
+From: Song Gao <gaosong@loongson.cn>
+Date: Fri, 5 Jul 2024 10:18:38 +0800
+Subject: [PATCH 69/76] target/loongarch: Set CSR_PRCFG1 and CSR_PRCFG2 values
+
+We set the value of register CSR_PRCFG3, but left out CSR_PRCFG1
+and CSR_PRCFG2. Set CSR_PRCFG1 and CSR_PRCFG2 according to the
+default values of the physical machine.
+
+Signed-off-by: Song Gao <gaosong@loongson.cn>
+Reviewed-by: Bibo Mao <maobibo@loongson.cn>
+Message-Id: <20240705021839.1004374-1-gaosong@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+---
+ target/loongarch/cpu.c | 17 ++++++++++++-----
+ 1 file changed, 12 insertions(+), 5 deletions(-)
+
+diff --git a/target/loongarch/cpu.c b/target/loongarch/cpu.c
+index 2a562afd..b80dde5e 100644
+--- a/target/loongarch/cpu.c
++++ b/target/loongarch/cpu.c
+@@ -463,6 +463,18 @@ static void loongarch_la464_initfn(Object *obj)
+     env->cpucfg[20] = data;
+ 
+     env->CSR_ASID = FIELD_DP64(0, CSR_ASID, ASIDBITS, 0xa);
++
++    env->CSR_PRCFG1 = FIELD_DP64(env->CSR_PRCFG1, CSR_PRCFG1, SAVE_NUM, 8);
++    env->CSR_PRCFG1 = FIELD_DP64(env->CSR_PRCFG1, CSR_PRCFG1, TIMER_BITS, 0x2f);
++    env->CSR_PRCFG1 = FIELD_DP64(env->CSR_PRCFG1, CSR_PRCFG1, VSMAX, 7);
++
++    env->CSR_PRCFG2 = 0x3ffff000;
++
++    env->CSR_PRCFG3 = FIELD_DP64(env->CSR_PRCFG3, CSR_PRCFG3, TLB_TYPE, 2);
++    env->CSR_PRCFG3 = FIELD_DP64(env->CSR_PRCFG3, CSR_PRCFG3, MTLB_ENTRY, 63);
++    env->CSR_PRCFG3 = FIELD_DP64(env->CSR_PRCFG3, CSR_PRCFG3, STLB_WAYS, 7);
++    env->CSR_PRCFG3 = FIELD_DP64(env->CSR_PRCFG3, CSR_PRCFG3, STLB_SETS, 8);
++
+     loongarch_cpu_post_init(obj);
+ }
+ 
+@@ -574,11 +586,6 @@ static void loongarch_cpu_reset_hold(Object *obj)
+     env->CSR_TLBRENTRY = 0;
+     env->CSR_MERRENTRY = 0;
+ 
+-    env->CSR_PRCFG3 = FIELD_DP64(env->CSR_PRCFG3, CSR_PRCFG3, TLB_TYPE, 2);
+-    env->CSR_PRCFG3 = FIELD_DP64(env->CSR_PRCFG3, CSR_PRCFG3, MTLB_ENTRY, 63);
+-    env->CSR_PRCFG3 = FIELD_DP64(env->CSR_PRCFG3, CSR_PRCFG3, STLB_WAYS, 7);
+-    env->CSR_PRCFG3 = FIELD_DP64(env->CSR_PRCFG3, CSR_PRCFG3, STLB_SETS, 8);
+-
+     for (n = 0; n < 4; n++) {
+         env->CSR_DMW[n] = FIELD_DP64(env->CSR_DMW[n], CSR_DMW, PLV0, 0);
+         env->CSR_DMW[n] = FIELD_DP64(env->CSR_DMW[n], CSR_DMW, PLV1, 0);
+-- 
+2.45.2
+

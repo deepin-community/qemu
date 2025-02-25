@@ -1,0 +1,75 @@
+From 7ee2d3084f178ab1d754f9ee32432bf425d9db92 Mon Sep 17 00:00:00 2001
+From: Bibo Mao <maobibo@loongson.cn>
+Date: Sun, 28 Apr 2024 11:16:51 +0800
+Subject: [PATCH 63/76] target/loongarch: Put cpucfg operation before CSR
+ register
+
+On Loongarch, cpucfg is register for cpu feature, some other registers
+depend on cpucfg feature such as perf CSR registers. Here put cpucfg
+read/write operations before CSR register, so that KVM knows how many
+perf CSR registers are valid from pre-set cpucfg feature information.
+
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+Reviewed-by: Song Gao <gaosong@loongson.cn>
+Message-Id: <20240428031651.1354587-1-maobibo@loongson.cn>
+Signed-off-by: Song Gao <gaosong@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+---
+ target/loongarch/kvm/kvm.c | 20 ++++++++++----------
+ 1 file changed, 10 insertions(+), 10 deletions(-)
+
+diff --git a/target/loongarch/kvm/kvm.c b/target/loongarch/kvm/kvm.c
+index 0ab1ee80..213cf6a8 100644
+--- a/target/loongarch/kvm/kvm.c
++++ b/target/loongarch/kvm/kvm.c
+@@ -716,6 +716,11 @@ int kvm_arch_get_registers(CPUState *cs)
+         return ret;
+     }
+ 
++    ret = kvm_loongarch_get_cpucfg(cs);
++    if (ret) {
++        return ret;
++    }
++
+     ret = kvm_loongarch_get_csr(cs);
+     if (ret) {
+         return ret;
+@@ -737,11 +742,6 @@ int kvm_arch_get_registers(CPUState *cs)
+     }
+ 
+     ret = kvm_loongarch_get_mpstate(cs);
+-    if (ret) {
+-        return ret;
+-    }
+-
+-    ret = kvm_loongarch_get_cpucfg(cs);
+     return ret;
+ }
+ 
+@@ -754,6 +754,11 @@ int kvm_arch_put_registers(CPUState *cs, int level)
+         return ret;
+     }
+ 
++    ret = kvm_loongarch_put_cpucfg(cs);
++    if (ret) {
++        return ret;
++    }
++
+     ret = kvm_loongarch_put_csr(cs, level);
+     if (ret) {
+         return ret;
+@@ -781,11 +786,6 @@ int kvm_arch_put_registers(CPUState *cs, int level)
+     }
+ 
+     ret = kvm_loongarch_put_mpstate(cs);
+-    if (ret) {
+-        return ret;
+-    }
+-
+-    ret = kvm_loongarch_put_cpucfg(cs);
+     return ret;
+ }
+ 
+-- 
+2.45.2
+

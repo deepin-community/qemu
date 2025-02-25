@@ -1,0 +1,44 @@
+From 856aceb510074b85a06c8b8375e94418d532333b Mon Sep 17 00:00:00 2001
+From: Song Gao <gaosong@loongson.cn>
+Date: Wed, 8 May 2024 10:47:32 +0800
+Subject: [PATCH 32/76] target/loongarch/kvm: Fix VM recovery from disk
+ failures
+
+vmstate does not save kvm_state_conter,
+which can cause VM recovery from disk to fail.
+
+Signed-off-by: Song Gao <gaosong@loongson.cn>
+Acked-by: Peter Xu <peterx@redhat.com>
+Message-Id: <20240508024732.3127792-1-gaosong@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+---
+ target/loongarch/machine.c | 6 ++++--
+ 1 file changed, 4 insertions(+), 2 deletions(-)
+
+diff --git a/target/loongarch/machine.c b/target/loongarch/machine.c
+index 1c4e01d0..5a7df713 100644
+--- a/target/loongarch/machine.c
++++ b/target/loongarch/machine.c
+@@ -125,8 +125,8 @@ const VMStateDescription vmstate_tlb = {
+ /* LoongArch CPU state */
+ const VMStateDescription vmstate_loongarch_cpu = {
+     .name = "cpu",
+-    .version_id = 1,
+-    .minimum_version_id = 1,
++    .version_id = 2,
++    .minimum_version_id = 2,
+     .fields = (VMStateField[]) {
+         VMSTATE_UINTTL_ARRAY(env.gpr, LoongArchCPU, 32),
+         VMSTATE_UINTTL(env.pc, LoongArchCPU),
+@@ -191,6 +191,8 @@ const VMStateDescription vmstate_loongarch_cpu = {
+         VMSTATE_STRUCT_ARRAY(env.tlb, LoongArchCPU, LOONGARCH_TLB_MAX,
+                              0, vmstate_tlb, LoongArchTLB),
+ 
++        VMSTATE_UINT64(kvm_state_counter, LoongArchCPU),
++
+         VMSTATE_END_OF_LIST()
+     },
+     .subsections = (const VMStateDescription*[]) {
+-- 
+2.45.2
+

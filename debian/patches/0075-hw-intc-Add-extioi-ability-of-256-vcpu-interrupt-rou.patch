@@ -1,0 +1,219 @@
+From 597142a3ef4e277dc90f21f044d06674093db231 Mon Sep 17 00:00:00 2001
+From: Xianglai Li <lixianglai@loongson.cn>
+Date: Thu, 20 Feb 2025 19:24:18 +0800
+Subject: [PATCH 75/76] hw/intc: Add extioi ability of 256 vcpu interrupt
+ routing
+
+Add the feature field for the CPU-encoded interrupt
+route to extioi and the corresponding mechanism for
+backup recovery.
+
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+---
+ hw/intc/loongarch_extioi_kvm.c     | 71 +++++++++++++++++++++++++++++-
+ hw/loongarch/virt.c                |  2 +
+ include/hw/intc/loongarch_extioi.h |  4 ++
+ linux-headers/asm-loongarch/kvm.h  | 16 +++----
+ 4 files changed, 83 insertions(+), 10 deletions(-)
+
+diff --git a/hw/intc/loongarch_extioi_kvm.c b/hw/intc/loongarch_extioi_kvm.c
+index f5bbc332..b2470a4a 100644
+--- a/hw/intc/loongarch_extioi_kvm.c
++++ b/hw/intc/loongarch_extioi_kvm.c
+@@ -22,6 +22,30 @@ static void kvm_extioi_access_regs(int fd, uint64_t addr,
+                           addr, val, is_write, &error_abort);
+ }
+ 
++static void kvm_extioi_access_sw_status(int fd, uint64_t addr,
++                                       void *val, bool is_write)
++{
++        kvm_device_access(fd, KVM_DEV_LOONGARCH_EXTIOI_GRP_SW_STATUS,
++                          addr, val, is_write, &error_abort);
++}
++
++static void kvm_extioi_save_load_sw_status(void *opaque, bool is_write)
++{
++    KVMLoongArchExtIOI *s = (KVMLoongArchExtIOI *)opaque;
++    KVMLoongArchExtIOIClass *class = KVM_LOONGARCH_EXTIOI_GET_CLASS(s);
++    int fd = class->dev_fd;
++    int addr;
++
++    addr = KVM_DEV_LOONGARCH_EXTIOI_SW_STATUS_NUM_CPU;
++    kvm_extioi_access_sw_status(fd, addr, (void *)&s->num_cpu, is_write);
++
++    addr = KVM_DEV_LOONGARCH_EXTIOI_SW_STATUS_FEATURE;
++    kvm_extioi_access_sw_status(fd, addr, (void *)&s->features, is_write);
++
++    addr = KVM_DEV_LOONGARCH_EXTIOI_SW_STATUS_STATE;
++    kvm_extioi_access_sw_status(fd, addr, (void *)&s->status, is_write);
++}
++
+ static int kvm_loongarch_extioi_pre_save(void *opaque)
+ {
+     KVMLoongArchExtIOI *s = (KVMLoongArchExtIOI *)opaque;
+@@ -41,6 +65,8 @@ static int kvm_loongarch_extioi_pre_save(void *opaque)
+     kvm_extioi_access_regs(fd, EXTIOI_COREISR_START,
+                            (void *)s->coreisr, false);
+ 
++    kvm_extioi_save_load_sw_status(opaque, false);
++
+     return 0;
+ }
+ 
+@@ -61,12 +87,19 @@ static int kvm_loongarch_extioi_post_load(void *opaque, int version_id)
+                            (void *)s->sw_coremap, true);
+     kvm_extioi_access_regs(fd, EXTIOI_COREISR_START, (void *)s->coreisr, true);
+ 
++    kvm_extioi_save_load_sw_status(opaque, true);
++
++    kvm_device_access(fd, KVM_DEV_LOONGARCH_EXTIOI_GRP_CTRL,
++                      KVM_DEV_LOONGARCH_EXTIOI_CTRL_LOAD_FINISHED,
++                      NULL, true, &error_abort);
++
+     return 0;
+ }
+ 
+ static void kvm_loongarch_extioi_realize(DeviceState *dev, Error **errp)
+ {
+     KVMLoongArchExtIOIClass *extioi_class = KVM_LOONGARCH_EXTIOI_GET_CLASS(dev);
++    KVMLoongArchExtIOI *s = KVM_LOONGARCH_EXTIOI(dev);
+     struct kvm_create_device cd = {0};
+     Error *err = NULL;
+     int ret,i;
+@@ -77,6 +110,10 @@ static void kvm_loongarch_extioi_realize(DeviceState *dev, Error **errp)
+         return;
+     }
+ 
++    if (s->features & BIT(EXTIOI_HAS_VIRT_EXTENSION)) {
++        s->features |= EXTIOI_VIRT_HAS_FEATURES;
++    }
++
+     if (!extioi_class->is_created) {
+         cd.type = KVM_DEV_TYPE_LA_EXTIOI;
+         ret = kvm_vm_ioctl(kvm_state, KVM_CREATE_DEVICE, &cd);
+@@ -87,6 +124,25 @@ static void kvm_loongarch_extioi_realize(DeviceState *dev, Error **errp)
+         }
+         extioi_class->is_created = true;
+         extioi_class->dev_fd = cd.fd;
++
++        ret = kvm_device_access(cd.fd, KVM_DEV_LOONGARCH_EXTIOI_GRP_CTRL,
++                                KVM_DEV_LOONGARCH_EXTIOI_CTRL_INIT_NUM_CPU,
++                                &s->num_cpu, true, NULL);
++        if (ret < 0) {
++            error_setg_errno(errp, errno,
++                             "KVM EXTIOI: failed to set the num-cpu of EXTIOI");
++            exit(1);
++        }
++
++        ret = kvm_device_access(cd.fd, KVM_DEV_LOONGARCH_EXTIOI_GRP_CTRL,
++                                KVM_DEV_LOONGARCH_EXTIOI_CTRL_INIT_FEATURE,
++                                &s->features, true, NULL);
++        if (ret < 0) {
++            error_setg_errno(errp, errno,
++                             "KVM EXTIOI: failed to set the feature of EXTIOI");
++            exit(1);
++        }
++
+         fprintf(stdout, "Create LoongArch extioi irqchip in KVM done!\n");
+     }
+ 
+@@ -102,8 +158,8 @@ static void kvm_loongarch_extioi_realize(DeviceState *dev, Error **errp)
+ 
+ static const VMStateDescription vmstate_kvm_extioi_core = {
+     .name = "kvm-extioi-single",
+-    .version_id = 1,
+-    .minimum_version_id = 1,
++    .version_id = 2,
++    .minimum_version_id = 2,
+     .pre_save = kvm_loongarch_extioi_pre_save,
+     .post_load = kvm_loongarch_extioi_post_load,
+     .fields = (VMStateField[]) {
+@@ -119,10 +175,20 @@ static const VMStateDescription vmstate_kvm_extioi_core = {
+                              EXTIOI_IRQS_IPMAP_SIZE / 4),
+         VMSTATE_UINT32_ARRAY(coremap, KVMLoongArchExtIOI, EXTIOI_IRQS / 4),
+         VMSTATE_UINT8_ARRAY(sw_coremap, KVMLoongArchExtIOI, EXTIOI_IRQS),
++        VMSTATE_UINT32(num_cpu, KVMLoongArchExtIOI),
++        VMSTATE_UINT32(features, KVMLoongArchExtIOI),
++        VMSTATE_UINT32(status, KVMLoongArchExtIOI),
+         VMSTATE_END_OF_LIST()
+     }
+ };
+ 
++static Property extioi_properties[] = {
++    DEFINE_PROP_UINT32("num-cpu", KVMLoongArchExtIOI, num_cpu, 1),
++    DEFINE_PROP_BIT("has-virtualization-extension", KVMLoongArchExtIOI,
++                    features, EXTIOI_HAS_VIRT_EXTENSION, 0),
++    DEFINE_PROP_END_OF_LIST(),
++};
++
+ static void kvm_loongarch_extioi_class_init(ObjectClass *oc, void *data)
+ {
+     DeviceClass *dc = DEVICE_CLASS(oc);
+@@ -131,6 +197,7 @@ static void kvm_loongarch_extioi_class_init(ObjectClass *oc, void *data)
+     extioi_class->parent_realize = dc->realize;
+     dc->realize = kvm_loongarch_extioi_realize;
+     extioi_class->is_created = false;
++    device_class_set_props(dc, extioi_properties);
+     dc->vmsd = &vmstate_kvm_extioi_core;
+ }
+ 
+diff --git a/hw/loongarch/virt.c b/hw/loongarch/virt.c
+index d165c238..f1953b9f 100644
+--- a/hw/loongarch/virt.c
++++ b/hw/loongarch/virt.c
+@@ -890,6 +890,8 @@ static void virt_irq_init(LoongArchVirtMachineState *lvms)
+ 
+     if (kvm_enabled() && kvm_irqchip_in_kernel()) {
+         extioi = qdev_new(TYPE_KVM_LOONGARCH_EXTIOI);
++        qdev_prop_set_uint32(extioi, "num-cpu", ms->smp.max_cpus);
++        qdev_prop_set_bit(extioi, "has-virtualization-extension", true);
+         sysbus_realize_and_unref(SYS_BUS_DEVICE(extioi), &error_fatal);
+     } else {
+         extioi = qdev_new(TYPE_LOONGARCH_EXTIOI);
+diff --git a/include/hw/intc/loongarch_extioi.h b/include/hw/intc/loongarch_extioi.h
+index e8378f60..e77cd752 100644
+--- a/include/hw/intc/loongarch_extioi.h
++++ b/include/hw/intc/loongarch_extioi.h
+@@ -92,6 +92,10 @@ struct LoongArchExtIOI {
+ 
+ struct KVMLoongArchExtIOI {
+     SysBusDevice parent_obj;
++    uint32_t num_cpu;
++    uint32_t features;
++    uint32_t status;
++
+     /* hardware state */
+     uint32_t nodetype[EXTIOI_IRQS_NODETYPE_COUNT / 2];
+     uint32_t bounce[EXTIOI_IRQS_GROUP_COUNT];
+diff --git a/linux-headers/asm-loongarch/kvm.h b/linux-headers/asm-loongarch/kvm.h
+index f109ed42..c23c16f3 100644
+--- a/linux-headers/asm-loongarch/kvm.h
++++ b/linux-headers/asm-loongarch/kvm.h
+@@ -142,16 +142,16 @@ struct kvm_iocsr_entry {
+ 
+ #define KVM_DEV_LOONGARCH_EXTIOI_GRP_REGS	0x40000003
+ 
+-#define KVM_DEV_LOONGARCH_PCH_PIC_GRP_CTRL	0x40000004
+-#define KVM_DEV_LOONGARCH_PCH_PIC_CTRL_INIT	0
+-
+-#define KVM_DEV_LOONGARCH_PCH_PIC_GRP_REGS	0x40000005
++#define KVM_DEV_LOONGARCH_EXTIOI_GRP_SW_STATUS		0x40000006
++#define KVM_DEV_LOONGARCH_EXTIOI_SW_STATUS_NUM_CPU	0x0
++#define KVM_DEV_LOONGARCH_EXTIOI_SW_STATUS_FEATURE	0x1
++#define KVM_DEV_LOONGARCH_EXTIOI_SW_STATUS_STATE	0x2
+ 
+-#define KVM_LOONGARCH_VM_HAVE_IRQCHIP		0x40000001
+-
+-#define KVM_DEV_LOONGARCH_IPI_GRP_REGS		0x40000002
++#define KVM_DEV_LOONGARCH_EXTIOI_GRP_CTRL		0x40000007
++#define KVM_DEV_LOONGARCH_EXTIOI_CTRL_INIT_NUM_CPU	0x0
++#define KVM_DEV_LOONGARCH_EXTIOI_CTRL_INIT_FEATURE	0x1
++#define KVM_DEV_LOONGARCH_EXTIOI_CTRL_LOAD_FINISHED	0x3
+ 
+-#define KVM_DEV_LOONGARCH_EXTIOI_GRP_REGS	0x40000003
+ 
+ #define KVM_DEV_LOONGARCH_PCH_PIC_GRP_CTRL	0x40000004
+ #define KVM_DEV_LOONGARCH_PCH_PIC_CTRL_INIT	0
+-- 
+2.45.2
+

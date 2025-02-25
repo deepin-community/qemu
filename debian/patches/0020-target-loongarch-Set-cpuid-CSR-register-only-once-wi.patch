@@ -1,0 +1,58 @@
+From 781b30b56be7e2e7f000a8a2ff06c188716e8adc Mon Sep 17 00:00:00 2001
+From: Bibo Mao <maobibo@loongson.cn>
+Date: Mon, 15 Jan 2024 16:51:21 +0800
+Subject: [PATCH 20/76] target/loongarch: Set cpuid CSR register only once with
+ kvm mode
+
+CSR cpuid register is used for routing irq to different vcpus, its
+value is kept unchanged since poweron. So it is not necessary to
+set CSR cpuid register after system resets, and it is only set at
+vm creation stage.
+
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+Reviewed-by: Song Gao <gaosong@loongson.cn>
+Message-Id: <20240115085121.180524-1-maobibo@loongson.cn>
+Signed-off-by: Song Gao <gaosong@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+---
+ target/loongarch/kvm/kvm.c | 9 ++++++---
+ 1 file changed, 6 insertions(+), 3 deletions(-)
+
+diff --git a/target/loongarch/kvm/kvm.c b/target/loongarch/kvm/kvm.c
+index 84bcdf5f..2230f029 100644
+--- a/target/loongarch/kvm/kvm.c
++++ b/target/loongarch/kvm/kvm.c
+@@ -250,7 +250,7 @@ static int kvm_loongarch_get_csr(CPUState *cs)
+     return ret;
+ }
+ 
+-static int kvm_loongarch_put_csr(CPUState *cs)
++static int kvm_loongarch_put_csr(CPUState *cs, int level)
+ {
+     int ret = 0;
+     LoongArchCPU *cpu = LOONGARCH_CPU(cs);
+@@ -322,8 +322,11 @@ static int kvm_loongarch_put_csr(CPUState *cs)
+     ret |= kvm_set_one_reg(cs, KVM_IOC_CSRID(LOONGARCH_CSR_RVACFG),
+                            &env->CSR_RVACFG);
+ 
+-    ret |= kvm_set_one_reg(cs, KVM_IOC_CSRID(LOONGARCH_CSR_CPUID),
++    /* CPUID is constant after poweron, it should be set only once */
++    if (level >= KVM_PUT_FULL_STATE) {
++        ret |= kvm_set_one_reg(cs, KVM_IOC_CSRID(LOONGARCH_CSR_CPUID),
+                            &env->CSR_CPUID);
++    }
+ 
+     ret |= kvm_set_one_reg(cs, KVM_IOC_CSRID(LOONGARCH_CSR_PRCFG1),
+                            &env->CSR_PRCFG1);
+@@ -598,7 +601,7 @@ int kvm_arch_put_registers(CPUState *cs, int level)
+         return ret;
+     }
+ 
+-    ret = kvm_loongarch_put_csr(cs);
++    ret = kvm_loongarch_put_csr(cs, level);
+     if (ret) {
+         return ret;
+     }
+-- 
+2.45.2
+

@@ -1,0 +1,173 @@
+From 3e429dd8d8bdd9b29fc597d75f42fcab453ff352 Mon Sep 17 00:00:00 2001
+From: Xianglai Li <lixianglai@loongson.cn>
+Date: Thu, 7 Mar 2024 20:19:03 +0800
+Subject: [PATCH 61/76] hw/loongarch: Add KVM pch msi device support
+
+Added pch_msi interrupt controller handling
+during kernel emulation of irq chip.
+
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+---
+ hw/intc/loongarch_pch_msi.c         | 42 +++++++++++++++++++++--------
+ hw/loongarch/virt.c                 | 28 ++++++++++---------
+ include/hw/intc/loongarch_pch_msi.h |  2 +-
+ target/loongarch/kvm/kvm.c          |  2 +-
+ 4 files changed, 49 insertions(+), 25 deletions(-)
+
+diff --git a/hw/intc/loongarch_pch_msi.c b/hw/intc/loongarch_pch_msi.c
+index ecf3ed02..bab6f852 100644
+--- a/hw/intc/loongarch_pch_msi.c
++++ b/hw/intc/loongarch_pch_msi.c
+@@ -2,7 +2,7 @@
+ /*
+  * QEMU Loongson 7A1000 msi interrupt controller.
+  *
+- * Copyright (C) 2021 Loongson Technology Corporation Limited
++ * Copyright (C) 2024 Loongson Technology Corporation Limited
+  */
+ 
+ #include "qemu/osdep.h"
+@@ -14,6 +14,8 @@
+ #include "hw/misc/unimp.h"
+ #include "migration/vmstate.h"
+ #include "trace.h"
++#include "sysemu/kvm.h"
++#include "hw/loongarch/virt.h"
+ 
+ static uint64_t loongarch_msi_mem_read(void *opaque, hwaddr addr, unsigned size)
+ {
+@@ -26,14 +28,24 @@ static void loongarch_msi_mem_write(void *opaque, hwaddr addr,
+     LoongArchPCHMSI *s = (LoongArchPCHMSI *)opaque;
+     int irq_num;
+ 
+-    /*
+-     * vector number is irq number from upper extioi intc
+-     * need subtract irq base to get msi vector offset
+-     */
+-    irq_num = (val & 0xff) - s->irq_base;
+-    trace_loongarch_msi_set_irq(irq_num);
+-    assert(irq_num < s->irq_num);
+-    qemu_set_irq(s->pch_msi_irq[irq_num], 1);
++    MSIMessage msg = {
++        .address = addr,
++        .data = val,
++    };
++
++    if (kvm_enabled() && kvm_irqchip_in_kernel()) {
++        kvm_irqchip_send_msi(kvm_state, msg);
++    } else {
++        /*
++         * vector number is irq number from upper extioi intc
++         * need subtract irq base to get msi vector offset
++         */
++        irq_num = (val & 0xff) - s->irq_base;
++        trace_loongarch_msi_set_irq(irq_num);
++        assert(irq_num < s->irq_num);
++
++        qemu_set_irq(s->pch_msi_irq[irq_num], 1);
++    }
+ }
+ 
+ static const MemoryRegionOps loongarch_pch_msi_ops = {
+@@ -45,8 +57,16 @@ static const MemoryRegionOps loongarch_pch_msi_ops = {
+ static void pch_msi_irq_handler(void *opaque, int irq, int level)
+ {
+     LoongArchPCHMSI *s = LOONGARCH_PCH_MSI(opaque);
+-
+-    qemu_set_irq(s->pch_msi_irq[irq], level);
++    MSIMessage msg = {
++        .address = 0,
++        .data = irq,
++    };
++
++    if (kvm_enabled() && kvm_irqchip_in_kernel()) {
++        kvm_irqchip_send_msi(kvm_state, msg);
++    } else {
++        qemu_set_irq(s->pch_msi_irq[irq], level);
++    }
+ }
+ 
+ static void loongarch_pch_msi_realize(DeviceState *dev, Error **errp)
+diff --git a/hw/loongarch/virt.c b/hw/loongarch/virt.c
+index 2e6d3244..c7492e56 100644
+--- a/hw/loongarch/virt.c
++++ b/hw/loongarch/virt.c
+@@ -937,29 +937,33 @@ static void virt_irq_init(LoongArchVirtMachineState *lvms)
+         for (i = 0; i < num; i++) {
+             qdev_connect_gpio_out(DEVICE(d), i, qdev_get_gpio_in(extioi, i));
+         }
++    }
+ 
+-        pch_msi = qdev_new(TYPE_LOONGARCH_PCH_MSI);
+-        start   =  num;
+-        num = EXTIOI_IRQS - start;
+-        qdev_prop_set_uint32(pch_msi, "msi_irq_base", start);
+-        qdev_prop_set_uint32(pch_msi, "msi_irq_num", num);
+-        d = SYS_BUS_DEVICE(pch_msi);
+-        sysbus_realize_and_unref(d, &error_fatal);
+-        sysbus_mmio_map(d, 0, VIRT_PCH_MSI_ADDR_LOW);
++    /* Add PCH PIC node */
++    fdt_add_pch_pic_node(lvms, &eiointc_phandle, &pch_pic_phandle);
++
++    pch_msi = qdev_new(TYPE_LOONGARCH_PCH_MSI);
++    num = VIRT_PCH_PIC_IRQ_NUM;
++    start   =  num;
++    num = EXTIOI_IRQS - start;
++    qdev_prop_set_uint32(pch_msi, "msi_irq_base", start);
++    qdev_prop_set_uint32(pch_msi, "msi_irq_num", num);
++    d = SYS_BUS_DEVICE(pch_msi);
++    sysbus_realize_and_unref(d, &error_fatal);
++    sysbus_mmio_map(d, 0, VIRT_PCH_MSI_ADDR_LOW);
++    if (!(kvm_enabled() && kvm_irqchip_in_kernel())) {
++        /* Connect pch_msi irqs to extioi */
+         for (i = 0; i < num; i++) {
+-            /* Connect pch_msi irqs to extioi */
+             qdev_connect_gpio_out(DEVICE(d), i,
+                                   qdev_get_gpio_in(extioi, i + start));
+         }
+     }
+ 
+-    /* Add PCH PIC node */
+-    fdt_add_pch_pic_node(lvms, &eiointc_phandle, &pch_pic_phandle);
+-
+     /* Add PCH MSI node */
+     fdt_add_pch_msi_node(lvms, &eiointc_phandle, &pch_msi_phandle);
+ 
+     virt_devices_init(pch_pic, lvms, &pch_pic_phandle, &pch_msi_phandle);
++
+ }
+ 
+ static void virt_firmware_init(LoongArchVirtMachineState *lvms)
+diff --git a/include/hw/intc/loongarch_pch_msi.h b/include/hw/intc/loongarch_pch_msi.h
+index b8586fb3..fd4ea97a 100644
+--- a/include/hw/intc/loongarch_pch_msi.h
++++ b/include/hw/intc/loongarch_pch_msi.h
+@@ -7,7 +7,7 @@
+ 
+ #include "hw/sysbus.h"
+ 
+-#define TYPE_LOONGARCH_PCH_MSI "loongarch_pch_msi"
++#define TYPE_LOONGARCH_PCH_MSI     "loongarch_pch_msi"
+ OBJECT_DECLARE_SIMPLE_TYPE(LoongArchPCHMSI, LOONGARCH_PCH_MSI)
+ 
+ /* MSI irq start from 32 to 255 */
+diff --git a/target/loongarch/kvm/kvm.c b/target/loongarch/kvm/kvm.c
+index e2e77ab5..0ab1ee80 100644
+--- a/target/loongarch/kvm/kvm.c
++++ b/target/loongarch/kvm/kvm.c
+@@ -962,11 +962,11 @@ int kvm_arch_get_default_type(MachineState *ms)
+ 
+ int kvm_arch_init(MachineState *ms, KVMState *s)
+ {
+-    s->kernel_irqchip_allowed = false;
+     cap_has_mp_state = kvm_check_extension(s, KVM_CAP_MP_STATE);
+     if(!kvm_vm_check_attr(kvm_state, KVM_LOONGARCH_VM_HAVE_IRQCHIP, KVM_LOONGARCH_VM_HAVE_IRQCHIP)) {
+         s->kernel_irqchip_allowed = false;
+     }
++    s->kernel_irqchip_allowed = false;
+ 
+     return 0;
+ }
+-- 
+2.45.2
+

@@ -1,0 +1,42 @@
+From a503ba017539ee5ca3bbc373668ebd7f45a8bb9c Mon Sep 17 00:00:00 2001
+From: Bibo Mao <maobibo@loongson.cn>
+Date: Tue, 16 Jan 2024 09:39:52 +0800
+Subject: [PATCH 19/76] configure: Add linux header compile support for
+ LoongArch
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+When compiling qemu with system KVM mode for LoongArch, header files
+in directory linux-headers/asm-loongarch should be used firstly.
+Otherwise it fails to find kvm.h on system with old glibc, since
+latest kernel header files are not installed.
+
+This patch adds linux_arch definition for LoongArch system so that
+header files in directory linux-headers/asm-loongarch can be included.
+
+Fixes: 714b03c125 ("target/loongarch: Add loongarch kvm into meson build")
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+Reviewed-by: Philippe Mathieu-Daudé <philmd@linaro.org>
+Message-ID: <20240116013952.264474-1-maobibo@loongson.cn>
+Signed-off-by: Philippe Mathieu-Daudé <philmd@linaro.org>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+---
+ configure | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/configure b/configure
+index bdda912f..6036de83 100755
+--- a/configure
++++ b/configure
+@@ -445,6 +445,7 @@ case "$cpu" in
+   loongarch*)
+     cpu=loongarch64
+     host_arch=loongarch64
++    linux_arch=loongarch
+     ;;
+ 
+   mips64*)
+-- 
+2.45.2
+

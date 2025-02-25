@@ -1,0 +1,58 @@
+From de6ee1b14246f840b134252e8d354fe0b07f37a6 Mon Sep 17 00:00:00 2001
+From: Xianglai Li <lixianglai@loongson.cn>
+Date: Mon, 4 Nov 2024 16:42:15 +0800
+Subject: [PATCH 74/76] enable the irqchip simulation function
+
+Enable the irqchip kernel simulation function,
+Fixed a bug when using irqchip emulation.
+
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+---
+ hw/loongarch/virt.c        | 11 ++++++++---
+ target/loongarch/kvm/kvm.c |  1 -
+ 2 files changed, 8 insertions(+), 4 deletions(-)
+
+diff --git a/hw/loongarch/virt.c b/hw/loongarch/virt.c
+index 556af5c6..d165c238 100644
+--- a/hw/loongarch/virt.c
++++ b/hw/loongarch/virt.c
+@@ -864,6 +864,14 @@ static void virt_irq_init(LoongArchVirtMachineState *lvms)
+                        sysbus_mmio_get_region(SYS_BUS_DEVICE(ipi), 0));
+         memory_region_add_subregion(&lvms->system_iocsr, MAIL_SEND_ADDR,
+                        sysbus_mmio_get_region(SYS_BUS_DEVICE(ipi), 1));
++
++        for (cpu = 0; cpu < ms->smp.cpus; cpu++) {
++            cpu_state = qemu_get_cpu(cpu);
++            cpudev = DEVICE(cpu_state);
++
++            /* connect ipi irq to cpu irq */
++            qdev_connect_gpio_out(ipi, cpu, qdev_get_gpio_in(cpudev, IRQ_IPI));
++        }
+     }
+ 
+     /* Add cpu interrupt-controller */
+@@ -875,9 +883,6 @@ static void virt_irq_init(LoongArchVirtMachineState *lvms)
+         lacpu = LOONGARCH_CPU(cpu_state);
+         env = &(lacpu->env);
+         env->address_space_iocsr = &lvms->as_iocsr;
+-
+-        /* connect ipi irq to cpu irq */
+-        qdev_connect_gpio_out(ipi, cpu, qdev_get_gpio_in(cpudev, IRQ_IPI));
+         env->ipistate = ipi;
+     }
+ 
+diff --git a/target/loongarch/kvm/kvm.c b/target/loongarch/kvm/kvm.c
+index 213cf6a8..719d6c29 100644
+--- a/target/loongarch/kvm/kvm.c
++++ b/target/loongarch/kvm/kvm.c
+@@ -966,7 +966,6 @@ int kvm_arch_init(MachineState *ms, KVMState *s)
+     if(!kvm_vm_check_attr(kvm_state, KVM_LOONGARCH_VM_HAVE_IRQCHIP, KVM_LOONGARCH_VM_HAVE_IRQCHIP)) {
+         s->kernel_irqchip_allowed = false;
+     }
+-    s->kernel_irqchip_allowed = false;
+ 
+     return 0;
+ }
+-- 
+2.45.2
+
