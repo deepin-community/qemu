@@ -312,7 +312,7 @@ Depends: ${shlibs:Depends}, ${misc:Depends}, qemu-system-common (= ${binary:Vers
 Recommends: qemu-utils,
 # aarch64 arm uses bootroms
  ipxe-qemu,
- qemu-efi-aarch64, qemu-efi-arm,
+ qemu-efi-aarch64, qemu-efi-arm, qemu-efi-loongarch64,
  qemu-system-gui (= ${binary:Version}),
  qemu-system-modules-spice (= ${binary:Version}) [amd64 arm64 armel armhf i386 loong64 mips64el mipsel ppc64el x32],
  qemu-system-modules-opengl (= ${binary:Version}),
