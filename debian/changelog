@@ -1,3 +1,9 @@
+qemu (1:8.2.0+ds-1deepin12) unstable; urgency=medium
+
+  * Add recommends for qemu-efi-loongarch64.
+
+ -- Mingcong Bai <baimingcong@uniontech.com>  Fri, 07 Mar 2025 14:04:59 +0800
+
 qemu (1:8.2.0+ds-1deepin11) unstable; urgency=medium
 
   * Synchronize the latest patch of upstream loongarch.
