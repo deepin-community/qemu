@@ -1,3 +1,10 @@
+qemu (1:8.2.0+ds-1deepin14) unstable; urgency=medium
+
+  * Add a CSV3 ioctl command to request Linux KVM update CSV3 VM's page
+    attribute info.
+
+ -- hanliyang <hanliyang@hygon.cn>  Tue, 29 Apr 2025 21:14:08 +0800
+
 qemu (1:8.2.0+ds-1deepin13) unstable; urgency=medium
 
   * fix qemu fmt issue.

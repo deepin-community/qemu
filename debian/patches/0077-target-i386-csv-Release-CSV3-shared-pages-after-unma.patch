@@ -1,0 +1,134 @@
+From 875aaff7a6e8c74cc857e62075b5401ce382c226 Mon Sep 17 00:00:00 2001
+From: eastmoutain <14304864+eastmoutain@user.noreply.gitee.com>
+Date: Mon, 20 May 2024 21:12:23 +0800
+Subject: [PATCH] target/i386: csv: Release CSV3 shared pages after unmapping
+ DMA
+
+The shared pages are created for Device DMA access, release them
+once DMA mapping is removed.
+
+Signed-off-by: yangwencheng <yangwencheng@hygon.cn>
+Signed-off-by: hanliyang <hanliyang@hygon.cn>
+---
+ linux-headers/linux/kvm.h     |  9 +++++++++
+ target/i386/csv-sysemu-stub.c |  5 +++++
+ target/i386/csv.c             | 34 ++++++++++++++++++++++++++++++++++
+ target/i386/csv.h             |  1 +
+ target/i386/kvm/kvm.c         |  1 +
+ 5 files changed, 50 insertions(+)
+
+diff --git a/linux-headers/linux/kvm.h b/linux-headers/linux/kvm.h
+index 44a326fddc..a19683f1e9 100644
+--- a/linux-headers/linux/kvm.h
++++ b/linux-headers/linux/kvm.h
+@@ -2142,6 +2142,7 @@ enum csv3_cmd_id {
+ 	KVM_CSV3_SEND_ENCRYPT_CONTEXT,
+ 	KVM_CSV3_RECEIVE_ENCRYPT_DATA,
+ 	KVM_CSV3_RECEIVE_ENCRYPT_CONTEXT,
++	KVM_CSV3_HANDLE_MEMORY,
+ 
+ 	KVM_CSV3_SET_GUEST_PRIVATE_MEMORY = 0xc8,
+ 
+@@ -2190,6 +2191,14 @@ struct kvm_csv3_receive_encrypt_context {
+ 	__u32 trans_len;
+ };
+ 
++#define KVM_CSV3_RELEASE_SHARED_MEMORY (0x0001)
++
++struct kvm_csv3_handle_memory {
++	__u64 gpa;
++	__u32 num_pages;
++	__u32 opcode;
++};
++
+ #define KVM_DEV_ASSIGN_ENABLE_IOMMU	(1 << 0)
+ #define KVM_DEV_ASSIGN_PCI_2_3		(1 << 1)
+ #define KVM_DEV_ASSIGN_MASK_INTX	(1 << 2)
+diff --git a/target/i386/csv-sysemu-stub.c b/target/i386/csv-sysemu-stub.c
+index e49755da5c..ce4850f5e4 100644
+--- a/target/i386/csv-sysemu-stub.c
++++ b/target/i386/csv-sysemu-stub.c
+@@ -40,6 +40,11 @@ void csv3_shared_region_dma_unmap(uint64_t start, uint64_t end)
+ 
+ }
+ 
++void csv3_shared_region_release(uint64_t gpa, uint32_t num_pages)
++{
++
++}
++
+ int csv3_set_guest_private_memory(Error **errp)
+ {
+     g_assert_not_reached();
+diff --git a/target/i386/csv.c b/target/i386/csv.c
+index d9b50040a3..b229f7c317 100644
+--- a/target/i386/csv.c
++++ b/target/i386/csv.c
+@@ -270,6 +270,40 @@ end:
+     return ret;
+ }
+ 
++void csv3_shared_region_release(uint64_t gpa, uint32_t num_pages)
++{
++    struct kvm_csv3_handle_memory mem = { 0 };
++    MemoryRegion *mr = NULL;
++    void *hva;
++    int ret;
++
++    if (!csv3_enabled())
++        return;
++
++    if (!gpa || !num_pages)
++        return;
++
++    mem.gpa = (__u64)gpa;
++    mem.num_pages = (__u32)num_pages;
++    mem.opcode = (__u32)KVM_CSV3_RELEASE_SHARED_MEMORY;
++
++    /* unpin the pages */
++    ret = csv3_ioctl(KVM_CSV3_HANDLE_MEMORY, &mem, NULL);
++    if (ret <= 0) {
++        if (ret < 0)
++            error_report("%s: CSV3 unpin failed ret %d", __func__, ret);
++        return;
++    }
++
++    /* drop the pages */
++    hva = gpa2hva(&mr, gpa, num_pages << TARGET_PAGE_BITS, NULL);
++    if (hva) {
++        ret = madvise(hva, num_pages << TARGET_PAGE_BITS, MADV_DONTNEED);
++        if (ret)
++            error_report("%s: madvise failed %d", __func__, ret);
++    }
++}
++
+ void csv3_shared_region_dma_unmap(uint64_t start, uint64_t end)
+ {
+     MemoryRegionSection section;
+diff --git a/target/i386/csv.h b/target/i386/csv.h
+index fb669279a8..70f9933d3b 100644
+--- a/target/i386/csv.h
++++ b/target/i386/csv.h
+@@ -124,6 +124,7 @@ int csv3_load_data(uint64_t gpa, uint8_t *ptr, uint64_t len, Error **errp);
+ 
+ int csv3_shared_region_dma_map(uint64_t start, uint64_t end);
+ void csv3_shared_region_dma_unmap(uint64_t start, uint64_t end);
++void csv3_shared_region_release(uint64_t gpa, uint32_t num_pages);
+ int csv3_load_incoming_page(QEMUFile *f, uint8_t *ptr);
+ int csv3_load_incoming_context(QEMUFile *f);
+ int csv3_queue_outgoing_page(uint8_t *ptr, uint32_t sz, uint64_t addr);
+diff --git a/target/i386/kvm/kvm.c b/target/i386/kvm/kvm.c
+index a867512822..2df3ff99c3 100644
+--- a/target/i386/kvm/kvm.c
++++ b/target/i386/kvm/kvm.c
+@@ -5099,6 +5099,7 @@ static int kvm_handle_exit_hypercall(X86CPU *cpu, struct kvm_run *run)
+         if (enc) {
+             sev_remove_shared_regions_list(gfn_start, gfn_end);
+             csv3_shared_region_dma_unmap(gpa, gfn_end << TARGET_PAGE_BITS);
++            csv3_shared_region_release(gpa, npages);
+          } else {
+             sev_add_shared_regions_list(gfn_start, gfn_end);
+             csv3_shared_region_dma_map(gpa, gfn_end << TARGET_PAGE_BITS);
+-- 
+2.25.1
+
