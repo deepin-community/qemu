@@ -1,0 +1,138 @@
+From f698cb0ecc8e91bf602ea32ba1406c8ff6a7b0e8 Mon Sep 17 00:00:00 2001
+From: Xianglai Li <lixianglai@loongson.cn>
+Date: Mon, 26 May 2025 16:58:25 +0800
+Subject: [PATCH] sync header file from upstream
+
+The local interrupt controller simulation header file is inconsistent
+with the upstream header file. To ensure uapi compatibility,
+the upstream interrupt controller simulation header file is now
+synchronized.
+
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+---
+ hw/intc/loongarch_extioi_kvm.c    |  2 +-
+ hw/intc/loongarch_ipi_kvm.c       |  2 +-
+ hw/intc/loongarch_pch_pic_kvm.c   |  2 +-
+ linux-headers/asm-loongarch/kvm.h | 15 ++++++---------
+ linux-headers/linux/kvm.h         | 13 +++++++------
+ target/loongarch/kvm/kvm.c        |  4 ----
+ 6 files changed, 16 insertions(+), 22 deletions(-)
+
+diff --git a/hw/intc/loongarch_extioi_kvm.c b/hw/intc/loongarch_extioi_kvm.c
+index b2470a4a7..df71f2932 100644
+--- a/hw/intc/loongarch_extioi_kvm.c
++++ b/hw/intc/loongarch_extioi_kvm.c
+@@ -115,7 +115,7 @@ static void kvm_loongarch_extioi_realize(DeviceState *dev, Error **errp)
+     }
+ 
+     if (!extioi_class->is_created) {
+-        cd.type = KVM_DEV_TYPE_LA_EXTIOI;
++        cd.type = KVM_DEV_TYPE_LOONGARCH_EIOINTC;
+         ret = kvm_vm_ioctl(kvm_state, KVM_CREATE_DEVICE, &cd);
+         if (ret < 0) {
+             error_setg_errno(errp, errno,
+diff --git a/hw/intc/loongarch_ipi_kvm.c b/hw/intc/loongarch_ipi_kvm.c
+index fd308eb0c..57fc05db7 100644
+--- a/hw/intc/loongarch_ipi_kvm.c
++++ b/hw/intc/loongarch_ipi_kvm.c
+@@ -128,7 +128,7 @@ static void kvm_loongarch_ipi_realize(DeviceState *dev, Error **errp)
+     }
+ 
+     if (!ipi_class->is_created) {
+-        cd.type = KVM_DEV_TYPE_LA_IPI;
++        cd.type = KVM_DEV_TYPE_LOONGARCH_IPI;
+         ret = kvm_vm_ioctl(kvm_state, KVM_CREATE_DEVICE, &cd);
+         if (ret < 0) {
+             error_setg_errno(errp, errno, "Creating the KVM device failed");
+diff --git a/hw/intc/loongarch_pch_pic_kvm.c b/hw/intc/loongarch_pch_pic_kvm.c
+index 8f66d9a01..e9cef02f9 100644
+--- a/hw/intc/loongarch_pch_pic_kvm.c
++++ b/hw/intc/loongarch_pch_pic_kvm.c
+@@ -113,7 +113,7 @@ static void kvm_loongarch_pch_pic_realize(DeviceState *dev, Error **errp)
+     }
+ 
+     if (!pch_pic_class->is_created) {
+-        cd.type = KVM_DEV_TYPE_LA_PCH_PIC;
++        cd.type = KVM_DEV_TYPE_LOONGARCH_PCHPIC;
+         ret = kvm_vm_ioctl(kvm_state, KVM_CREATE_DEVICE, &cd);
+         if (ret < 0) {
+             error_setg_errno(errp, errno,
+diff --git a/linux-headers/asm-loongarch/kvm.h b/linux-headers/asm-loongarch/kvm.h
+index c23c16f3a..7c14d4ee7 100644
+--- a/linux-headers/asm-loongarch/kvm.h
++++ b/linux-headers/asm-loongarch/kvm.h
+@@ -136,26 +136,23 @@ struct kvm_iocsr_entry {
+ #define KVM_IRQCHIP_NUM_PINS	64
+ #define KVM_MAX_CORES		256
+ 
+-#define KVM_LOONGARCH_VM_HAVE_IRQCHIP		0x40000001
++#define KVM_DEV_LOONGARCH_IPI_GRP_REGS		0x40000001
+ 
+-#define KVM_DEV_LOONGARCH_IPI_GRP_REGS		0x40000002
++#define KVM_DEV_LOONGARCH_EXTIOI_GRP_REGS	0x40000002
+ 
+-#define KVM_DEV_LOONGARCH_EXTIOI_GRP_REGS	0x40000003
+-
+-#define KVM_DEV_LOONGARCH_EXTIOI_GRP_SW_STATUS		0x40000006
++#define KVM_DEV_LOONGARCH_EXTIOI_GRP_SW_STATUS		0x40000003
+ #define KVM_DEV_LOONGARCH_EXTIOI_SW_STATUS_NUM_CPU	0x0
+ #define KVM_DEV_LOONGARCH_EXTIOI_SW_STATUS_FEATURE	0x1
+ #define KVM_DEV_LOONGARCH_EXTIOI_SW_STATUS_STATE	0x2
+ 
+-#define KVM_DEV_LOONGARCH_EXTIOI_GRP_CTRL		0x40000007
++#define KVM_DEV_LOONGARCH_EXTIOI_GRP_CTRL		0x40000004
+ #define KVM_DEV_LOONGARCH_EXTIOI_CTRL_INIT_NUM_CPU	0x0
+ #define KVM_DEV_LOONGARCH_EXTIOI_CTRL_INIT_FEATURE	0x1
+ #define KVM_DEV_LOONGARCH_EXTIOI_CTRL_LOAD_FINISHED	0x3
+ 
+ 
+-#define KVM_DEV_LOONGARCH_PCH_PIC_GRP_CTRL	0x40000004
+-#define KVM_DEV_LOONGARCH_PCH_PIC_CTRL_INIT	0
+-
+ #define KVM_DEV_LOONGARCH_PCH_PIC_GRP_REGS	0x40000005
++#define KVM_DEV_LOONGARCH_PCH_PIC_GRP_CTRL	0x40000006
++#define KVM_DEV_LOONGARCH_PCH_PIC_CTRL_INIT	0
+ 
+ #endif /* __UAPI_ASM_LOONGARCH_KVM_H */
+diff --git a/linux-headers/linux/kvm.h b/linux-headers/linux/kvm.h
+index f390989e7..fc3c1a6e4 100644
+--- a/linux-headers/linux/kvm.h
++++ b/linux-headers/linux/kvm.h
+@@ -1464,12 +1464,13 @@ enum kvm_device_type {
+ #define KVM_DEV_TYPE_ARM_PV_TIME	KVM_DEV_TYPE_ARM_PV_TIME
+ 	KVM_DEV_TYPE_RISCV_AIA,
+ #define KVM_DEV_TYPE_RISCV_AIA		KVM_DEV_TYPE_RISCV_AIA
+-	KVM_DEV_TYPE_LA_PCH_PIC = 0x100,
+-#define KVM_DEV_TYPE_LA_PCH_PIC		KVM_DEV_TYPE_LA_PCH_PIC
+-	KVM_DEV_TYPE_LA_IPI,
+-#define KVM_DEV_TYPE_LA_IPI		KVM_DEV_TYPE_LA_IPI
+-	KVM_DEV_TYPE_LA_EXTIOI,
+-#define KVM_DEV_TYPE_LA_EXTIOI		KVM_DEV_TYPE_LA_EXTIOI
++	KVM_DEV_TYPE_LOONGARCH_IPI,
++#define KVM_DEV_TYPE_LOONGARCH_IPI	KVM_DEV_TYPE_LOONGARCH_IPI
++	KVM_DEV_TYPE_LOONGARCH_EIOINTC,
++#define KVM_DEV_TYPE_LOONGARCH_EIOINTC	KVM_DEV_TYPE_LOONGARCH_EIOINTC
++	KVM_DEV_TYPE_LOONGARCH_PCHPIC,
++#define KVM_DEV_TYPE_LOONGARCH_PCHPIC	KVM_DEV_TYPE_LOONGARCH_PCHPIC
++
+ 	KVM_DEV_TYPE_MAX,
+ };
+ 
+diff --git a/target/loongarch/kvm/kvm.c b/target/loongarch/kvm/kvm.c
+index 22177b622..f42b92d7c 100644
+--- a/target/loongarch/kvm/kvm.c
++++ b/target/loongarch/kvm/kvm.c
+@@ -973,10 +973,6 @@ int kvm_arch_get_default_type(MachineState *ms)
+ int kvm_arch_init(MachineState *ms, KVMState *s)
+ {
+     cap_has_mp_state = kvm_check_extension(s, KVM_CAP_MP_STATE);
+-    if(!kvm_vm_check_attr(kvm_state, KVM_LOONGARCH_VM_HAVE_IRQCHIP, KVM_LOONGARCH_VM_HAVE_IRQCHIP)) {
+-        s->kernel_irqchip_allowed = false;
+-    }
+-
+     return 0;
+ }
+ 
+-- 
+2.41.0
+

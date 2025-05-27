@@ -1,3 +1,10 @@
+qemu (1:8.2.0+ds-1deepin15) unstable; urgency=medium
+
+  * sync kvm head file from upstream.
+  * 
+
+ -- Xianglai Li <lixianglai@loongson.cn>  Tue, 27 May 2025 17:04:30 +0800
+
 qemu (1:8.2.0+ds-1deepin14) unstable; urgency=medium
 
   * Add a CSV3 ioctl command to request Linux KVM update CSV3 VM's page
