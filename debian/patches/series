@@ -148,3 +148,4 @@ hw-misc-psp-pin-the-hugepage-memory-specified-by-mem2.patch
 0075-hw-intc-Add-extioi-ability-of-256-vcpu-interrupt-rou.patch
 0076-target-loongarch-fix-vcpu-reset-command-word-issue.patch
 0077-target-i386-csv-Release-CSV3-shared-pages-after-unma.patch
+sync-header-file-from-upstream.patch 
