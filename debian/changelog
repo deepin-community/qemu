@@ -1,3 +1,9 @@
+qemu (1:8.2.0+ds-1deepin16) UNRELEASED; urgency=medium
+
+  * Adjust the loading position of the initrd on loongarch
+
+ -- Xianglai Li <lixianglai@loongson.cn>  Sat, 26 Jul 2025 12:04:08 +0800
+
 qemu (1:8.2.0+ds-1deepin15) unstable; urgency=medium
 
   * sync kvm head file from upstream.
