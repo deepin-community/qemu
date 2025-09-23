@@ -1,0 +1,68 @@
+From 0a2f56c0b9d21aa28fad64cc133c61b712f57cd6 Mon Sep 17 00:00:00 2001
+From: Ewan Hai <ewanhai-oc@zhaoxin.com>
+Date: Thu, 5 Jun 2025 03:44:26 -0400
+Subject: [PATCH] target/i386/kvm: Refine VMX controls setting for backward
+ compatibility
+
+Upstream qemu commit 4a910e1 ("target/i386: do not set unsupported VMX secondary
+execution controls") implemented a workaround for hosts that have
+specific CPUID features but do not support the corresponding VMX
+controls, e.g., hosts support RDSEED but do not support RDSEED-Exiting.
+
+In detail, commit 4a910e1 introduced a flag `has_msr_vmx_procbased_clts2`.
+If KVM has `MSR_IA32_VMX_PROCBASED_CTLS2` in its msr list, QEMU would
+use KVM's settings, avoiding any modifications to this MSR.
+
+However, this commit (4a910e1) didn't account for cases in older Linux
+kernels(4.17~5.2) where `MSR_IA32_VMX_PROCBASED_CTLS2` is in
+`kvm_feature_msrs`-obtained by ioctl(KVM_GET_MSR_FEATURE_INDEX_LIST),
+but not in `kvm_msr_list`-obtained by ioctl(KVM_GET_MSR_INDEX_LIST).
+As a result,it did not set the `has_msr_vmx_procbased_clts2` flag based
+on `kvm_msr_list` alone, even though KVM does maintain the value of
+this MSR.
+
+This patch supplements the above logic, ensuring that
+`has_msr_vmx_procbased_clts2` is correctly set by checking both MSR
+lists, thus maintaining compatibility with older kernels.
+
+Signed-off-by: EwanHai <ewanhai-oc@zhaoxin.com>
+---
+ target/i386/kvm/kvm.c | 15 +++++++++++++++
+ 1 file changed, 15 insertions(+)
+
+diff --git a/target/i386/kvm/kvm.c b/target/i386/kvm/kvm.c
+index 4ce80555..c59ceccd 100644
+--- a/target/i386/kvm/kvm.c
++++ b/target/i386/kvm/kvm.c
+@@ -2296,6 +2296,7 @@ void kvm_arch_do_init_vcpu(X86CPU *cpu)
+ static int kvm_get_supported_feature_msrs(KVMState *s)
+ {
+     int ret = 0;
++    int i;
+ 
+     if (kvm_feature_msrs != NULL) {
+         return 0;
+@@ -2330,6 +2331,20 @@ static int kvm_get_supported_feature_msrs(KVMState *s)
+         return ret;
+     }
+ 
++   /*
++    * Compatibility fix:
++    * Older Linux kernels (4.17~5.2) report MSR_IA32_VMX_PROCBASED_CTLS2
++    * in KVM_GET_MSR_FEATURE_INDEX_LIST but not in KVM_GET_MSR_INDEX_LIST.
++    * This leads to an issue in older kernel versions where QEMU,
++    * through the KVM_GET_MSR_INDEX_LIST check, assumes the kernel
++    * doesn't maintain MSR_IA32_VMX_PROCBASED_CTLS2, resulting in
++    * incorrect settings by QEMU for this MSR.
++    */
++    for (i = 0; i < kvm_feature_msrs->nmsrs; i++) {
++        if (kvm_feature_msrs->indices[i] == MSR_IA32_VMX_PROCBASED_CTLS2) {
++            has_msr_vmx_procbased_ctls2 = true;
++        }
++    }
+     return 0;
+ }
+ 
+-- 
+2.34.1
+

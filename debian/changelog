@@ -1,3 +1,10 @@
+qemu (1:8.2.0+ds-1deepin16) unstable; urgency=medium
+
+  * Apply VMX controls compat patch to solve 0x48b msr set
+    error when boot guest. 
+
+ -- Ewan Hai <ewanhai-oc@zhaoxin.com>  Mon, 22 Sep 2025 23:21:47 -0400
+
 qemu (1:8.2.0+ds-1deepin15) unstable; urgency=medium
 
   * sync kvm head file from upstream.
