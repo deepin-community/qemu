@@ -1,3 +1,9 @@
+qemu (1:8.2.0+ds-1deepin16) unstable; urgency=medium
+
+  * d/control: build-depend on python3-distlib to work around new pip 25.2+
+
+ -- Tianyu Chen <sweetyfish@deepin.org>  Wed, 05 Nov 2025 15:13:10 +0000
+
 qemu (1:8.2.0+ds-1deepin15) unstable; urgency=medium
 
   * sync kvm head file from upstream.
