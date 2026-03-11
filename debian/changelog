@@ -1,3 +1,11 @@
+qemu (1:8.2.0+ds-1deepin18) unstable; urgency=medium
+
+  * Restrict firmware cross-compiler dependencies to [amd64 arm64].
+  * Build firmware components only on amd64 to fix loong64 build failure.
+  * Add --disable-werror to common configure options.
+
+ -- xinpeng.wang <wangxinpeng@uniontech.com>  Wed, 11 Mar 2026 15:42:39 +0800
+
 qemu (1:8.2.0+ds-1deepin17) unstable; urgency=medium
 
   * Add support for Hygon Dharma and Chengdu CPU models.
