@@ -109,7 +109,7 @@ common_configure_opts += --disable-xkbcommon
 # adapter. This piece of code seems to be buggy and poorly maintained,
 # resulting in numerous security issues which comes unfixed for long time.
 # This device isn't native for qemu.  # Just disable it for now.
-common_configure_opts += --disable-pvrdma
+common_configure_opts += --disable-pvrdma --disable-werror
 
 # Cross compiling support
 ifneq ($(DEB_BUILD_GNU_TYPE), $(DEB_HOST_GNU_TYPE))
@@ -549,7 +549,9 @@ install-openbios: build-openbios
 		b/openbios/obj-sparc32/QEMU,tcx.bin \
 		b/openbios/obj-sparc32/QEMU,cgthree.bin \
 		b/openbios/obj-sparc64/QEMU,VGA.bin
+ifeq ($(DEB_HOST_ARCH),amd64)
 sysdata-components += openbios
+endif
 
 ### u-boot-e500 (u-boot.e500)
 build-u-boot-e500: b/u-boot/build-e500/u-boot
@@ -560,7 +562,9 @@ b/u-boot/build-e500/u-boot: | b
 	${PPC_CROSSPFX}strip $@
 install-u-boot-e500: b/u-boot/build-e500/u-boot
 	install -m 0644 $< ${sysdataidir}/u-boot.e500
+ifeq ($(DEB_HOST_ARCH),amd64)
 sysdata-components += u-boot-e500
+endif
 
 ### u-boot-sam460 (u-boot-sam460-20100605.bin)
 build-u-boot-sam460: b/u-boot-sam460ex/u-boot.bin
@@ -572,7 +576,9 @@ b/u-boot-sam460ex/u-boot.bin: | b
 #	${PPC_CROSSPFX}strip $@
 install-u-boot-sam460: b/u-boot-sam460ex/u-boot.bin | ${sysdataidir}
 	install -m 0644 $< ${sysdataidir}/u-boot-sam460-20100605.bin
+ifeq ($(DEB_HOST_ARCH),amd64)
 sysdata-components += u-boot-sam460
+endif
 
 ### x86 optionrom
 build-x86-optionrom: b/optionrom/built
@@ -582,7 +588,9 @@ b/optionrom/built:
 	touch $@
 install-x86-optionrom: build-x86-optionrom | ${sysdataidir}
 	${MAKE} -f ${CURDIR}/debian/optionrom.mak -C b/optionrom SRC_PATH="${CURDIR}" install DESTDIR="${CURDIR}/${sysdataidir}"
+ifeq ($(DEB_HOST_ARCH),amd64)
 sysdata-components += x86-optionrom
+endif
 
 ### qboot, aka bios-microvm
 build-qboot: b/qboot/bios.bin
@@ -592,7 +600,9 @@ b/qboot/bios.bin: | b
 	ninja -C b/qboot $(if $V,-v)
 install-qboot: b/qboot/bios.bin
 	install -m 0644 $< ${sysdataidir}/qboot.rom
+ifeq ($(DEB_HOST_ARCH),amd64)
 sysdata-components += qboot
+endif
 
 ### alpha firmware in roms/palcode-clipper
 build-palcode-clipper: b/qemu-palcode/palcode-clipper
@@ -614,7 +624,9 @@ b/s390fw/built:
 	touch $@
 install-s390x-fw: build-s390x-fw
 	install -m 0644 -t ${sysdataidir} b/s390fw/s390*.img
+ifeq ($(DEB_HOST_ARCH),amd64)
 sysdata-components += s390x-fw
+endif
 
 ### hppa-firmware (roms/seabios-hppa)
 build-hppa-fw: b/hppafw/hppa-firmware.img
@@ -626,7 +638,9 @@ b/hppafw/hppa-firmware.img:
 	hppa-linux-gnu-strip -R.note -R.comment $@
 install-hppa-fw: b/hppafw/hppa-firmware.img
 	install -m 0644 $< ${sysdataidir}
+ifeq ($(DEB_HOST_ARCH),amd64)
 sysdata-components += hppa-fw
+endif
 
 ### opensbi (riscv firmware)
 # we only build v64 variants, not v32
@@ -639,7 +653,9 @@ b/opensbi/.built:
 install-opensbi: build-opensbi
 	install -m 0644 b/opensbi/platform/generic/firmware/fw_dynamic.bin ${sysdataidir}/opensbi-riscv64-generic-fw_dynamic.bin
 	install -m 0644 b/opensbi/platform/generic/firmware/fw_dynamic.elf ${sysdataidir}/opensbi-riscv64-generic-fw_dynamic.elf
+ifeq ($(DEB_HOST_ARCH),amd64)
 sysdata-components += opensbi
+endif
 
 ### vbootrom (npcm7xx)
 build-vbootrom: b/vbootrom/.built
@@ -649,7 +665,9 @@ b/vbootrom/.built: | b
 	touch $@
 install-vbootrom: build-vbootrom
 	install -m 0644 b/vbootrom/npcm7xx_bootrom.bin ${sysdataidir}/
+ifeq ($(DEB_HOST_ARCH),amd64)
 sysdata-components += vbootrom
+endif
 
 ### misc firmware
 build-misc: b/misc/.built

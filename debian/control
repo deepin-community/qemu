@@ -132,7 +132,7 @@ Build-Depends-Arch:
 Build-Depends-Indep:
 # pc-bios/*.dts => *.dtb (PPC firmware)
  device-tree-compiler,
- gcc-s390x-linux-gnu,
+ gcc-s390x-linux-gnu  [amd64 arm64],
 # qemu-palcode/palcode-clipper
 # gcc-alpha-linux-gnu,
 # u-boot code
