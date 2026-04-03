@@ -183,3 +183,4 @@ ARM-CCA/0029-hw-arm-virt-Add-measurement-log-for-confidential-boo.patch
 001-target-i386-Add-Hygon-Dhyana-v3-CPU-model.patch
 002-target-i386-Add-new-Hygon-Dharma-CPU-model.patch
 003-target-i386-Add-new-Hygon-Chengdu-CPU-model.patch
+target-i386-kvm-Refine-VMX-controls-setting-for-back.patch

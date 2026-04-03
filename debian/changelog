@@ -1,3 +1,10 @@
+qemu (1:8.2.0+ds-1deepin19) unstable; urgency=medium
+
+  * Apply VMX controls compat patch to solve 0x48b msr set
+    error when boot guest.
+
+ -- Ewan Hai <ewanhai-oc@zhaoxin.com>  Thu, 03 Apr 2026 12:00:00 +0800
+
 qemu (1:8.2.0+ds-1deepin18) unstable; urgency=medium
 
   * Restrict firmware cross-compiler dependencies to [amd64 arm64].
