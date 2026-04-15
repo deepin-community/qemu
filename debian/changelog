@@ -1,3 +1,10 @@
+qemu (1:8.2.0+ds-1deepin19) unstable; urgency=medium
+
+  * Fix CVE-2026-3842: hyperv/syndbg: check length returned by
+    cpu_physical_memory_map() to prevent out-of-bounds access.
+
+ -- deepin-ci-robot <packages@deepin.org>  Wed, 15 Apr 2026 18:22:00 +0800
+
 qemu (1:8.2.0+ds-1deepin18) unstable; urgency=medium
 
   * Restrict firmware cross-compiler dependencies to [amd64 arm64].
