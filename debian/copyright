@@ -4,6 +4,7 @@ Files-Excluded:
 	roms/edk2
 	roms/ipxe
 	roms/seabios
+	roms/opensbi
 #	roms/u-boot
 #
 	roms/SLOF/board-js2x/rtas/i2c_bmc.oco
@@ -11,8 +12,10 @@ Files-Excluded:
 	roms/SLOF/clients/takeover/takeover.oco
 	roms/SLOF/lib/libipmi/libipmi.oco
 #
+	pc-bios/dtb/*.dtb
+#
 	pc-bios/QEMU,*.bin
-	pc-bios/bamboo.dtb pc-bios/canyonlands.dtb
+	pc-bios/ast27x0_bootrom.bin
 	pc-bios/bios.bin
 	pc-bios/bios-256k.bin
 	pc-bios/bios-microvm.bin
@@ -20,30 +23,35 @@ Files-Excluded:
 	pc-bios/efi-*.rom
 	pc-bios/pxe-*.rom
 	pc-bios/hppa-firmware.img
+	pc-bios/hppa-firmware64.img
 	pc-bios/kvmvapic.bin
 	pc-bios/linuxboot.bin
 	pc-bios/linuxboot_dma.bin
 	pc-bios/multiboot.bin
 	pc-bios/multiboot_dma.bin
+	pc-bios/npcm7xx_bootrom.bin
+	pc-bios/npcm8xx_bootrom.bin
 	pc-bios/openbios-ppc
 	pc-bios/openbios-sparc32
 	pc-bios/openbios-sparc64
 	pc-bios/opensbi-*.bin
 	pc-bios/palcode-clipper
-	pc-bios/petalogix-ml605.dtb
-	pc-bios/petalogix-s3adsp1800.dtb
 	pc-bios/pvh.bin
 	pc-bios/qboot.rom
 	pc-bios/qemu_vga.ndrv
 	pc-bios/s390-ccw.img
-	pc-bios/s390-netboot.img
 	pc-bios/skiboot.lid
 	pc-bios/slof.bin
-	pc-bios/u-boot-sam460-20100605.bin
+	pc-bios/u-boot-sam460.bin
 	pc-bios/u-boot.e500
 	pc-bios/vgabios.bin
 	pc-bios/vgabios-*.bin
 	pc-bios/vof.bin
+#
+	python/wheels/*.whl
+#
+	subprojects/packagecache
+	subprojects/packagefiles
 
 Files: *
 Copyright:
@@ -152,7 +160,9 @@ Copyright:
     Copyright (C) 2009 Novell Inc.
     Copyright (C) 2009 Ulrich Hecht <uli@suse.de>
     Copyright (C) 2009 VA Linux Systems Japan
-License:
+License: GPL2-or-LGPL2-with-additions
+
+License: GPL2-or-LGPL2-with-additions
     QEMU as a whole is released under the GNU General Public License version 2.
     On Debian systems, the complete text of the GNU General Public License
     version 2 can be found in the file /usr/share/common-licenses/GPL-2.
