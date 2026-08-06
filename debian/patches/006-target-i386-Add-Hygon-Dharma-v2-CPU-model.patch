@@ -1,0 +1,41 @@
+From 8adf21fa54cb66a8e97bb0925bbda7672e962d14 Mon Sep 17 00:00:00 2001
+From: Wei Wang <wangwww@hygon.cn>
+Date: Sat, 7 Feb 2026 23:02:29 +0800
+Subject: [PATCH] target/i386: Add Hygon Dharma-v2 CPU model
+
+The Hygon Dharma-v2 CPU model exposes hygon-sm3 and hygon-sm4 features
+to the guest.
+
+Suggested-by: Xin Zeng <zengxin@hygon.cn>
+Signed-off-by: Wei Wang <wangwww@hygon.cn>
+Signed-off-by: Qiming Deng <dengqiming@hygon.cn>
+---
+ target/i386/cpu.c | 14 ++++++++++++++
+ 1 file changed, 14 insertions(+)
+
+Index: deepin-qemu/target/i386/cpu.c
+===================================================================
+--- deepin-qemu.orig/target/i386/cpu.c
++++ deepin-qemu/target/i386/cpu.c
+@@ -5017,6 +5017,21 @@ static const X86CPUDefinition builtin_x8
+         .xlevel = 0x8000001E,
+         .model_id = "Hygon Dharma Processor",
+         .cache_info = &dharma_cache_info,
++        .versions = (X86CPUVersionDefinition[]) {
++            { .version = 1 },
++            {
++              .version = 2,
++              .props = (PropValue[]) {
++                  { "hygon-sm3", "on" },
++                  { "hygon-sm4", "on" },
++                  { "model-id",
++                     "Hygon Dharma-v2 processor" },
++                  { /* end of list */ }
++              },
++            },
++            { /* end of list */ }
++        },
++
+     },
+     {
+         .name = "Chengdu",
