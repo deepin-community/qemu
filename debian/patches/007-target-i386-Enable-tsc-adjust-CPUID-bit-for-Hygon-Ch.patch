@@ -1,0 +1,31 @@
+From fa3f8af0f8c50a37a2bd39fbd25686e431497a55 Mon Sep 17 00:00:00 2001
+From: Wei Wang <wangwww@hygon.cn>
+Date: Wed, 4 Mar 2026 11:12:57 +0800
+Subject: [PATCH] target/i386: Enable tsc-adjust CPUID bit for Hygon Chengdu-v2
+
+Hygon Chengdu-v2 extends the original Chengdu model by adding SM3/SM4 and
+corresponds to the Hygon 4H (7447v) CPU family. The 4H CPUs expose the
+tsc-adjust feature in CPUID leaf 0x7, so the Chengdu-v2 model should
+advertise this bit to guests as well.
+
+Expose tsc-adjust in the Chengdu-v2 model to match the behavior of real 4H
+hardware.
+
+Signed-off-by: Wei Wang <wangwww@hygon.cn>
+Signed-off-by: Qiming Deng <dengqiming@hygon.cn>
+---
+ target/i386/cpu.c | 1 +
+ 1 file changed, 1 insertion(+)
+
+Index: deepin-qemu/target/i386/cpu.c
+===================================================================
+--- deepin-qemu.orig/target/i386/cpu.c
++++ deepin-qemu/target/i386/cpu.c
+@@ -5097,6 +5097,7 @@ static const X86CPUDefinition builtin_x8
+             {
+               .version = 2,
+               .props = (PropValue[]) {
++                  { "tsc-adjust", "on" },
+                   { "hygon-sm3", "on" },
+                   { "hygon-sm4", "on" },
+                   { "model-id",

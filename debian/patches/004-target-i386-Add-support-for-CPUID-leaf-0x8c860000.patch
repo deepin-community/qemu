@@ -1,0 +1,108 @@
+From b0709964b08223789e8d79e53c2d1ac029d464e5 Mon Sep 17 00:00:00 2001
+From: Wei Wang <wangwww@hygon.cn>
+Date: Tue, 3 Mar 2026 18:21:43 +0800
+Subject: [PATCH] target/i386: Add support for CPUID leaf 0x8c860000
+
+Hygon CPUs define a custom CPUID leaf (0x8c860000) used to enumerate SM3
+and SM4 features. Add support for exposing this leaf to the guest.
+
+Signed-off-by: Wei Wang <wangwww@hygon.cn>
+Signed-off-by: Qiming Deng <dengqiming@hygon.cn>
+---
+ target/i386/cpu.c     | 24 ++++++++++++++++++++++++
+ target/i386/cpu.h     |  1 +
+ target/i386/kvm/kvm.c | 18 ++++++++++++++++++
+ 3 files changed, 43 insertions(+)
+
+Index: deepin-qemu/target/i386/cpu.c
+===================================================================
+--- deepin-qemu.orig/target/i386/cpu.c
++++ deepin-qemu/target/i386/cpu.c
+@@ -1064,6 +1064,22 @@ FeatureWordInfo feature_word_info[FEATUR
+         .tcg_features = 0,
+         .unmigratable_flags = 0,
+     },
++    [FEAT_8C86_0000_EDX] = {
++        .type = CPUID_FEATURE_WORD,
++        .feat_names = {
++            NULL, "hygon-sm3", "hygon-sm4", NULL,
++            NULL, NULL, NULL, NULL,
++            NULL, NULL, NULL, NULL,
++            NULL, NULL, NULL, NULL,
++            NULL, NULL, NULL, NULL,
++            NULL, NULL, NULL, NULL,
++            NULL, NULL, NULL, NULL,
++            NULL, NULL, NULL, NULL,
++        },
++        .cpuid = { .eax = 0x8C860000, .reg = R_EDX, },
++        .tcg_features = 0,
++        .unmigratable_flags = 0,
++    },
+     [FEAT_XSAVE] = {
+         .type = CPUID_FEATURE_WORD,
+         .feat_names = {
+@@ -6193,6 +6209,14 @@ void cpu_x86_cpuid(CPUX86State *env, uin
+     uint32_t signature[3];
+     X86CPUTopoInfo topo_info;
+ 
++    if (index == 0x8C860000) {
++        *edx = env->features[FEAT_8C86_0000_EDX];
++        *eax = 0x8C860000;
++        *ebx = 0;
++        *ecx = 0;
++        return;
++    }
++
+     topo_info.dies_per_pkg = env->nr_dies;
+     topo_info.cores_per_die = cs->nr_cores / env->nr_dies;
+     topo_info.threads_per_core = cs->nr_threads;
+Index: deepin-qemu/target/i386/cpu.h
+===================================================================
+--- deepin-qemu.orig/target/i386/cpu.h
++++ deepin-qemu/target/i386/cpu.h
+@@ -603,6 +603,7 @@ typedef enum FeatureWord {
+     FEAT_8000_0007_EDX, /* CPUID[8000_0007].EDX */
+     FEAT_8000_0008_EBX, /* CPUID[8000_0008].EBX */
+     FEAT_8000_0021_EAX, /* CPUID[8000_0021].EAX */
++    FEAT_8C86_0000_EDX, /* CPUID[8C86_0000].EDX */
+     FEAT_C000_0001_EDX, /* CPUID[C000_0001].EDX */
+     FEAT_KVM,           /* CPUID[4000_0001].EAX (KVM_CPUID_FEATURES) */
+     FEAT_KVM_HINTS,     /* CPUID[4000_0001].EDX */
+Index: deepin-qemu/target/i386/kvm/kvm.c
+===================================================================
+--- deepin-qemu.orig/target/i386/kvm/kvm.c
++++ deepin-qemu/target/i386/kvm/kvm.c
+@@ -261,6 +261,11 @@ static struct kvm_cpuid2 *try_get_cpuid(
+     struct kvm_cpuid2 *cpuid;
+     int r, size;
+ 
++    /* One more entry for cpuid 0x8C860000 */
++    if (is_hygon_cpu()) {
++        max++;
++    }
++
+     size = sizeof(*cpuid) + max * sizeof(*cpuid->entries);
+     cpuid = g_malloc0(size);
+     cpuid->nent = max;
+@@ -2087,6 +2092,21 @@ int kvm_arch_init_vcpu(CPUState *cs)
+         }
+     }
+ 
++    if (is_hygon_cpu()) {
++        if (cpuid_i == KVM_MAX_CPUID_ENTRIES) {
++            fprintf(stderr, "cpuid_data is full, no space for "
++                            "cpuid(eax:0x8C860000)\n");
++            abort();
++        }
++        c = &cpuid_data.entries[cpuid_i++];
++        c->function = 0x8C860000;
++        c->flags = 0;
++        cpu_x86_cpuid(env, 0x8C860000, 0, &c->eax, &c->ebx, &c->ecx, &c->edx);
++        if (!c->edx) {
++            cpuid_i--;
++        }
++    }
++
+     /* Call Centaur's CPUID instructions they are supported. */
+     if (env->cpuid_xlevel2 > 0) {
+         cpu_x86_cpuid(env, 0xC0000000, 0, &limit, &unused, &unused, &unused);

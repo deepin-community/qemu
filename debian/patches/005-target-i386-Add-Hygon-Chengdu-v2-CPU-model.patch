@@ -1,0 +1,39 @@
+From 97faee67121c7a28c319b33c505c0f2d8bbf4d4a Mon Sep 17 00:00:00 2001
+From: Wei Wang <wangwww@hygon.cn>
+Date: Sat, 31 Jan 2026 22:04:55 +0800
+Subject: [PATCH] target/i386: Add Hygon Chengdu-v2 CPU model
+
+The Hygon Chengdu-v2 CPU model exposes hygon-sm3 and hygon-sm4 features
+to the guest.
+
+Signed-off-by: Wei Wang <wangwww@hygon.cn>
+Signed-off-by: Qiming Deng <dengqiming@hygon.cn>
+---
+ target/i386/cpu.c | 13 +++++++++++++
+ 1 file changed, 13 insertions(+)
+
+Index: deepin-qemu/target/i386/cpu.c
+===================================================================
+--- deepin-qemu.orig/target/i386/cpu.c
++++ deepin-qemu/target/i386/cpu.c
+@@ -5077,6 +5077,20 @@ static const X86CPUDefinition builtin_x8
+         .xlevel = 0x80000020,
+         .model_id = "Hygon Chengdu Processor",
+         .cache_info = &dharma_cache_info,
++        .versions = (X86CPUVersionDefinition[]) {
++            { .version = 1 },
++            {
++              .version = 2,
++              .props = (PropValue[]) {
++                  { "hygon-sm3", "on" },
++                  { "hygon-sm4", "on" },
++                  { "model-id",
++                     "Hygon Chengdu-v2 processor" },
++                  { /* end of list */ }
++              },
++            },
++            { /* end of list */ }
++        },
+     },
+ };
+ 
