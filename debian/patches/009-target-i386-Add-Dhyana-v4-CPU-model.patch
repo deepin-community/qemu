@@ -1,0 +1,39 @@
+From 286d6db5c31ba4df3d0915721c460a8e50df5e58
+From: Wei Wang <wangwww@hygon.cn>
+Date: Sun Jan 25 22:32:55 2026 +0800
+Subject:[PATCH]target/i386: Add Dhyana-v4 CPU model
+    
+Add the Dhyana-v4 CPU model. This model configuration is designed to align
+with the CPU features exposed by the "G7H" instance type on Alibaba Cloud
+ECS.
+    
+Hygon-SIG: commit none hygon target/i386: Add Dhyana-v4 CPU model
+    
+Signed-off-by: Wei Wang <wangwww@hygon.cn>
+Signed-off-by: Liuchi Pan <panliuchi@hygon.cn>
+Tested-by: Xiu Lin <linxiu@hygon.cn>
+--- a/target/i386/cpu.c
++++ b/target/i386/cpu.c
+@@ -4740,6 +4740,22 @@
+                   { /* end of list */ }
+               },
+             },
++            { .version = 4,
++              .props = (PropValue[]) {
++                  { "fsgsbase", "off" },
++                  { "perfctr-core", "off" },
++                  { "xsaves", "on" },
++                  { "invtsc", "on" },
++                  { "tsc-adjust", "on" },
++                  { "virt-ssbd", "on" },
++                  { "fp128", "on" },
++                  { "movu", "on" },
++                  { "model-id",
++                    "Hygon ECS-G7H processor" },
++                  { /* end of list */ }
++               },
++               .cache_info = &epyc_v4_cache_info
++             },
+             { /* end of list */ }
+         }
+     },

@@ -1,0 +1,86 @@
+From f1a2a80a1d7f61e46382e7d87fd374c1ea3d32da
+From: Wei Wang <wangwww@hygon.cn>
+Date: Sat Jan 31 22:47:00 2026 +0800
+Subject:[PATCH]target/i386: Add support for CPUID leaf 0x8000001A
+    
+CPUID leaf 0x8000001A on Hygon and AMD platforms reports Performance
+Optimization Identifiers. These allow the hardware to communicate internal
+microarchitectural preferences to the software, such as preferences for
+128-bit v.s. 256-bit SSE/AVX instructions or MOVU handling.
+    
+Expose this leaf to the guest to allow the OS and applications to tune
+code generation based on these optimization hints.
+    
+Hygon-SIG: commit none hygon target/i386: Add support for CPUID leaf 0x8000001A
+    
+Signed-off-by: Wei Wang <wangwww@hygon.cn>
+Signed-off-by: Liuchi Pan <panliuchi@hygon.cn>
+Tested-by: Xiu Lin <linxiu@hygon.cn>
+--- a/target/i386/cpu.c
++++ b/target/i386/cpu.c
+@@ -763,6 +763,8 @@
+ 
+ #define TCG_8000_0008_EBX  (CPUID_8000_0008_EBX_XSAVEERPTR | \
+           CPUID_8000_0008_EBX_WBNOINVD | CPUID_8000_0008_EBX_KERNEL_FEATURES)
++#define TCG_8000_001A_EAX (CPUID_8000_001A_EAX_FP128 | \
++                           CPUID_8000_001A_EAX_MOVU | CPUID_8000_001A_EAX_FP256)
+ 
+ FeatureWordInfo feature_word_info[FEATURE_WORDS] = {
+     [FEAT_1_EDX] = {
+@@ -1048,6 +1050,22 @@
+         .tcg_features = TCG_8000_0008_EBX,
+         .unmigratable_flags = 0,
+     },
++    [FEAT_8000_001A_EAX] = {
++        .type = CPUID_FEATURE_WORD,
++        .feat_names = {
++            "fp128", "movu", "fp256", NULL,
++            NULL, NULL, NULL, NULL,
++            NULL, NULL, NULL, NULL,
++            NULL, NULL, NULL, NULL,
++            NULL, NULL, NULL, NULL,
++            NULL, NULL, NULL, NULL,
++            NULL, NULL, NULL, NULL,
++            NULL, NULL, NULL, NULL,
++        },
++        .cpuid = { .eax = 0x8000001A, .reg = R_EAX, },
++        .tcg_features = TCG_8000_001A_EAX,
++        .unmigratable_flags = 0,
++    },
+     [FEAT_8000_0021_EAX] = {
+         .type = CPUID_FEATURE_WORD,
+         .feat_names = {
+@@ -6769,6 +6787,9 @@
+             *edx = 0;
+         }
+         break;
++    case 0x8000001A:
++        *eax = env->features[FEAT_8000_001A_EAX];
++        break;
+     case 0x8000001D:
+         *eax = 0;
+         if (cpu->cache_info_passthrough) {
+--- a/target/i386/cpu.h
++++ b/target/i386/cpu.h
+@@ -602,6 +602,7 @@
+     FEAT_8000_0001_ECX, /* CPUID[8000_0001].ECX */
+     FEAT_8000_0007_EDX, /* CPUID[8000_0007].EDX */
+     FEAT_8000_0008_EBX, /* CPUID[8000_0008].EBX */
++    FEAT_8000_001A_EAX, /* CPUID[8000_001A].EAX */
+     FEAT_8000_0021_EAX, /* CPUID[8000_0021].EAX */
+     FEAT_C000_0001_EDX, /* CPUID[C000_0001].EDX */
+     FEAT_KVM,           /* CPUID[4000_0001].EAX (KVM_CPUID_FEATURES) */
+@@ -965,6 +966,13 @@
+ /* Predictive Store Forwarding Disable */
+ #define CPUID_8000_0008_EBX_AMD_PSFD    (1U << 28)
+ 
++/* The internal FP/SIMD execution data path is 128 bits wide */
++#define CPUID_8000_001A_EAX_FP128       (1U << 0)
++/* MOVU SSE instructions are more efficient than SSE */
++#define CPUID_8000_001A_EAX_MOVU        (1U << 1)
++/* The internal FP/SIMD execution data path is 256 bits wide */
++#define CPUID_8000_001A_EAX_FP256       (1U << 2)
++
+ /* Processor ignores nested data breakpoints */
+ #define CPUID_8000_0021_EAX_No_NESTED_DATA_BP    (1U << 0)
+ /* LFENCE is always serializing */
