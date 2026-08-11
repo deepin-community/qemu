@@ -188,3 +188,5 @@ ARM-CCA/0029-hw-arm-virt-Add-measurement-log-for-confidential-boo.patch
 005-target-i386-Add-Hygon-Chengdu-v2-CPU-model.patch
 006-target-i386-Add-Hygon-Dharma-v2-CPU-model.patch
 007-target-i386-Enable-tsc-adjust-CPUID-bit-for-Hygon-Ch.patch
+008-target-i386-Add-support-for-CPUID-leaf-0x8000001A.patch
+009-target-i386-Add-Dhyana-v4-CPU-model.patch
