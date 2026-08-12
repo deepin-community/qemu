@@ -1,0 +1,36 @@
+From: lichenggang <lichenggang@uniontech.com>
+Date: Wed, 12 Aug 2026 12:00:00 +0800
+Subject: [PATCH] hw/misc/psp: fix build failure on 32-bit hosts
+
+find_mr->size is an Int128 which is a struct on 32-bit hosts
+(CONFIG_INT128 is not defined), so `find_mr->addr + find_mr->size - 1`
+fails to compile on i386. Convert the size with int128_get64() and
+use PRIx64 in the error message for 32-bit portability.
+
+Signed-off-by: lichenggang <lichenggang@uniontech.com>
+---
+ hw/misc/psp.c | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+Index: deepin-qemu/hw/misc/psp.c
+===================================================================
+--- deepin-qemu.orig/hw/misc/psp.c
++++ deepin-qemu/hw/misc/psp.c
+@@ -243,7 +243,7 @@ static void psp_dev_realize(DeviceState
+ 
+         if (!ram2_start)
+             ram2_start = find_mr->addr;
+-        ram2_end = find_mr->addr + find_mr->size - 1;
++        ram2_end = find_mr->addr + int128_get64(find_mr->size) - 1;
+     }
+ 
+     state->hp_num = i;
+@@ -253,7 +253,7 @@ static void psp_dev_realize(DeviceState
+         ctrl.data.gpa.gpa_start = ram2_start;
+         ctrl.data.gpa.gpa_end = ram2_end;
+         if (ioctl(state->dev_fd, PSP_IOC_VPSP_OPT, &ctrl) < 0) {
+-            error_setg(errp, "psp_dev_realize VPSP_OP_SET_GPA (start 0x%lx, end 0x%lx), return %d",
++            error_setg(errp, "psp_dev_realize VPSP_OP_SET_GPA (start 0x%" PRIx64 ", end 0x%" PRIx64 "), return %d",
+                         ram2_start, ram2_end, -errno);
+             goto del_vid;
+         }
