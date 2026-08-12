@@ -1,3 +1,21 @@
+qemu (1:8.2.0+ds-1deepin20) unstable; urgency=medium
+
+  * Fix i386 build failure caused by Int128 arithmetic in hw/misc/psp.c
+    - Convert mem2 region size with int128_get64() so the code compiles
+      on 32-bit hosts where Int128 is a struct, not __int128
+    - Use PRIx64 in the VPSP_OP_SET_GPA error message for portability
+  * Drop ppc/sparc64/s390x/hppa firmware support
+    - These architectures are not supported in the deepin build
+      environment and their cross compilers are substituted away by OBS,
+      which made openbios/u-boot-e500/u-boot-sam460/s390x-fw/hppa-fw
+      fail on amd64
+    - Remove the firmware Build-Depends (cross compilers and the
+      openbios/u-boot build tools bc, fcode-utils, xsltproc) and the
+      affected firmware components (openbios, u-boot-e500, u-boot-sam460,
+      s390x-fw, hppa-fw)
+
+ -- lichenggang <lichenggang@uniontech.com>  Wed, 12 Aug 2026 14:10:47 +0800
+
 qemu (1:8.2.0+ds-1deepin19) unstable; urgency=medium
 
   * Add Hygon CPUID leaf 0x8c860000 support.
