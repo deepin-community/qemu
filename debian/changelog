@@ -1,3 +1,11 @@
+qemu (1:8.2.0+ds-1deepin22) unstable; urgency=medium
+
+  * Add AVX512 VP2INTERSECT support for Chengdu-v2.
+  * Expose CPUID leaf 0x8000001A feature values.
+  * Enable XSAVES for Dharma-v2 and Chengdu-v2.
+
+ -- Mingjin Xie <xiemingjin@hygon.cn>  Tue, 11 Aug 2026 20:38:00 +0800
+
 qemu (1:8.2.0+ds-1deepin20) unstable; urgency=medium
 
   * Fix i386 build failure caused by Int128 arithmetic in hw/misc/psp.c

@@ -1,0 +1,34 @@
+From c7caf5ac0ada324d3b7388fba56726261ab4fa1b Mon Sep 17 00:00:00 2001
+From: Wei Wang <wangwww@hygon.cn>
+Date: Wed, 8 Apr 2026 17:57:03 +0800
+Subject: [PATCH 1/3] =?UTF-8?q?target/i386:=20Add=20avx512-vp2intersect=20?=
+ =?UTF-8?q?to=20Chengdu=E2=80=91v2?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Hygon 7447v supports avx512-vp2intersect. Expose the feature to
+Chengdu-v2.
+
+Signed-off-by: Wei Wang <wangwww@hygon.cn>
+Tested-by: Yongwei Xu <xuyongwei@hygon.cn>
+Signed-off-by: Mingjin Xie <xiemingjin@hygon.cn>
+---
+ target/i386/cpu.c | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/target/i386/cpu.c b/target/i386/cpu.c
+index b86df412bc..a2c459064c 100644
+--- a/target/i386/cpu.c
++++ b/target/i386/cpu.c
+@@ -6120,6 +6120,7 @@ static const X86CPUDefinition builtin_x86_defs[] = {
+             {
+               .version = 2,
+               .props = (PropValue[]) {
++                  { "avx512-vp2intersect", "on"},
+                   { "tsc-adjust", "on" },
+                   { "hygon-sm3", "on" },
+                   { "hygon-sm4", "on" },
+-- 
+2.43.7
+

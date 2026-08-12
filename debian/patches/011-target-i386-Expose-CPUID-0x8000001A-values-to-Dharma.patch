@@ -1,0 +1,46 @@
+From ea9e2735bf6ee70e66c9423e8eb0924c5b1b0c9b Mon Sep 17 00:00:00 2001
+From: Wei Wang <wei.w.wang@hotmail.com>
+Date: Wed, 22 Apr 2026 18:35:11 +0800
+Subject: [PATCH 2/3] target/i386: Expose CPUID 0x8000001A values to Dharma-v2
+ and Chengdu-v2
+
+CPUID leaf 0x8000001A provides Performance Optimization Identifiers used
+by the OS and toolchains to tune code generation for a specific CPU
+microarchitecture. These identifiers are already defined for the host
+CPUs but were not exposed to Dharma-v2 and Chengdu-v2 guests.
+
+Populate this leaf for both CPU models so that guests can make use of
+the corresponding optimization hints.
+
+Signed-off-by: Wei Wang <wangwww@hygon.cn>
+Tested-by: Yongwei Xu <xuyongwei@hygon.cn>
+Signed-off-by: Mingjin Xie <xiemingjin@hygon.cn>
+---
+ target/i386/cpu.c | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/target/i386/cpu.c b/target/i386/cpu.c
+index a2c459064c..cf9fb8296d 100644
+--- a/target/i386/cpu.c
++++ b/target/i386/cpu.c
+@@ -6048,6 +6048,8 @@ static const X86CPUDefinition builtin_x86_defs[] = {
+               .props = (PropValue[]) {
+                   { "hygon-sm3", "on" },
+                   { "hygon-sm4", "on" },
++                  { "movu", "on" },
++                  { "fp256", "on" },
+                   { "model-id",
+                      "Hygon Dharma-v2 processor" },
+                   { /* end of list */ }
+@@ -6124,6 +6126,8 @@ static const X86CPUDefinition builtin_x86_defs[] = {
+                   { "tsc-adjust", "on" },
+                   { "hygon-sm3", "on" },
+                   { "hygon-sm4", "on" },
++                  { "movu", "on" },
++                  { "fp256", "on" },
+                   { "model-id",
+                      "Hygon Chengdu-v2 processor" },
+                   { /* end of list */ }
+-- 
+2.43.7
+
