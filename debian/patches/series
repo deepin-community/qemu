@@ -63,6 +63,7 @@ hw-vfio-hct-qemu-startup-terminate-once-error-happen.patch
 hw-i386-pc-add-mem2-option-for-qemu.patch
 hw-misc-psp-support-tkm-use-mem2-memory.patch
 hw-misc-psp-pin-the-hugepage-memory-specified-by-mem2.patch
+fix-psp-int128-build-failure.patch
 0059-target-i386-sev-Fix-incompatibility-between-SEV-and-.patch
 0060-target-i386-sev-Add-support-for-reuse-ASID-for-diffe.patch
 0061-qapi-qom-target-i386-csv-guest-Introduce-secret-head.patch
