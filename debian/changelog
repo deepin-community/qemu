@@ -1,3 +1,11 @@
+qemu (1:8.2.0+ds-1deepin22) unstable; urgency=medium
+
+  * Fix quilt patch 008 to apply cleanly
+    - Rebase the CPUID 0x8000001A enum hunk on the FEAT_8C86_0000_EDX
+      entry introduced earlier in the series, so dpkg-source applies
+      patch 008 without fuzz.
+ -- lichenggang <lichenggang@uniontech.com>  Mon, 24 Aug 2026 13:55:52 +0800
+
 qemu (1:8.2.0+ds-1deepin21) unstable; urgency=medium
 
   * Add support for CPUID leaf 0x8000001A and Dhyana-v4 CPU model.
