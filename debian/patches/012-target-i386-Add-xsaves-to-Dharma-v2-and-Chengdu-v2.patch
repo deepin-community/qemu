@@ -1,0 +1,41 @@
+From cbe7a5323a64a13b35cea5e02a6b248aa5212c00 Mon Sep 17 00:00:00 2001
+From: Wei Wang <wei.w.wang@hotmail.com>
+Date: Thu, 23 Apr 2026 10:25:26 +0800
+Subject: [PATCH 3/3] target/i386: Add xsaves to Dharma-v2 and Chengdu-v2
+
+Physical Hygon Dharma and Chengdu processors support the XSAVES
+instruction and the IA32_XSS MSR for compacted supervisor state saving.
+Adding xsaves to Dharma-v2 and Chengdu-v2 allows guests on Hygon Gen4
+platforms to utilize optimized supervisor state management without
+breaking backwards compatibility.
+
+Signed-off-by: Wei Wang <wei.w.wang@hotmail.com>
+Tested-by: Yongwei Xu <xuyongwei@hygon.cn>
+Signed-off-by: Mingjin Xie <xiemingjin@hygon.cn>
+---
+ target/i386/cpu.c | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/target/i386/cpu.c b/target/i386/cpu.c
+index cf9fb8296d..d5f83d9f98 100644
+--- a/target/i386/cpu.c
++++ b/target/i386/cpu.c
+@@ -6050,6 +6050,7 @@ static const X86CPUDefinition builtin_x86_defs[] = {
+                   { "hygon-sm4", "on" },
+                   { "movu", "on" },
+                   { "fp256", "on" },
++                  { "xsaves", "on" },
+                   { "model-id",
+                      "Hygon Dharma-v2 processor" },
+                   { /* end of list */ }
+@@ -6128,6 +6129,7 @@ static const X86CPUDefinition builtin_x86_defs[] = {
+                   { "hygon-sm4", "on" },
+                   { "movu", "on" },
+                   { "fp256", "on" },
++                  { "xsaves", "on" },
+                   { "model-id",
+                      "Hygon Chengdu-v2 processor" },
+                   { /* end of list */ }
+-- 
+2.43.7
+
