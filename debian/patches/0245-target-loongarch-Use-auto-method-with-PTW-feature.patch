@@ -1,0 +1,109 @@
+From d16f23c586a82772fb26a5bcf04222e841072fb5 Mon Sep 17 00:00:00 2001
+From: Bibo Mao <maobibo@loongson.cn>
+Date: Tue, 30 Sep 2025 09:14:58 +0800
+Subject: [PATCH 245/285] target/loongarch: Use auto method with PTW feature
+
+PTW is short for page table walker, it is hardware page table walker
+function. With PTW supported, hardware MMU will parse page table
+table and update TLB entries automatically.
+
+This patch adds type OnOffAuto for PTW feature setting.
+
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+Reviewed-by: Song Gao <gaosong@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ target/loongarch/cpu.c | 26 ++++++++++++++++++++++++++
+ target/loongarch/cpu.h |  2 ++
+ 2 files changed, 28 insertions(+)
+
+diff --git a/target/loongarch/cpu.c b/target/loongarch/cpu.c
+index c6f69ef9f1bc..4d0c85d300b1 100644
+--- a/target/loongarch/cpu.c
++++ b/target/loongarch/cpu.c
+@@ -493,6 +493,25 @@ static void loongarch_set_msgint(Object *obj, bool value, Error **errp)
+      cpu->env.cpucfg[1] = FIELD_DP32(cpu->env.cpucfg[1], CPUCFG1, MSG_INT, value);
+ }
+ 
++static bool loongarch_get_ptw(Object *obj, Error **errp)
++{
++    return LOONGARCH_CPU(obj)->ptw != ON_OFF_AUTO_OFF;
++}
++
++static void loongarch_set_ptw(Object *obj, bool value, Error **errp)
++{
++    LoongArchCPU *cpu = LOONGARCH_CPU(obj);
++
++    cpu->ptw = value ? ON_OFF_AUTO_ON : ON_OFF_AUTO_OFF;
++
++    if (kvm_enabled()) {
++        /* PTW feature is only support in TCG mode now */
++        return;
++    }
++
++    cpu->env.cpucfg[2] = FIELD_DP32(cpu->env.cpucfg[2], CPUCFG2, HPTW, value);
++}
++
+ static void loongarch_cpu_post_init(Object *obj)
+ {
+     LoongArchCPU *cpu = LOONGARCH_CPU(obj);
+@@ -507,7 +526,10 @@ static void loongarch_cpu_post_init(Object *obj)
+                              loongarch_set_lasx);
+     object_property_add_bool(obj, "msgint", loongarch_get_msgint,
+                              loongarch_set_msgint);
++    object_property_add_bool(obj, "ptw", loongarch_get_ptw,
++                             loongarch_set_ptw);
+     /* lbt is enabled only in kvm mode, not supported in tcg mode */
++
+     if (kvm_enabled()) {
+         kvm_loongarch_cpu_post_init(cpu);
+     }
+@@ -615,6 +637,7 @@ static void loongarch_la464_initfn(Object *obj)
+     env->CSR_PRCFG3 = FIELD_DP64(env->CSR_PRCFG3, CSR_PRCFG3, STLB_SETS, 8);
+ 
+     cpu->msgint = ON_OFF_AUTO_OFF;
++    cpu->ptw = ON_OFF_AUTO_OFF;
+     loongarch_la464_init_csr(obj);
+     loongarch_cpu_post_init(obj);
+ }
+@@ -646,6 +669,7 @@ static void loongarch_la132_initfn(Object *obj)
+     data = FIELD_DP32(data, CPUCFG1, CRC, 1);
+     env->cpucfg[1] = data;
+     cpu->msgint = ON_OFF_AUTO_OFF;
++    cpu->ptw = ON_OFF_AUTO_OFF;
+ }
+ 
+ static void loongarch_max_initfn(Object *obj)
+@@ -657,6 +681,8 @@ static void loongarch_max_initfn(Object *obj)
+     if (tcg_enabled()) {
+         cpu->env.cpucfg[1] = FIELD_DP32(cpu->env.cpucfg[1], CPUCFG1, MSG_INT, 1);
+         cpu->msgint = ON_OFF_AUTO_AUTO;
++        cpu->env.cpucfg[2] = FIELD_DP32(cpu->env.cpucfg[2], CPUCFG2, HPTW, 1);
++        cpu->ptw = ON_OFF_AUTO_AUTO;
+     }
+ }
+ 
+diff --git a/target/loongarch/cpu.h b/target/loongarch/cpu.h
+index 772412045476..28f4f3fa10ad 100644
+--- a/target/loongarch/cpu.h
++++ b/target/loongarch/cpu.h
+@@ -138,6 +138,7 @@ FIELD(CPUCFG2, LBT_MIPS, 20, 1)
+ FIELD(CPUCFG2, LBT_ALL, 18, 3)
+ FIELD(CPUCFG2, LSPW, 21, 1)
+ FIELD(CPUCFG2, LAM, 22, 1)
++FIELD(CPUCFG2, HPTW, 24, 1)
+ 
+ /* cpucfg[3] bits */
+ FIELD(CPUCFG3, CCDMA, 0, 1)
+@@ -406,6 +407,7 @@ struct ArchCPU {
+     uint32_t  phy_id;
+     OnOffAuto lbt;
+     OnOffAuto pmu;
++    OnOffAuto ptw;
+     OnOffAuto lsx;
+     OnOffAuto lasx;
+     OnOffAuto msgint;
+-- 
+2.51.0
+

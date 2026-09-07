@@ -1,0 +1,99 @@
+From c439eeac6de2db2ca81b387d9fb7e3ad25e8b955 Mon Sep 17 00:00:00 2001
+From: Bibo Mao <maobibo@loongson.cn>
+Date: Mon, 15 Jul 2024 17:50:05 +0200
+Subject: [PATCH 061/285] hw/intc/loongson_ipi: Add
+ LoongsonIPICommonClass::get_iocsr_as handler
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Allow Loongson IPI implementations to have their own get_iocsr_as()
+handler.
+
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+[PMD: Extracted from bigger commit, added commit description]
+Co-Developed-by: Philippe Mathieu-Daudé <philmd@linaro.org>
+Signed-off-by: Philippe Mathieu-Daudé <philmd@linaro.org>
+Reviewed-by: Bibo Mao <maobibo@loongson.cn>
+Tested-by: Bibo Mao <maobibo@loongson.cn>
+Acked-by: Song Gao <gaosong@loongson.cn>
+Reviewed-by: Richard Henderson <richard.henderson@linaro.org>
+Reviewed-by: Jiaxun Yang <jiaxun.yang@flygoat.com>
+Tested-by: Jiaxun Yang <jiaxun.yang@flygoat.com>
+Message-Id: <20240805180622.21001-9-philmd@linaro.org>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ hw/intc/loongson_ipi.c                | 16 ++++++++++++----
+ include/hw/intc/loongson_ipi_common.h |  2 ++
+ 2 files changed, 14 insertions(+), 4 deletions(-)
+
+diff --git a/hw/intc/loongson_ipi.c b/hw/intc/loongson_ipi.c
+index 8bf16f26d4ba..eb99de906828 100644
+--- a/hw/intc/loongson_ipi.c
++++ b/hw/intc/loongson_ipi.c
+@@ -75,24 +75,30 @@ static MemTxResult loongson_ipi_iocsr_readl(void *opaque, hwaddr addr,
+     return loongson_ipi_core_readl(s, addr, data, size, attrs);
+ }
+ 
+-static AddressSpace *get_cpu_iocsr_as(CPUState *cpu)
+-{
+ #ifdef TARGET_LOONGARCH64
++static AddressSpace *get_iocsr_as(CPUState *cpu)
++{
+     return LOONGARCH_CPU(cpu)->env.address_space_iocsr;
++}
+ #endif
++
+ #ifdef TARGET_MIPS
++static AddressSpace *get_iocsr_as(CPUState *cpu)
++{
+     if (ase_lcsr_available(&MIPS_CPU(cpu)->env)) {
+         return &MIPS_CPU(cpu)->env.iocsr.as;
+     }
+-#endif
++
+     return NULL;
+ }
++#endif
+ 
+ static MemTxResult send_ipi_data(LoongsonIPICommonState *ipi, CPUState *cpu,
+                                  uint64_t val, hwaddr addr, MemTxAttrs attrs)
+ {
++    LoongsonIPICommonClass *licc = LOONGSON_IPI_COMMON_GET_CLASS(ipi);
+     int i, mask = 0, data = 0;
+-    AddressSpace *iocsr_as = get_cpu_iocsr_as(cpu);
++    AddressSpace *iocsr_as = licc->get_iocsr_as(cpu);
+ 
+     if (!iocsr_as) {
+         return MEMTX_DECODE_ERROR;
+@@ -354,11 +360,13 @@ static void loongson_ipi_class_init(ObjectClass *klass, void *data)
+ {
+     DeviceClass *dc = DEVICE_CLASS(klass);
+     LoongsonIPIClass *lic = LOONGSON_IPI_CLASS(klass);
++    LoongsonIPICommonClass *licc = LOONGSON_IPI_COMMON_CLASS(klass);
+ 
+     device_class_set_parent_realize(dc, loongson_ipi_realize,
+                                     &lic->parent_realize);
+     device_class_set_parent_unrealize(dc, loongson_ipi_unrealize,
+                                       &lic->parent_unrealize);
++    licc->get_iocsr_as = get_iocsr_as;
+ }
+ 
+ static const TypeInfo loongson_ipi_types[] = {
+diff --git a/include/hw/intc/loongson_ipi_common.h b/include/hw/intc/loongson_ipi_common.h
+index 967c70ad1c02..1a2ee41cc908 100644
+--- a/include/hw/intc/loongson_ipi_common.h
++++ b/include/hw/intc/loongson_ipi_common.h
+@@ -39,6 +39,8 @@ struct LoongsonIPICommonState {
+ 
+ struct LoongsonIPICommonClass {
+     SysBusDeviceClass parent_class;
++
++    AddressSpace *(*get_iocsr_as)(CPUState *cpu);
+ };
+ 
+ /* Mainy used by iocsr read and write */
+-- 
+2.51.0
+

@@ -1,0 +1,75 @@
+From 04d7485f4ca27a73723b2e0044d22eac14076221 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Philippe=20Mathieu-Daud=C3=A9?= <philmd@linaro.org>
+Date: Sat, 13 Dec 2025 19:00:30 +0100
+Subject: [PATCH 259/285] hw/loongarch: Use explicit little-endian LD/ST API
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The LoongArch architecture uses little endianness. Directly
+use the little-endian LD/ST API.
+
+Mechanical change using:
+
+  $ end=le; \
+    for acc in uw w l q tul; do \
+      sed -i -e "s/ld${acc}_p(/ld${acc}_${end}_p(/" \
+             -e "s/st${acc}_p(/st${acc}_${end}_p(/" \
+        $(git grep -wlE '(ld|st)t?u?[wlq]_p' hw/loongarch/); \
+    done
+
+Signed-off-by: Philippe Mathieu-Daudé <philmd@linaro.org>
+Reviewed-by: Bibo Mao <maobibo@loongson.cn>
+Message-ID: <20251224161456.89707-2-philmd@linaro.org>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ hw/loongarch/virt.c | 18 +++++++++---------
+ 1 file changed, 9 insertions(+), 9 deletions(-)
+
+diff --git a/hw/loongarch/virt.c b/hw/loongarch/virt.c
+index 0460515b6f03..5922e589eb5a 100644
+--- a/hw/loongarch/virt.c
++++ b/hw/loongarch/virt.c
+@@ -739,9 +739,9 @@ static MemTxResult virt_iocsr_misc_write(void *opaque, hwaddr addr,
+             lvms->misc_status |= BIT_ULL(IOCSRM_DMSI_EN);
+         }
+ 
+-        features = address_space_ldl(&lvms->as_iocsr,
+-                                     EXTIOI_VIRT_BASE + EXTIOI_VIRT_CONFIG,
+-                                     attrs, NULL);
++        features = address_space_ldl_le(&lvms->as_iocsr,
++                                        EXTIOI_VIRT_BASE + EXTIOI_VIRT_CONFIG,
++                                        attrs, NULL);
+         if (val & BIT_ULL(IOCSRM_EXTIOI_EN)) {
+             features |= BIT(EXTIOI_ENABLE);
+         }
+@@ -749,9 +749,9 @@ static MemTxResult virt_iocsr_misc_write(void *opaque, hwaddr addr,
+             features |= BIT(EXTIOI_ENABLE_INT_ENCODE);
+         }
+ 
+-        address_space_stl(&lvms->as_iocsr,
+-                          EXTIOI_VIRT_BASE + EXTIOI_VIRT_CONFIG,
+-                          features, attrs, NULL);
++        address_space_stl_le(&lvms->as_iocsr,
++                             EXTIOI_VIRT_BASE + EXTIOI_VIRT_CONFIG,
++                             features, attrs, NULL);
+         break;
+     default:
+         g_assert_not_reached();
+@@ -797,9 +797,9 @@ static MemTxResult virt_iocsr_misc_read(void *opaque, hwaddr addr,
+             break;
+         }
+ 
+-        features = address_space_ldl(&lvms->as_iocsr,
+-                                     EXTIOI_VIRT_BASE + EXTIOI_VIRT_CONFIG,
+-                                     attrs, NULL);
++        features = address_space_ldl_le(&lvms->as_iocsr,
++                                        EXTIOI_VIRT_BASE + EXTIOI_VIRT_CONFIG,
++                                        attrs, NULL);
+         if (features & BIT(EXTIOI_ENABLE)) {
+             ret |= BIT_ULL(IOCSRM_EXTIOI_EN);
+         }
+-- 
+2.51.0
+

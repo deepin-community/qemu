@@ -1,0 +1,251 @@
+From 3708924e3e9078642c5b81b513e89005ecedd138 Mon Sep 17 00:00:00 2001
+From: Song Gao <gaosong@loongson.cn>
+Date: Tue, 16 Sep 2025 20:21:00 +0800
+Subject: [PATCH 228/285] hw/loongarch: add virt feature dmsi support
+
+dmsi feature is added in LoongArchVirtMachinState, and it is used
+to check whether virt machine supports the directy Message-Interrupts.
+and by default set dmsi with ON_OFF_AUTO_AUTO.
+LoongArchVirtMachineState adds misc_feature and misc_status for misc
+features and status. and set the default dintc feature bit.
+Msgint feature is added in LoongArchCPU, and it is used to check
+whether th cpu supports the Message-Interrupts and by default set
+mesgint with ON_OFF_AUTO_AUTO.
+
+Signed-off-by: Song Gao <gaosong@loongson.cn>
+Reviewed-by: Bibo Mao <maobibo@loongson.cn>
+Message-ID: <20250916122109.749813-3-gaosong@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ hw/loongarch/virt.c         | 50 +++++++++++++++++++++++++++++++++++++
+ include/hw/loongarch/virt.h | 14 +++++++++++
+ target/loongarch/cpu.c      | 30 ++++++++++++++++++++++
+ target/loongarch/cpu.h      |  1 +
+ 4 files changed, 95 insertions(+)
+
+diff --git a/hw/loongarch/virt.c b/hw/loongarch/virt.c
+index 523d9c514738..bdf6a0c21cee 100644
+--- a/hw/loongarch/virt.c
++++ b/hw/loongarch/virt.c
+@@ -47,6 +47,30 @@
+ #include "kvm/kvm_loongarch.h"
+ #include "sysemu/kvm.h"
+ 
++static void virt_get_dmsi(Object *obj, Visitor *v, const char *name,
++                             void *opaque, Error **errp)
++{
++    LoongArchVirtMachineState *lvms = LOONGARCH_VIRT_MACHINE(obj);
++    OnOffAuto dmsi = lvms->dmsi;
++
++    visit_type_OnOffAuto(v, name, &dmsi, errp);
++
++}
++static void virt_set_dmsi(Object *obj, Visitor *v, const char *name,
++                              void *opaque, Error **errp)
++{
++    LoongArchVirtMachineState *lvms = LOONGARCH_VIRT_MACHINE(obj);
++
++    visit_type_OnOffAuto(v, name, &lvms->dmsi, errp);
++
++    if (lvms->dmsi == ON_OFF_AUTO_OFF) {
++        lvms->misc_feature &= ~BIT(IOCSRF_DMSI);
++        lvms->misc_status &= ~BIT_ULL(IOCSRM_DMSI_EN);
++    } else if (lvms->dmsi == ON_OFF_AUTO_ON) {
++        lvms->misc_feature = BIT(IOCSRF_DMSI);
++    }
++}
++
+ static void virt_get_veiointc(Object *obj, Visitor *v, const char *name,
+                               void *opaque, Error **errp)
+ {
+@@ -682,6 +706,25 @@ static void fw_cfg_add_memory(MachineState *ms)
+     }
+ }
+ 
++static void virt_check_dmsi(MachineState *machine)
++{
++    LoongArchCPU *cpu;
++    LoongArchVirtMachineState *lvms = LOONGARCH_VIRT_MACHINE(machine);
++
++    cpu = LOONGARCH_CPU(first_cpu);
++    if (lvms->dmsi == ON_OFF_AUTO_AUTO) {
++        if (cpu->msgint != ON_OFF_AUTO_OFF) {
++            lvms->misc_feature = BIT(IOCSRF_DMSI);
++        }
++    }
++
++    if (lvms->dmsi == ON_OFF_AUTO_ON && cpu->msgint == ON_OFF_AUTO_OFF) {
++        error_report("Fail to enable dmsi , cpu msgint is off "
++                     "pleass add cpu feature mesgint=on.");
++        exit(EXIT_FAILURE);
++    }
++}
++
+ static void virt_init(MachineState *machine)
+ {
+     const char *cpu_model = machine->cpu_type;
+@@ -716,6 +759,7 @@ static void virt_init(MachineState *machine)
+         }
+         qdev_realize_and_unref(DEVICE(cpuobj), NULL, &error_fatal);
+     }
++    virt_check_dmsi(machine);
+     fw_cfg_add_memory(machine);
+ 
+     /* Node0 memory */
+@@ -846,6 +890,8 @@ static void virt_initfn(Object *obj)
+     if (tcg_enabled()) {
+         lvms->veiointc = ON_OFF_AUTO_OFF;
+     }
++
++    lvms->dmsi = ON_OFF_AUTO_AUTO;
+     lvms->acpi = ON_OFF_AUTO_AUTO;
+     lvms->oem_id = g_strndup(ACPI_BUILD_APPNAME6, 6);
+     lvms->oem_table_id = g_strndup(ACPI_BUILD_APPNAME8, 8);
+@@ -1245,6 +1291,10 @@ static void virt_class_init(ObjectClass *oc, void *data)
+         NULL, NULL);
+     object_class_property_set_description(oc, "v-eiointc",
+                             "Enable Virt Extend I/O Interrupt Controller.");
++    object_class_property_add(oc, "dmsi", "OnOffAuto",
++        virt_get_dmsi, virt_set_dmsi, NULL, NULL);
++    object_class_property_set_description(oc, "dmsi",
++                            "Enable direct Message-interrupts Controller.");
+     machine_class_allow_dynamic_sysbus_dev(mc, TYPE_RAMFB_DEVICE);
+ #ifdef CONFIG_TPM
+     machine_class_allow_dynamic_sysbus_dev(mc, TYPE_TPM_TIS_SYSBUS);
+diff --git a/include/hw/loongarch/virt.h b/include/hw/loongarch/virt.h
+index 296a1cc0a0ee..175da4dc4cc5 100644
+--- a/include/hw/loongarch/virt.h
++++ b/include/hw/loongarch/virt.h
+@@ -23,6 +23,7 @@
+ #define IOCSRF_DVFSV1           7
+ #define IOCSRF_GMOD             9
+ #define IOCSRF_VM               11
++#define IOCSRF_DMSI             15
+ 
+ #define VERSION_REG             0x0
+ #define FEATURE_REG             0x8
+@@ -31,6 +32,7 @@
+ #define MISC_FUNC_REG           0x420
+ #define IOCSRM_EXTIOI_EN        48
+ #define IOCSRM_EXTIOI_INT_ENCODE 49
++#define IOCSRM_DMSI_EN          51
+ 
+ #define LOONGARCH_MAX_CPUS      256
+ 
+@@ -76,6 +78,7 @@ struct LoongArchVirtMachineState {
+     Notifier     powerdown_notifier;
+     OnOffAuto    acpi;
+     OnOffAuto    veiointc;
++    OnOffAuto    dmsi;
+     char         *oem_id;
+     char         *oem_table_id;
+     DeviceState  *acpi_ged;
+@@ -91,6 +94,8 @@ struct LoongArchVirtMachineState {
+     DeviceState *extioi;
+     struct memmap_entry *memmap_table;
+     unsigned int memmap_entries;
++    uint64_t misc_feature;
++    uint64_t misc_status;
+ };
+ 
+ #define TYPE_LOONGARCH_VIRT_MACHINE  MACHINE_TYPE_NAME("virt")
+@@ -98,6 +103,15 @@ OBJECT_DECLARE_SIMPLE_TYPE(LoongArchVirtMachineState, LOONGARCH_VIRT_MACHINE)
+ void virt_acpi_setup(LoongArchVirtMachineState *lvms);
+ void virt_fdt_setup(LoongArchVirtMachineState *lvms);
+ 
++static inline bool virt_has_dmsi(LoongArchVirtMachineState *lvms)
++{
++    if (!(lvms->misc_feature & BIT(IOCSRF_DMSI))) {
++        return false;
++    }
++
++    return true;
++}
++
+ static inline bool virt_is_veiointc_enabled(LoongArchVirtMachineState *lvms)
+ {
+     if (lvms->veiointc == ON_OFF_AUTO_OFF) {
+diff --git a/target/loongarch/cpu.c b/target/loongarch/cpu.c
+index 6554fa63035c..c6f69ef9f1bc 100644
+--- a/target/loongarch/cpu.c
++++ b/target/loongarch/cpu.c
+@@ -474,6 +474,25 @@ static void loongarch_set_lasx(Object *obj, bool value, Error **errp)
+     cpu->env.cpucfg[2] = FIELD_DP32(val, CPUCFG2, LASX, value);
+ }
+ 
++static bool loongarch_get_msgint(Object *obj, Error **errp)
++{
++    return LOONGARCH_CPU(obj)->msgint != ON_OFF_AUTO_OFF;
++}
++
++static void loongarch_set_msgint(Object *obj, bool value, Error **errp)
++{
++    LoongArchCPU *cpu = LOONGARCH_CPU(obj);
++
++    cpu->msgint = value ? ON_OFF_AUTO_ON : ON_OFF_AUTO_OFF;
++
++    if (kvm_enabled()) {
++        /* kvm feature detection in function kvm_arch_init_vcpu */
++        return;
++    }
++
++     cpu->env.cpucfg[1] = FIELD_DP32(cpu->env.cpucfg[1], CPUCFG1, MSG_INT, value);
++}
++
+ static void loongarch_cpu_post_init(Object *obj)
+ {
+     LoongArchCPU *cpu = LOONGARCH_CPU(obj);
+@@ -486,6 +505,8 @@ static void loongarch_cpu_post_init(Object *obj)
+                              loongarch_set_lsx);
+     object_property_add_bool(obj, "lasx", loongarch_get_lasx,
+                              loongarch_set_lasx);
++    object_property_add_bool(obj, "msgint", loongarch_get_msgint,
++                             loongarch_set_msgint);
+     /* lbt is enabled only in kvm mode, not supported in tcg mode */
+     if (kvm_enabled()) {
+         kvm_loongarch_cpu_post_init(cpu);
+@@ -593,6 +614,8 @@ static void loongarch_la464_initfn(Object *obj)
+     env->CSR_PRCFG3 = FIELD_DP64(env->CSR_PRCFG3, CSR_PRCFG3, STLB_WAYS, 7);
+     env->CSR_PRCFG3 = FIELD_DP64(env->CSR_PRCFG3, CSR_PRCFG3, STLB_SETS, 8);
+ 
++    cpu->msgint = ON_OFF_AUTO_OFF;
++    loongarch_la464_init_csr(obj);
+     loongarch_cpu_post_init(obj);
+ }
+ 
+@@ -622,12 +645,19 @@ static void loongarch_la132_initfn(Object *obj)
+     data = FIELD_DP32(data, CPUCFG1, HP, 1);
+     data = FIELD_DP32(data, CPUCFG1, CRC, 1);
+     env->cpucfg[1] = data;
++    cpu->msgint = ON_OFF_AUTO_OFF;
+ }
+ 
+ static void loongarch_max_initfn(Object *obj)
+ {
++    LoongArchCPU *cpu = LOONGARCH_CPU(obj);
+     /* '-cpu max' for TCG: we use cpu la464. */
+     loongarch_la464_initfn(obj);
++
++    if (tcg_enabled()) {
++        cpu->env.cpucfg[1] = FIELD_DP32(cpu->env.cpucfg[1], CPUCFG1, MSG_INT, 1);
++        cpu->msgint = ON_OFF_AUTO_AUTO;
++    }
+ }
+ 
+ static void loongarch_cpu_list_entry(gpointer data, gpointer user_data)
+diff --git a/target/loongarch/cpu.h b/target/loongarch/cpu.h
+index 2d0239c259b5..127cbebc9484 100644
+--- a/target/loongarch/cpu.h
++++ b/target/loongarch/cpu.h
+@@ -396,6 +396,7 @@ struct ArchCPU {
+     OnOffAuto pmu;
+     OnOffAuto lsx;
+     OnOffAuto lasx;
++    OnOffAuto msgint;
+     OnOffAuto kvm_pv_ipi;
+     OnOffAuto kvm_steal_time;
+     int32_t socket_id;  /* socket-id of this CPU */
+-- 
+2.51.0
+

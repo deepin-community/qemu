@@ -1,0 +1,54 @@
+From b178bf6fb68ffbff21ddd3a7219ce5c71b95b3a1 Mon Sep 17 00:00:00 2001
+From: Bibo Mao <maobibo@loongson.cn>
+Date: Wed, 3 Sep 2025 11:17:56 +0800
+Subject: [PATCH 237/285] target/loongarch: Fix page size set issue with
+ CSR_STLBPS
+
+When modify register CSR_STLBPS, the page size should come from
+input parameter rather than old value.
+
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+Reviewed-by: Song Gao <gaosong@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ target/loongarch/cpu-csr.h        | 1 +
+ target/loongarch/tcg/csr_helper.c | 5 +++--
+ 2 files changed, 4 insertions(+), 2 deletions(-)
+
+diff --git a/target/loongarch/cpu-csr.h b/target/loongarch/cpu-csr.h
+index f296eb8d0612..9097fddee109 100644
+--- a/target/loongarch/cpu-csr.h
++++ b/target/loongarch/cpu-csr.h
+@@ -108,6 +108,7 @@ FIELD(CSR_PWCH, DIR4_WIDTH, 18, 6)
+ 
+ #define LOONGARCH_CSR_STLBPS         0x1e /* Stlb page size */
+ FIELD(CSR_STLBPS, PS, 0, 5)
++FIELD(CSR_STLBPS, RESERVE, 5, 27)
+ 
+ #define LOONGARCH_CSR_RVACFG         0x1f /* Reduced virtual address config */
+ FIELD(CSR_RVACFG, RBITS, 0, 4)
+diff --git a/target/loongarch/tcg/csr_helper.c b/target/loongarch/tcg/csr_helper.c
+index 8dd7271d0d49..1f3af47764b6 100644
+--- a/target/loongarch/tcg/csr_helper.c
++++ b/target/loongarch/tcg/csr_helper.c
+@@ -24,13 +24,14 @@ target_ulong helper_csrwr_stlbps(CPULoongArchState *env, target_ulong val)
+      * The real hardware only supports the min tlb_ps is 12
+      * tlb_ps=0 may cause undefined-behavior.
+      */
+-    uint8_t tlb_ps = FIELD_EX64(env->CSR_STLBPS, CSR_STLBPS, PS);
++    uint8_t tlb_ps = FIELD_EX64(val, CSR_STLBPS, PS);
+     if (!check_ps(env, tlb_ps)) {
+         qemu_log_mask(LOG_GUEST_ERROR,
+                       "Attempted set ps %d\n", tlb_ps);
+     } else {
+         /* Only update PS field, reserved bit keeps zero */
+-        env->CSR_STLBPS = FIELD_DP64(old_v, CSR_STLBPS, PS, tlb_ps);
++        val = FIELD_DP64(val, CSR_STLBPS, RESERVE, 0);
++        env->CSR_STLBPS = val;
+     }
+ 
+     return old_v;
+-- 
+2.51.0
+

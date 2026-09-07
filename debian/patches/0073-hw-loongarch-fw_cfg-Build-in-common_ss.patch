@@ -1,0 +1,38 @@
+From 607a24d41bbf8207c61cc8a1eada41e1b64265f0 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Philippe=20Mathieu-Daud=C3=A9?= <philmd@linaro.org>
+Date: Fri, 27 Sep 2024 23:32:54 +0200
+Subject: [PATCH 073/285] hw/loongarch/fw_cfg: Build in common_ss[]
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Nothing in LoongArch fw_cfg.c requires target specific definitions.
+
+Signed-off-by: Philippe Mathieu-Daudé <philmd@linaro.org>
+Reviewed-by: Song Gao <gaosong@loongson.cn>
+Reviewed-by: Thomas Huth <thuth@redhat.com>
+Message-Id: <20240927213254.17552-3-philmd@linaro.org>
+Signed-off-by: Song Gao <gaosong@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ hw/loongarch/meson.build | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/hw/loongarch/meson.build b/hw/loongarch/meson.build
+index d306d82c2ee0..6262d13b4b0c 100644
+--- a/hw/loongarch/meson.build
++++ b/hw/loongarch/meson.build
+@@ -1,8 +1,8 @@
+ loongarch_ss = ss.source_set()
+ loongarch_ss.add(files(
+-    'fw_cfg.c',
+     'boot.c',
+ ))
++common_ss.add(when: 'CONFIG_LOONGARCH_VIRT', if_true: files('fw_cfg.c'))
+ loongarch_ss.add(when: 'CONFIG_LOONGARCH_VIRT', if_true: [files('virt.c'), fdt])
+ loongarch_ss.add(when: 'CONFIG_ACPI', if_true: files('acpi-build.c'))
+ 
+-- 
+2.51.0
+

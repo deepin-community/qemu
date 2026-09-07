@@ -1,0 +1,135 @@
+From a6167da991b06e394d469acd88e23987852aa45f Mon Sep 17 00:00:00 2001
+From: Xianglai Li <lixianglai@loongson.cn>
+Date: Wed, 24 Jul 2024 10:22:45 +0800
+Subject: [PATCH 070/285] roms: Support compile the efi bios for loongarch
+
+Added loongarch UEFI BIOS support to compiled scripts.
+
+  UEFI code images require 16M alignment, flash images require
+16M alignment, under the loongarch architecture.This is agreed
+upon when the firmware is loaded in QEMU under Loongarch.
+
+  The naming of UEFI under loongarch refers to the x86 and arm naming methods,
+and the UEFI image names in x86 and arm are:
+edk2-i386-code.fd
+edk2-i386-vars.fd
+edk2-arm-code.fd
+edk2-arm-vars.fd
+So on loongarch, we named it:
+edk2-loongarch64-code.fd
+edk2-loongarch64-vars.fd
+
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Message-ID: <20240724022245.1317884-1-lixianglai@loongson.cn>
+Signed-off-by: Gerd Hoffmann <kraxel@redhat.com>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ docs/system/loongarch/virt.rst               |  2 +-
+ pc-bios/descriptors/60-edk2-loongarch64.json | 31 ++++++++++++++++++++
+ pc-bios/descriptors/meson.build              |  3 +-
+ pc-bios/meson.build                          |  2 ++
+ roms/edk2-build.config                       | 13 ++++++++
+ 5 files changed, 49 insertions(+), 2 deletions(-)
+ create mode 100644 pc-bios/descriptors/60-edk2-loongarch64.json
+
+diff --git a/docs/system/loongarch/virt.rst b/docs/system/loongarch/virt.rst
+index aa4719d4bdff..a15b04904bd5 100644
+--- a/docs/system/loongarch/virt.rst
++++ b/docs/system/loongarch/virt.rst
+@@ -95,7 +95,7 @@ Note: You need get the latest cross-tools at https://github.com/loongson/build-t
+ 
+ (3) Build BIOS:
+ 
+-    See: https://github.com/tianocore/edk2-platforms/tree/master/Platform/Loongson/LoongArchQemuPkg#readme
++    See: https://github.com/tianocore/edk2/tree/master/OvmfPkg/LoongArchVirt#readme
+ 
+ Note: To build the release version of the bios,  set --buildtarget=RELEASE,
+       the bios file path:  Build/LoongArchQemu/RELEASE_GCC5/FV/QEMU_EFI.fd
+diff --git a/pc-bios/descriptors/60-edk2-loongarch64.json b/pc-bios/descriptors/60-edk2-loongarch64.json
+new file mode 100644
+index 000000000000..f174a1fc9b27
+--- /dev/null
++++ b/pc-bios/descriptors/60-edk2-loongarch64.json
+@@ -0,0 +1,31 @@
++{
++    "description": "UEFI firmware for loongarch64",
++    "interface-types": [
++        "uefi"
++    ],
++    "mapping": {
++        "device": "flash",
++        "executable": {
++            "filename": "@DATADIR@/edk2-loongarch64-code.fd",
++            "format": "raw"
++        },
++        "nvram-template": {
++            "filename": "@DATADIR@/edk2-loongarch64-vars.fd",
++            "format": "raw"
++        }
++    },
++    "targets": [
++        {
++            "architecture": "loongarch64",
++            "machines": [
++                "virt*"
++            ]
++        }
++    ],
++    "features": [
++
++    ],
++    "tags": [
++
++    ]
++}
+diff --git a/pc-bios/descriptors/meson.build b/pc-bios/descriptors/meson.build
+index 66f85d01c427..afb5a959ccf4 100644
+--- a/pc-bios/descriptors/meson.build
++++ b/pc-bios/descriptors/meson.build
+@@ -5,7 +5,8 @@ if unpack_edk2_blobs and get_option('install_blobs')
+     '60-edk2-aarch64.json',
+     '60-edk2-arm.json',
+     '60-edk2-i386.json',
+-    '60-edk2-x86_64.json'
++    '60-edk2-x86_64.json',
++    '60-edk2-loongarch64.json'
+   ]
+     configure_file(input: files(f),
+                    output: f,
+diff --git a/pc-bios/meson.build b/pc-bios/meson.build
+index 18c006a23a35..51f0264c64f5 100644
+--- a/pc-bios/meson.build
++++ b/pc-bios/meson.build
+@@ -9,6 +9,8 @@ if unpack_edk2_blobs and false
+     'edk2-i386-vars.fd',
+     'edk2-x86_64-code.fd',
+     'edk2-x86_64-secure-code.fd',
++    'edk2-loongarch64-code.fd',
++    'edk2-loongarch64-vars.fd',
+   ]
+ 
+   foreach f : fds
+diff --git a/roms/edk2-build.config b/roms/edk2-build.config
+index bab6a9caebfa..cdaba9423827 100644
+--- a/roms/edk2-build.config
++++ b/roms/edk2-build.config
+@@ -130,3 +130,16 @@ cpy1 = FV/RISCV_VIRT_CODE.fd  edk2-riscv-code.fd
+ cpy2 = FV/RISCV_VIRT_VARS.fd  edk2-riscv-vars.fd
+ pad1 = edk2-riscv-code.fd     32m
+ pad2 = edk2-riscv-vars.fd     32m
++
++####################################################################################
++# LoongArch64
++
++[build.loongarch64.qemu]
++conf = OvmfPkg/LoongArchVirt/LoongArchVirtQemu.dsc
++arch = LOONGARCH64
++plat = LoongArchVirtQemu
++dest = ../pc-bios
++cpy1 = FV/QEMU_EFI.fd  edk2-loongarch64-code.fd
++pad1 = edk2-loongarch64-code.fd     16m
++cpy2 = FV/QEMU_VARS.fd  edk2-loongarch64-vars.fd
++pad2 = edk2-loongarch64-vars.fd     16m
+-- 
+2.51.0
+

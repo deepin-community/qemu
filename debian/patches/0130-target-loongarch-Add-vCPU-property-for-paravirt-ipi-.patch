@@ -1,0 +1,83 @@
+From e74678c3662a61a650ea736813f92d3d1c77b285 Mon Sep 17 00:00:00 2001
+From: Bibo Mao <maobibo@loongson.cn>
+Date: Mon, 24 Feb 2025 10:30:47 +0800
+Subject: [PATCH 130/285] target/loongarch: Add vCPU property for paravirt ipi
+ feature
+
+Property kvm-pv-ipi is added to paravirt ipi feature, it is specially
+for kvm mode.
+
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+Reviewed-by: Bibo Mao <maobibo@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ target/loongarch/cpu.h                |  1 +
+ target/loongarch/kvm/kvm.c            | 18 ++++++++++++++++++
+ target/loongarch/loongarch-qmp-cmds.c |  2 +-
+ 3 files changed, 20 insertions(+), 1 deletion(-)
+
+diff --git a/target/loongarch/cpu.h b/target/loongarch/cpu.h
+index 87087ecbeeac..a86182c2216f 100644
+--- a/target/loongarch/cpu.h
++++ b/target/loongarch/cpu.h
+@@ -419,6 +419,7 @@ struct ArchCPU {
+     OnOffAuto pmu;
+     OnOffAuto lsx;
+     OnOffAuto lasx;
++    OnOffAuto kvm_pv_ipi;
+ 
+     /* 'compatible' string for this CPU for Linux device trees */
+     const char *dtb_compatible;
+diff --git a/target/loongarch/kvm/kvm.c b/target/loongarch/kvm/kvm.c
+index 1f53a02ce64d..a091399e9313 100644
+--- a/target/loongarch/kvm/kvm.c
++++ b/target/loongarch/kvm/kvm.c
+@@ -1058,6 +1058,18 @@ static void loongarch_set_pmu(Object *obj, bool value, Error **errp)
+     cpu->pmu = value ? ON_OFF_AUTO_ON : ON_OFF_AUTO_OFF;
+ }
+ 
++static bool kvm_pv_ipi_get(Object *obj, Error **errp)
++{
++    return LOONGARCH_CPU(obj)->kvm_pv_ipi != ON_OFF_AUTO_OFF;
++}
++
++static void kvm_pv_ipi_set(Object *obj, bool value, Error **errp)
++{
++    LoongArchCPU *cpu = LOONGARCH_CPU(obj);
++
++    cpu->kvm_pv_ipi = value ? ON_OFF_AUTO_ON : ON_OFF_AUTO_OFF;
++}
++
+ void kvm_loongarch_cpu_post_init(LoongArchCPU *cpu)
+ {
+     cpu->lbt = ON_OFF_AUTO_AUTO;
+@@ -1071,6 +1083,12 @@ void kvm_loongarch_cpu_post_init(LoongArchCPU *cpu)
+                              loongarch_set_pmu);
+     object_property_set_description(OBJECT(cpu), "pmu",
+                                "Set off to disable performance monitor unit.");
++
++    cpu->kvm_pv_ipi = ON_OFF_AUTO_AUTO;
++    object_property_add_bool(OBJECT(cpu), "kvm-pv-ipi", kvm_pv_ipi_get,
++                             kvm_pv_ipi_set);
++    object_property_set_description(OBJECT(cpu), "kvm-pv-ipi",
++                                    "Set off to disable KVM paravirt IPI.");
+ }
+ 
+ int kvm_arch_destroy_vcpu(CPUState *cs)
+diff --git a/target/loongarch/loongarch-qmp-cmds.c b/target/loongarch/loongarch-qmp-cmds.c
+index dc78a3ffa22b..a3efa20dbf29 100644
+--- a/target/loongarch/loongarch-qmp-cmds.c
++++ b/target/loongarch/loongarch-qmp-cmds.c
+@@ -42,7 +42,7 @@ CpuDefinitionInfoList *qmp_query_cpu_definitions(Error **errp)
+ }
+ 
+ static const char *cpu_model_advertised_features[] = {
+-    "lsx", "lasx", "lbt", "pmu", NULL
++    "lsx", "lasx", "lbt", "pmu", "kvm-pv-ipi", NULL
+ };
+ 
+ CpuModelExpansionInfo *qmp_query_cpu_model_expansion(CpuModelExpansionType type,
+-- 
+2.51.0
+

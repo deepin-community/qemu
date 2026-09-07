@@ -1,0 +1,53 @@
+From cab0cd7397db0826e58f070bf4303ef6b8ce1c0c Mon Sep 17 00:00:00 2001
+From: Bibo Mao <maobibo@loongson.cn>
+Date: Wed, 4 Jun 2025 14:55:02 +0800
+Subject: [PATCH 193/285] hw/intc/loongarch_pch: Convert to little endian with
+ ID register
+
+With PCH ID register, it is defined as union type as follows:
+union LoongArchPIC_ID {
+    struct {
+        uint8_t _reserved_0[3];
+        uint8_t id;
+        uint8_t version;
+        uint8_t _reserved_1;
+        uint8_t irq_num;
+        uint8_t _reserved_2;
+    } QEMU_PACKED desc;
+    uint64_t data;
+}
+
+And with pch driver in virt machine irq_number is parsed with little
+endian method:
+  vec_count = ((readq(priv->base) >> 48) & 0xff) + 1
+
+So the value of ID register should be converted to little endian.
+With this patch, linux kernel passes to run on S390 big endian host
+machine with TCG method.
+
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+Reviewed-by: Song Gao <gaosong@loongson.cn>
+Message-Id: <20250604065502.1114098-3-maobibo@loongson.cn>
+Signed-off-by: Song Gao <gaosong@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ hw/intc/loongarch_pch_pic.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/hw/intc/loongarch_pch_pic.c b/hw/intc/loongarch_pch_pic.c
+index 1fc9094e4691..cb63f797580a 100644
+--- a/hw/intc/loongarch_pch_pic.c
++++ b/hw/intc/loongarch_pch_pic.c
+@@ -91,7 +91,7 @@ static uint64_t pch_pic_read(void *opaque, hwaddr addr, uint64_t field_mask)
+     addr -= offset;
+     switch (addr) {
+     case PCH_PIC_INT_ID:
+-        val = s->id.data;
++        val = cpu_to_le64(s->id.data);
+         break;
+     case PCH_PIC_INT_MASK:
+         val = s->int_mask;
+-- 
+2.51.0
+

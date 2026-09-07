@@ -1,0 +1,49 @@
+From 49f12653ac631a697b20c35c5c0f9978cb825e9a Mon Sep 17 00:00:00 2001
+From: Bibo Mao <maobibo@loongson.cn>
+Date: Mon, 10 Feb 2025 10:45:13 +0800
+Subject: [PATCH 142/285] hw/intc/loongarch_extioi: Use cpu plug notification
+
+Use hotplug_handler_plug() to nofity extioi object when cold-plug
+cpu is created, so that extioi can set and configure irq routing
+to new cpu.
+
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ hw/loongarch/virt.c | 12 ++----------
+ 1 file changed, 2 insertions(+), 10 deletions(-)
+
+diff --git a/hw/loongarch/virt.c b/hw/loongarch/virt.c
+index 2b506b91f199..17f982a684a0 100644
+--- a/hw/loongarch/virt.c
++++ b/hw/loongarch/virt.c
+@@ -323,7 +323,7 @@ static void virt_devices_init(DeviceState *pch_pic,
+ 
+ static void virt_cpu_irq_init(LoongArchVirtMachineState *lvms)
+ {
+-    int num, pin;
++    int num;
+     MachineState *ms = MACHINE(lvms);
+     MachineClass *mc = MACHINE_GET_CLASS(ms);
+     const CPUArchIdList *possible_cpus;
+@@ -339,15 +339,7 @@ static void virt_cpu_irq_init(LoongArchVirtMachineState *lvms)
+         }
+ 
+         hotplug_handler_plug(HOTPLUG_HANDLER(lvms->ipi), DEVICE(cs), &err);
+-
+-        /*
+-         * connect ext irq to the cpu irq
+-         * cpu_pin[9:2] <= intc_pin[7:0]
+-         */
+-        for (pin = 0; pin < LS3A_INTC_IP; pin++) {
+-            qdev_connect_gpio_out(lvms->extioi, (num * LS3A_INTC_IP + pin),
+-                                  qdev_get_gpio_in(DEVICE(cs), pin + 2));
+-        }
++        hotplug_handler_plug(HOTPLUG_HANDLER(lvms->extioi), DEVICE(cs), &err);
+     }
+ }
+ 
+-- 
+2.51.0
+

@@ -1,0 +1,55 @@
+From f0b6b879a412a5a52d1c64e7c6601afd9881b0cb Mon Sep 17 00:00:00 2001
+From: Bibo Mao <maobibo@loongson.cn>
+Date: Thu, 30 Oct 2025 16:17:23 +0800
+Subject: [PATCH 250/285] target/loongarch: Call function
+ loongarch_la464_init_csr() after realized
+
+When CPU is realized, it will check capability of host and set guest
+features, such as PMU CSR register number used by VM etc. Here move
+function call with loongarch_la464_init_csr() after CPU is realized.
+
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+Reviewed-by: Song Gao <gaosong@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ target/loongarch/cpu.c | 6 +++---
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/target/loongarch/cpu.c b/target/loongarch/cpu.c
+index 6ef59211fe70..4c3c5610770f 100644
+--- a/target/loongarch/cpu.c
++++ b/target/loongarch/cpu.c
+@@ -375,11 +375,11 @@ static bool loongarch_cpu_has_work(CPUState *cs)
+ #endif
+ }
+ 
+-static void loongarch_la464_init_csr(Object *obj)
++static void loongarch_la464_init_csr(DeviceState *dev)
+ {
+ #ifndef CONFIG_USER_ONLY
+     static bool initialized;
+-    LoongArchCPU *cpu = LOONGARCH_CPU(obj);
++    LoongArchCPU *cpu = LOONGARCH_CPU(dev);
+     CPULoongArchState *env = &cpu->env;
+     int i, num;
+ 
+@@ -638,7 +638,6 @@ static void loongarch_la464_initfn(Object *obj)
+ 
+     cpu->msgint = ON_OFF_AUTO_OFF;
+     cpu->ptw = ON_OFF_AUTO_OFF;
+-    loongarch_la464_init_csr(obj);
+     loongarch_cpu_post_init(obj);
+ }
+ 
+@@ -810,6 +809,7 @@ static void loongarch_cpu_realizefn(DeviceState *dev, Error **errp)
+ 
+     qemu_init_vcpu(cs);
+     cpu_reset(cs);
++    loongarch_la464_init_csr(dev);
+ 
+     lacc->parent_realize(dev, errp);
+ }
+-- 
+2.51.0
+

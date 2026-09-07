@@ -1,0 +1,96 @@
+From e8442ae93eb064fe95159947c6e9d83dd8e3d033 Mon Sep 17 00:00:00 2001
+From: Bibo Mao <maobibo@loongson.cn>
+Date: Fri, 10 Jan 2025 16:38:42 +0800
+Subject: [PATCH 141/285] hw/intc/loongarch_extioi: Implment cpu hotplug
+ interface
+
+When cpu is added, connect extioi gpio irq to CPU irq pin.
+
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ hw/intc/loongarch_extioi_common.c | 45 +++++++++++++++++++++++++++++++
+ 1 file changed, 45 insertions(+)
+
+diff --git a/hw/intc/loongarch_extioi_common.c b/hw/intc/loongarch_extioi_common.c
+index fcae4f0d01e1..eb9fb0fc802b 100644
+--- a/hw/intc/loongarch_extioi_common.c
++++ b/hw/intc/loongarch_extioi_common.c
+@@ -12,28 +12,73 @@
+ #include "migration/vmstate.h"
+ #include "target/loongarch/cpu.h"
+ 
++static ExtIOICore *loongarch_extioi_get_cpu(LoongArchExtIOICommonState *s,
++                                            DeviceState *dev)
++{
++    CPUClass *k = CPU_GET_CLASS(dev);
++    uint64_t arch_id = k->get_arch_id(CPU(dev));
++    int i;
++
++    for (i = 0; i < s->num_cpu; i++) {
++        if (s->cpu[i].arch_id == arch_id) {
++            return &s->cpu[i];
++        }
++    }
++
++    return NULL;
++}
++
+ static void loongarch_extioi_cpu_plug(HotplugHandler *hotplug_dev,
+                                       DeviceState *dev, Error **errp)
+ {
++    LoongArchExtIOICommonState *s = LOONGARCH_EXTIOI_COMMON(hotplug_dev);
+     Object *obj = OBJECT(dev);
++    ExtIOICore *core;
++    int pin, index;
+ 
+     if (!object_dynamic_cast(obj, TYPE_LOONGARCH_CPU)) {
+         warn_report("LoongArch extioi: Invalid %s device type",
+                                        object_get_typename(obj));
+         return;
+     }
++
++    core = loongarch_extioi_get_cpu(s, dev);
++    if (!core) {
++        return;
++    }
++
++    core->cpu = CPU(dev);
++    index = core - s->cpu;
++
++    /*
++     * connect extioi irq to the cpu irq
++     * cpu_pin[LS3A_INTC_IP + 2 : 2] <= intc_pin[LS3A_INTC_IP : 0]
++     */
++    for (pin = 0; pin < LS3A_INTC_IP; pin++) {
++        qdev_connect_gpio_out(DEVICE(s), index * LS3A_INTC_IP + pin,
++                              qdev_get_gpio_in(dev, pin + 2));
++    }
+ }
+ 
+ static void loongarch_extioi_cpu_unplug(HotplugHandler *hotplug_dev,
+                                         DeviceState *dev, Error **errp)
+ {
++    LoongArchExtIOICommonState *s = LOONGARCH_EXTIOI_COMMON(hotplug_dev);
+     Object *obj = OBJECT(dev);
++    ExtIOICore *core;
+ 
+     if (!object_dynamic_cast(obj, TYPE_LOONGARCH_CPU)) {
+         warn_report("LoongArch extioi: Invalid %s device type",
+                                        object_get_typename(obj));
+         return;
+     }
++
++    core = loongarch_extioi_get_cpu(s, dev);
++    if (!core) {
++        return;
++    }
++
++    core->cpu = NULL;
+ }
+ 
+ static void loongarch_extioi_common_realize(DeviceState *dev, Error **errp)
+-- 
+2.51.0
+

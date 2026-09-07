@@ -1,0 +1,129 @@
+From fdb0471fd377ec0562f768ea8e2e2d042a013c03 Mon Sep 17 00:00:00 2001
+From: Bibo Mao <maobibo@loongson.cn>
+Date: Wed, 7 May 2025 10:31:37 +0800
+Subject: [PATCH 179/285] hw/intc/loongarch_pch: Use relative address in
+ MemoryRegionOps
+
+Parameter address for read and write callback in MemoryRegionOps is
+relative offset with base address of this MemoryRegionOps. It can
+be directly used as offset and offset calculation can be removed.
+
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+Reviewed-by: Song Gao <gaosong@loongson.cn>
+Message-Id: <20250507023148.1877287-6-maobibo@loongson.cn>
+Signed-off-by: Song Gao <gaosong@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ hw/intc/loongarch_pch_pic.c | 34 ++++++++++++++++------------------
+ 1 file changed, 16 insertions(+), 18 deletions(-)
+
+diff --git a/hw/intc/loongarch_pch_pic.c b/hw/intc/loongarch_pch_pic.c
+index 358c9c9c0045..06daa1c25fe6 100644
+--- a/hw/intc/loongarch_pch_pic.c
++++ b/hw/intc/loongarch_pch_pic.c
+@@ -85,9 +85,8 @@ static uint64_t loongarch_pch_pic_low_readw(void *opaque, hwaddr addr,
+ {
+     LoongArchPICCommonState *s = LOONGARCH_PIC_COMMON(opaque);
+     uint64_t val = 0;
+-    uint32_t offset = addr & 0xfff;
+ 
+-    switch (offset) {
++    switch (addr) {
+     case PCH_PIC_INT_ID:
+         val = s->id.data & UINT_MAX;
+         break;
+@@ -138,13 +137,12 @@ static void loongarch_pch_pic_low_writew(void *opaque, hwaddr addr,
+                                          uint64_t value, unsigned size)
+ {
+     LoongArchPICCommonState *s = LOONGARCH_PIC_COMMON(opaque);
+-    uint32_t offset, old_valid, data = (uint32_t)value;
++    uint32_t old_valid, data = (uint32_t)value;
+     uint64_t old, int_mask;
+-    offset = addr & 0xfff;
+ 
+     trace_loongarch_pch_pic_low_writew(size, addr, data);
+ 
+-    switch (offset) {
++    switch (addr) {
+     case PCH_PIC_INT_MASK:
+         old = s->int_mask;
+         s->int_mask = get_writew_val(old, data, 0);
+@@ -212,9 +210,9 @@ static uint64_t loongarch_pch_pic_high_readw(void *opaque, hwaddr addr,
+ {
+     LoongArchPICCommonState *s = LOONGARCH_PIC_COMMON(opaque);
+     uint64_t val = 0;
+-    uint32_t offset = addr + PCH_PIC_INT_STATUS;
+ 
+-    switch (offset) {
++    addr += PCH_PIC_INT_STATUS;
++    switch (addr) {
+     case PCH_PIC_INT_STATUS:
+         val = (uint32_t)(s->intisr & (~s->int_mask));
+         break;
+@@ -239,12 +237,12 @@ static void loongarch_pch_pic_high_writew(void *opaque, hwaddr addr,
+                                      uint64_t value, unsigned size)
+ {
+     LoongArchPICCommonState *s = LOONGARCH_PIC_COMMON(opaque);
+-    uint32_t offset, data = (uint32_t)value;
+-    offset = addr + PCH_PIC_INT_STATUS;
++    uint32_t data = (uint32_t)value;
+ 
++    addr += PCH_PIC_INT_STATUS;
+     trace_loongarch_pch_pic_high_writew(size, addr, data);
+ 
+-    switch (offset) {
++    switch (addr) {
+     case PCH_PIC_INT_STATUS:
+         s->intisr = get_writew_val(s->intisr, data, 0);
+         break;
+@@ -267,18 +265,18 @@ static uint64_t loongarch_pch_pic_readb(void *opaque, hwaddr addr,
+ {
+     LoongArchPICCommonState *s = LOONGARCH_PIC_COMMON(opaque);
+     uint64_t val = 0;
+-    uint32_t offset = (addr & 0xfff) + PCH_PIC_ROUTE_ENTRY;
+     int64_t offset_tmp;
+ 
+-    switch (offset) {
++    addr += PCH_PIC_ROUTE_ENTRY;
++    switch (addr) {
+     case PCH_PIC_HTMSI_VEC ... PCH_PIC_HTMSI_VEC_END:
+-        offset_tmp = offset - PCH_PIC_HTMSI_VEC;
++        offset_tmp = addr - PCH_PIC_HTMSI_VEC;
+         if (offset_tmp >= 0 && offset_tmp < 64) {
+             val = s->htmsi_vector[offset_tmp];
+         }
+         break;
+     case PCH_PIC_ROUTE_ENTRY ... PCH_PIC_ROUTE_ENTRY_END:
+-        offset_tmp = offset - PCH_PIC_ROUTE_ENTRY;
++        offset_tmp = addr - PCH_PIC_ROUTE_ENTRY;
+         if (offset_tmp >= 0 && offset_tmp < 64) {
+             val = s->route_entry[offset_tmp];
+         }
+@@ -296,19 +294,19 @@ static void loongarch_pch_pic_writeb(void *opaque, hwaddr addr,
+ {
+     LoongArchPICCommonState *s = LOONGARCH_PIC_COMMON(opaque);
+     int32_t offset_tmp;
+-    uint32_t offset = (addr & 0xfff) + PCH_PIC_ROUTE_ENTRY;
+ 
++    addr += PCH_PIC_ROUTE_ENTRY;
+     trace_loongarch_pch_pic_writeb(size, addr, data);
+ 
+-    switch (offset) {
++    switch (addr) {
+     case PCH_PIC_HTMSI_VEC ... PCH_PIC_HTMSI_VEC_END:
+-        offset_tmp = offset - PCH_PIC_HTMSI_VEC;
++        offset_tmp = addr - PCH_PIC_HTMSI_VEC;
+         if (offset_tmp >= 0 && offset_tmp < 64) {
+             s->htmsi_vector[offset_tmp] = (uint8_t)(data & 0xff);
+         }
+         break;
+     case PCH_PIC_ROUTE_ENTRY ... PCH_PIC_ROUTE_ENTRY_END:
+-        offset_tmp = offset - PCH_PIC_ROUTE_ENTRY;
++        offset_tmp = addr - PCH_PIC_ROUTE_ENTRY;
+         if (offset_tmp >= 0 && offset_tmp < 64) {
+             s->route_entry[offset_tmp] = (uint8_t)(data & 0xff);
+         }
+-- 
+2.51.0
+

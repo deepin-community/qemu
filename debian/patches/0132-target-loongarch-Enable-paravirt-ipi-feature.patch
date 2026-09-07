@@ -1,0 +1,81 @@
+From cd8d3da1424ec643234fc127d2a2af2f698ee954 Mon Sep 17 00:00:00 2001
+From: Bibo Mao <maobibo@loongson.cn>
+Date: Mon, 17 Feb 2025 09:37:11 +0800
+Subject: [PATCH 132/285] target/loongarch: Enable paravirt ipi feature
+
+The similiar with cpucfg register, paravirt ipi feature is set in
+function kvm_arch_put_registers(). Instead the paravirt feature can
+be enabled only once, it cannot be changed dynamically.
+
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+Reviewed-by: Bibo Mao <maobibo@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ target/loongarch/kvm/kvm.c | 36 ++++++++++++++++++++++++++++++++++++
+ 1 file changed, 36 insertions(+)
+
+diff --git a/target/loongarch/kvm/kvm.c b/target/loongarch/kvm/kvm.c
+index 0e707111a0e5..f10dca8e3ae9 100644
+--- a/target/loongarch/kvm/kvm.c
++++ b/target/loongarch/kvm/kvm.c
+@@ -84,6 +84,33 @@ static int kvm_set_stealtime(CPUState *cs)
+     return 0;
+ }
+ 
++static int kvm_set_pv_features(CPUState *cs)
++{
++    CPULoongArchState *env = cpu_env(cs);
++    int err;
++    uint64_t val;
++    struct kvm_device_attr attr = {
++        .group = KVM_LOONGARCH_VCPU_CPUCFG,
++        .attr = CPUCFG_KVM_FEATURE,
++        .addr = (uint64_t)&val,
++    };
++
++    err = kvm_vcpu_ioctl(cs, KVM_HAS_DEVICE_ATTR, attr);
++    if (err) {
++        return 0;
++    }
++
++    val = env->pv_features;
++    err = kvm_vcpu_ioctl(cs, KVM_SET_DEVICE_ATTR, attr);
++    if (err) {
++        error_report("Fail to set pv feature "TARGET_FMT_lx " with error %s",
++                      val, strerror(errno));
++        return err;
++    }
++
++    return 0;
++}
++
+ static int kvm_loongarch_get_regs_core(CPUState *cs)
+ {
+     int ret = 0;
+@@ -755,6 +782,7 @@ int kvm_arch_get_registers(CPUState *cs)
+ int kvm_arch_put_registers(CPUState *cs, int level)
+ {
+     int ret;
++    static int once;
+ 
+     ret = kvm_loongarch_put_regs_core(cs);
+     if (ret) {
+@@ -781,6 +809,14 @@ int kvm_arch_put_registers(CPUState *cs, int level)
+         return ret;
+     }
+ 
++    if (!once) {
++        ret = kvm_set_pv_features(cs);
++        if (ret) {
++            return ret;
++        }
++        once = 1;
++    }
++
+     if (level >= KVM_PUT_FULL_STATE) {
+         /*
+          * only KVM_PUT_FULL_STATE is required, kvm kernel will clear
+-- 
+2.51.0
+

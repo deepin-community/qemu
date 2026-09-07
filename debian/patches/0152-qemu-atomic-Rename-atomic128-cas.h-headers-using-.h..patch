@@ -1,0 +1,67 @@
+From 3763a27e280bf1e7fb2a87178f57d391edca7faf Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Philippe=20Mathieu-Daud=C3=A9?= <philmd@linaro.org>
+Date: Thu, 12 Dec 2024 15:10:16 +0100
+Subject: [PATCH 152/285] qemu/atomic: Rename atomic128-cas.h headers using
+ .h.inc suffix
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Since commit 139c1837db ("meson: rename included C source files
+to .c.inc"), QEMU standard procedure for included C files is to
+use *.c.inc.
+
+Besides, since commit 6a0057aa22 ("docs/devel: make a statement
+about includes") this is documented in the Coding Style:
+
+  If you do use template header files they should be named with
+  the ``.c.inc`` or ``.h.inc`` suffix to make it clear they are
+  being included for expansion.
+
+Therefore rename 'atomic128-cas.h' as 'atomic128-cas.h.inc'.
+
+Signed-off-by: Philippe Mathieu-Daudé <philmd@linaro.org>
+Signed-off-by: Richard Henderson <richard.henderson@linaro.org>
+Message-ID: <20241212141018.59428-2-philmd@linaro.org>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ host/include/aarch64/host/atomic128-cas.h                       | 2 +-
+ .../generic/host/{atomic128-cas.h => atomic128-cas.h.inc}       | 0
+ include/qemu/atomic128.h                                        | 2 +-
+ 3 files changed, 2 insertions(+), 2 deletions(-)
+ rename host/include/generic/host/{atomic128-cas.h => atomic128-cas.h.inc} (100%)
+
+diff --git a/host/include/aarch64/host/atomic128-cas.h b/host/include/aarch64/host/atomic128-cas.h
+index 58630107bcce..991da4ef5433 100644
+--- a/host/include/aarch64/host/atomic128-cas.h
++++ b/host/include/aarch64/host/atomic128-cas.h
+@@ -13,7 +13,7 @@
+ 
+ /* Through gcc 10, aarch64 has no support for 128-bit atomics.  */
+ #if defined(CONFIG_ATOMIC128) || defined(CONFIG_CMPXCHG128)
+-#include "host/include/generic/host/atomic128-cas.h"
++#include "host/include/generic/host/atomic128-cas.h.inc"
+ #else
+ static inline Int128 atomic16_cmpxchg(Int128 *ptr, Int128 cmp, Int128 new)
+ {
+diff --git a/host/include/generic/host/atomic128-cas.h b/host/include/generic/host/atomic128-cas.h.inc
+similarity index 100%
+rename from host/include/generic/host/atomic128-cas.h
+rename to host/include/generic/host/atomic128-cas.h.inc
+diff --git a/include/qemu/atomic128.h b/include/qemu/atomic128.h
+index 88af6d4ea3fa..03c27022f0cf 100644
+--- a/include/qemu/atomic128.h
++++ b/include/qemu/atomic128.h
+@@ -58,7 +58,7 @@
+  * Therefore, special case each platform.
+  */
+ 
+-#include "host/atomic128-cas.h"
++#include "host/atomic128-cas.h.inc"
+ #include "host/atomic128-ldst.h"
+ 
+ #endif /* QEMU_ATOMIC128_H */
+-- 
+2.51.0
+

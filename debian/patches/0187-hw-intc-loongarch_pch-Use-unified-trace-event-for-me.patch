@@ -1,0 +1,125 @@
+From 47c2fb03ce3f48ef93a6b42c0f16fb16fab0109d Mon Sep 17 00:00:00 2001
+From: Bibo Mao <maobibo@loongson.cn>
+Date: Wed, 7 May 2025 10:37:51 +0800
+Subject: [PATCH 187/285] hw/intc/loongarch_pch: Use unified trace event for
+ memory region ops
+
+Add trace event trace_loongarch_pch_pic_read(), replaces the following
+three events:
+  trace_loongarch_pch_pic_low_readw()
+  trace_loongarch_pch_pic_high_readw()
+  trace_loongarch_pch_pic_readb()
+The similiar with write trace event.
+
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+Reviewed-by: Song Gao <gaosong@loongson.cn>
+Message-Id: <20250507023754.1877445-2-maobibo@loongson.cn>
+Signed-off-by: Song Gao <gaosong@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ hw/intc/loongarch_pch_pic.c | 24 ++++++------------------
+ hw/intc/trace-events        |  8 ++------
+ 2 files changed, 8 insertions(+), 24 deletions(-)
+
+diff --git a/hw/intc/loongarch_pch_pic.c b/hw/intc/loongarch_pch_pic.c
+index 06b42dfe281f..01bd7f0bebf4 100644
+--- a/hw/intc/loongarch_pch_pic.c
++++ b/hw/intc/loongarch_pch_pic.c
+@@ -209,12 +209,15 @@ static uint64_t loongarch_pch_pic_read(void *opaque, hwaddr addr,
+         break;
+     }
+ 
++    trace_loongarch_pch_pic_read(size, addr, val);
+     return val;
+ }
+ 
+ static void loongarch_pch_pic_write(void *opaque, hwaddr addr,
+                                     uint64_t value, unsigned size)
+ {
++    trace_loongarch_pch_pic_write(size, addr, value);
++
+     switch (size) {
+     case 1:
+         pch_pic_write(opaque, addr, value, UCHAR_MAX);
+@@ -239,55 +242,40 @@ static void loongarch_pch_pic_write(void *opaque, hwaddr addr,
+ static uint64_t loongarch_pch_pic_low_readw(void *opaque, hwaddr addr,
+                                             unsigned size)
+ {
+-    uint64_t val;
+-
+-    val = loongarch_pch_pic_read(opaque, addr, size);
+-    trace_loongarch_pch_pic_low_readw(size, addr, val);
+-    return val;
++    return loongarch_pch_pic_read(opaque, addr, size);
+ }
+ 
+ static void loongarch_pch_pic_low_writew(void *opaque, hwaddr addr,
+                                          uint64_t value, unsigned size)
+ {
+-    trace_loongarch_pch_pic_low_writew(size, addr, value);
+     loongarch_pch_pic_write(opaque, addr, value, size);
+ }
+ 
+ static uint64_t loongarch_pch_pic_high_readw(void *opaque, hwaddr addr,
+                                         unsigned size)
+ {
+-    uint64_t val;
+-
+     addr += PCH_PIC_INT_STATUS;
+-    val = loongarch_pch_pic_read(opaque, addr, size);
+-    trace_loongarch_pch_pic_high_readw(size, addr, val);
+-    return val;
++    return loongarch_pch_pic_read(opaque, addr, size);
+ }
+ 
+ static void loongarch_pch_pic_high_writew(void *opaque, hwaddr addr,
+                                      uint64_t value, unsigned size)
+ {
+     addr += PCH_PIC_INT_STATUS;
+-    trace_loongarch_pch_pic_high_writew(size, addr, value);
+     loongarch_pch_pic_write(opaque, addr, value, size);
+ }
+ 
+ static uint64_t loongarch_pch_pic_readb(void *opaque, hwaddr addr,
+                                         unsigned size)
+ {
+-    uint64_t val;
+-
+     addr += PCH_PIC_ROUTE_ENTRY;
+-    val = loongarch_pch_pic_read(opaque, addr, size);
+-    trace_loongarch_pch_pic_readb(size, addr, val);
+-    return val;
++    return loongarch_pch_pic_read(opaque, addr, size);
+ }
+ 
+ static void loongarch_pch_pic_writeb(void *opaque, hwaddr addr,
+                                      uint64_t data, unsigned size)
+ {
+     addr += PCH_PIC_ROUTE_ENTRY;
+-    trace_loongarch_pch_pic_writeb(size, addr, data);
+     loongarch_pch_pic_write(opaque, addr, data, size);
+ }
+ 
+diff --git a/hw/intc/trace-events b/hw/intc/trace-events
+index f545ce406275..c3a5e054689f 100644
+--- a/hw/intc/trace-events
++++ b/hw/intc/trace-events
+@@ -294,12 +294,8 @@ loongson_ipi_read(unsigned size, uint64_t addr, uint64_t val) "size: %u addr: 0x
+ loongson_ipi_write(unsigned size, uint64_t addr, uint64_t val) "size: %u addr: 0x%"PRIx64 "val: 0x%"PRIx64
+ # loongarch_pch_pic.c
+ loongarch_pch_pic_irq_handler(int irq, int level) "irq %d level %d"
+-loongarch_pch_pic_low_readw(unsigned size, uint64_t addr, uint64_t val) "size: %u addr: 0x%"PRIx64 "val: 0x%" PRIx64
+-loongarch_pch_pic_low_writew(unsigned size, uint64_t addr, uint64_t val) "size: %u addr: 0x%"PRIx64 "val: 0x%" PRIx64
+-loongarch_pch_pic_high_readw(unsigned size, uint64_t addr, uint64_t val) "size: %u addr: 0x%"PRIx64 "val: 0x%" PRIx64
+-loongarch_pch_pic_high_writew(unsigned size, uint64_t addr, uint64_t val) "size: %u addr: 0x%"PRIx64 "val: 0x%" PRIx64
+-loongarch_pch_pic_readb(unsigned size, uint64_t addr, uint64_t val) "size: %u addr: 0x%"PRIx64 "val: 0x%" PRIx64
+-loongarch_pch_pic_writeb(unsigned size, uint64_t addr, uint64_t val) "size: %u addr: 0x%"PRIx64 "val: 0x%" PRIx64
++loongarch_pch_pic_read(unsigned size, uint64_t addr, uint64_t val) "size: %u addr: 0x%"PRIx64 "val: 0x%" PRIx64
++loongarch_pch_pic_write(unsigned size, uint64_t addr, uint64_t val) "size: %u addr: 0x%"PRIx64 "val: 0x%" PRIx64
+ 
+ # loongarch_pch_msi.c
+ loongarch_msi_set_irq(int irq_num) "set msi irq %d"
+-- 
+2.51.0
+

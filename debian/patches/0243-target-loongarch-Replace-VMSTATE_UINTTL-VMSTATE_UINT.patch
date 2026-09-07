@@ -1,0 +1,46 @@
+From 0d4f4b7b9ae4ada74db882747277e5db5a5672ce Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Philippe=20Mathieu-Daud=C3=A9?= <philmd@linaro.org>
+Date: Thu, 25 Sep 2025 02:39:45 +0200
+Subject: [PATCH 243/285] target/loongarch: Replace VMSTATE_UINTTL() ->
+ VMSTATE_UINT64()
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+All LoongArchCPU::pc and LoongArchCPU::gpr[] fields are of
+uint64_t type. Use the appropriate VMSTATE_UINT64() macro.
+
+There is no functional change (the migration stream is not
+modified), because the LoongArch targets are only built as 64-bit:
+
+  $ git grep TARGET_LONG_BITS configs/targets/loongarch64*
+  configs/targets/loongarch64-linux-user.mak:7:TARGET_LONG_BITS=64
+  configs/targets/loongarch64-softmmu.mak:7:TARGET_LONG_BITS=64
+
+Signed-off-by: Philippe Mathieu-Daudé <philmd@linaro.org>
+Reviewed-by: Song Gao <gaosong@loongson.cn>
+Message-Id: <20250925004327.58764-1-philmd@linaro.org>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ target/loongarch/machine.c | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/target/loongarch/machine.c b/target/loongarch/machine.c
+index f81b6632a067..f937374cc8de 100644
+--- a/target/loongarch/machine.c
++++ b/target/loongarch/machine.c
+@@ -192,8 +192,8 @@ const VMStateDescription vmstate_loongarch_cpu = {
+     .version_id = 4,
+     .minimum_version_id = 4,
+     .fields = (VMStateField[]) {
+-        VMSTATE_UINTTL_ARRAY(env.gpr, LoongArchCPU, 32),
+-        VMSTATE_UINTTL(env.pc, LoongArchCPU),
++        VMSTATE_UINT64_ARRAY(env.gpr, LoongArchCPU, 32),
++        VMSTATE_UINT64(env.pc, LoongArchCPU),
+ 
+         /* Remaining CSRs */
+         VMSTATE_UINT64(env.CSR_CRMD, LoongArchCPU),
+-- 
+2.51.0
+

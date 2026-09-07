@@ -1,0 +1,83 @@
+From 38b3374b5cf6f9d1cbaafcfde46e99e70f8dd726 Mon Sep 17 00:00:00 2001
+From: Bibo Mao <maobibo@loongson.cn>
+Date: Fri, 7 Mar 2025 09:34:41 +0800
+Subject: [PATCH 167/285] hw/intc/loongarch_ipi: Add reset support
+
+Add reset support with ipi object, register reset callback and clear
+internal registers when virt machine resets.
+
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+Reviewed-by: Song Gao <gaosong@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ hw/intc/loongarch_ipi.c         | 29 +++++++++++++++++++++++++++++
+ include/hw/intc/loongarch_ipi.h |  1 +
+ 2 files changed, 30 insertions(+)
+
+diff --git a/hw/intc/loongarch_ipi.c b/hw/intc/loongarch_ipi.c
+index b10641dd0334..22565d75930e 100644
+--- a/hw/intc/loongarch_ipi.c
++++ b/hw/intc/loongarch_ipi.c
+@@ -93,6 +93,32 @@ static void loongarch_ipi_realize(DeviceState *dev, Error **errp)
+     }
+ }
+ 
++static void loongarch_ipi_reset_hold(Object *obj)
++{
++    int i;
++    LoongarchIPIClass *lic = LOONGARCH_IPI_GET_CLASS(obj);
++    LoongsonIPICommonState *lics = LOONGSON_IPI_COMMON(obj);
++    IPICore *core;
++
++    if (lic->parent_phases.hold) {
++        lic->parent_phases.hold(obj);
++    }
++
++    for (i = 0; i < lics->num_cpu; i++) {
++        core = lics->cpu + i;
++        /* IPI with targeted CPU available however not present */
++        if (!core->cpu) {
++            continue;
++        }
++
++        core->status = 0;
++        core->en = 0;
++        core->set = 0;
++        core->clear = 0;
++        memset(core->buf, 0, sizeof(core->buf));
++    }
++}
++
+ static void loongarch_ipi_cpu_plug(HotplugHandler *hotplug_dev,
+                                    DeviceState *dev, Error **errp)
+ {
+@@ -145,10 +171,13 @@ static void loongarch_ipi_class_init(ObjectClass *klass, void *data)
+     LoongsonIPICommonClass *licc = LOONGSON_IPI_COMMON_CLASS(klass);
+     HotplugHandlerClass *hc = HOTPLUG_HANDLER_CLASS(klass);
+     LoongarchIPIClass *lic = LOONGARCH_IPI_CLASS(klass);
++    ResettableClass *rc = RESETTABLE_CLASS(klass);
+     DeviceClass *dc = DEVICE_CLASS(klass);
+ 
+     device_class_set_parent_realize(dc, loongarch_ipi_realize,
+                                     &lic->parent_realize);
++    resettable_class_set_parent_phases(rc, NULL, loongarch_ipi_reset_hold,
++                                       NULL, &lic->parent_phases);
+     licc->get_iocsr_as = get_iocsr_as;
+     licc->cpu_by_arch_id = loongarch_cpu_by_arch_id;
+     hc->plug = loongarch_ipi_cpu_plug;
+diff --git a/include/hw/intc/loongarch_ipi.h b/include/hw/intc/loongarch_ipi.h
+index 923bf21ecb34..a7c6bf85d3b2 100644
+--- a/include/hw/intc/loongarch_ipi.h
++++ b/include/hw/intc/loongarch_ipi.h
+@@ -21,6 +21,7 @@ struct LoongarchIPIState {
+ struct LoongarchIPIClass {
+     LoongsonIPICommonClass parent_class;
+     DeviceRealize parent_realize;
++    ResettablePhases parent_phases;
+ };
+ 
+ #endif
+-- 
+2.51.0
+

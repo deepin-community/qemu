@@ -1,0 +1,79 @@
+From 61f40262e22915c706b404704f7c36bb8a5a1c9b Mon Sep 17 00:00:00 2001
+From: Bibo Mao <maobibo@loongson.cn>
+Date: Mon, 6 Jan 2025 15:36:27 +0800
+Subject: [PATCH 108/285] hw/intc/loongarch_extioi: Add irq routing support
+ from physical id
+
+The simliar with IPI interrupt controller, physical cpu id is used
+for irq routing for extioi interrupt controller.
+
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+Reviewed-by: Bibo Mao <maobibo@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ hw/intc/loongarch_extioi.c | 32 +++++++++++++++++++++++++++-----
+ 1 file changed, 27 insertions(+), 5 deletions(-)
+
+diff --git a/hw/intc/loongarch_extioi.c b/hw/intc/loongarch_extioi.c
+index 0877082bc3c7..5cc987f00a1f 100644
+--- a/hw/intc/loongarch_extioi.c
++++ b/hw/intc/loongarch_extioi.c
+@@ -54,6 +54,23 @@ static inline void clear_bit32(long nr, uint32_t *addr)
+     *p &= ~mask;
+ }
+ 
++static int extioi_get_index_from_archid(LoongArchExtIOICommonState *s,
++                                        uint64_t arch_id)
++{
++    int i;
++
++    for (i = 0; i < s->num_cpu; i++) {
++        if (s->cpu[i].arch_id == arch_id) {
++            break;
++        }
++    }
++
++    if ((i < s->num_cpu) && s->cpu[i].cpu) {
++        return i;
++    }
++
++    return -1;
++}
+ 
+ static void extioi_update_irq(LoongArchExtIOICommonState *s, int irq, int level)
+ {
+@@ -164,7 +181,7 @@ static inline void extioi_enable_irq(LoongArchExtIOICommonState *s, int index,\
+ static inline void extioi_update_sw_coremap(LoongArchExtIOICommonState *s,
+                                             int irq, uint64_t val, bool notify)
+ {
+-    int i, cpu;
++    int i, cpu, cpuid;
+ 
+     /*
+      * loongarch only support little endian,
+@@ -173,12 +190,17 @@ static inline void extioi_update_sw_coremap(LoongArchExtIOICommonState *s,
+     val = cpu_to_le64(val);
+ 
+     for (i = 0; i < 4; i++) {
+-        cpu = val & 0xff;
++        cpuid = val & 0xff;
+         val = val >> 8;
+ 
+-	if (!(s->status & BIT(EXTIOI_ENABLE_CPU_ENCODE))) {
+-            cpu = ctz32(cpu);
+-            cpu = (cpu >= 4) ? 0 : cpu;
++        if (!(s->status & BIT(EXTIOI_ENABLE_CPU_ENCODE))) {
++            cpuid = ctz32(cpuid);
++            cpuid = (cpuid >= 4) ? 0 : cpuid;
++        }
++
++        cpu = extioi_get_index_from_archid(s, cpuid);
++        if (cpu < 0) {
++            continue;
+         }
+ 
+         if (s->sw_coremap[irq + i] == cpu) {
+-- 
+2.51.0
+

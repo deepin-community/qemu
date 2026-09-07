@@ -1,0 +1,32 @@
+From 58b741efe17f8f898054a127c81f5a0e807cb3e8 Mon Sep 17 00:00:00 2001
+From: Jonathan Cameron <Jonathan.Cameron@huawei.com>
+Date: Fri, 26 Jan 2024 12:01:30 +0000
+Subject: [PATCH 097/285] tests/acpi: Allow update of DSDT.cxl
+
+The _STA value returned currently indicates the ACPI0017 device
+is not enabled.  Whilst this isn't a real device, setting _STA
+like this may prevent an OS from enumerating it correctly and
+hence from parsing the CEDT table.
+
+Signed-off-by: Jonathan Cameron <Jonathan.Cameron@huawei.com>
+Message-Id: <20240126120132.24248-11-Jonathan.Cameron@huawei.com>
+Reviewed-by: Michael S. Tsirkin <mst@redhat.com>
+Signed-off-by: Michael S. Tsirkin <mst@redhat.com>
+(cherry picked from commit 14ec4ff3e4293635240ba5a7afe7a0f3ba447d31)
+Signed-off-by: Michael Tokarev <mjt@tls.msk.ru>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ tests/qtest/bios-tables-test-allowed-diff.h | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/tests/qtest/bios-tables-test-allowed-diff.h b/tests/qtest/bios-tables-test-allowed-diff.h
+index dfb8523c8bf4..9ce0f596cc59 100644
+--- a/tests/qtest/bios-tables-test-allowed-diff.h
++++ b/tests/qtest/bios-tables-test-allowed-diff.h
+@@ -1 +1,2 @@
+ /* List of comma-separated changed AML files to ignore */
++"tests/data/acpi/q35/DSDT.cxl",
+-- 
+2.51.0
+

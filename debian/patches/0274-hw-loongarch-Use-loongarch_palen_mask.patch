@@ -1,0 +1,220 @@
+From b7834cae3d3f405512223d1d25aa97687a423d5b Mon Sep 17 00:00:00 2001
+From: Anton Johansson <anjo@rev.ng>
+Date: Tue, 9 Dec 2025 14:56:06 +0100
+Subject: [PATCH 274/285] hw/loongarch: Use loongarch_palen_mask()
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Replaces remaining uses of TARGET_PHYS_ADDR_SPACE_BITS with
+runtime calls to loongarch_palen_mask() to fetch the physical
+address mask from the cpucfg PALEN field.
+
+Reviewed-by: Richard Henderson <richard.henderson@linaro.org>
+Signed-off-by: Anton Johansson <anjo@rev.ng>
+Message-ID: <20260218-phys_addr-v6-5-a603bf363218@rev.ng>
+Signed-off-by: Philippe Mathieu-Daudé <philmd@linaro.org>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ hw/loongarch/boot.c           | 37 ++++++++++++++++++++---------------
+ hw/loongarch/virt.c           |  6 ++++--
+ include/hw/loongarch/boot.h   |  3 ++-
+ target/loongarch/cpu_helper.c |  7 +++++++
+ target/loongarch/internals.h  |  1 +
+ 5 files changed, 35 insertions(+), 19 deletions(-)
+
+diff --git a/hw/loongarch/boot.c b/hw/loongarch/boot.c
+index 51ac311ee10a..4cf5e54e1c6a 100644
+--- a/hw/loongarch/boot.c
++++ b/hw/loongarch/boot.c
+@@ -217,10 +217,12 @@ static void init_cmdline(struct loongarch_boot_info *info, void *p, void *start)
+ 
+ static uint64_t cpu_loongarch_virt_to_phys(void *opaque, uint64_t addr)
+ {
+-    return addr & MAKE_64BIT_MASK(0, TARGET_PHYS_ADDR_SPACE_BITS);
++    uint64_t *phys_addr_mask = opaque;
++    return addr & *phys_addr_mask;
+ }
+ 
+ static int64_t load_loongarch_linux_image(const char *filename,
++                                          uint64_t phys_addr_mask,
+                                           uint64_t *kernel_entry,
+                                           uint64_t *kernel_low,
+                                           uint64_t *kernel_high)
+@@ -251,10 +253,8 @@ static int64_t load_loongarch_linux_image(const char *filename,
+     }
+ 
+     /* Early kernel versions may have those fields in virtual address */
+-    *kernel_entry = extract64(le64_to_cpu(hdr->kernel_entry),
+-                              0, TARGET_PHYS_ADDR_SPACE_BITS);
+-    *kernel_low = extract64(le64_to_cpu(hdr->load_offset),
+-                            0, TARGET_PHYS_ADDR_SPACE_BITS);
++    *kernel_entry = le64_to_cpu(hdr->kernel_entry) & phys_addr_mask;
++    *kernel_low = le64_to_cpu(hdr->load_offset) & phys_addr_mask;
+     *kernel_high = *kernel_low + size;
+ 
+     rom_add_blob_fixed(filename, buffer, size, *kernel_low);
+@@ -303,19 +303,21 @@ static ram_addr_t alloc_initrd_memory(struct loongarch_boot_info *info,
+     exit(1);
+ }
+ 
+-static int64_t load_kernel_info(struct loongarch_boot_info *info)
++static int64_t load_kernel_info(struct loongarch_boot_info *info,
++                                uint64_t phys_addr_mask)
+ {
+     uint64_t kernel_entry, kernel_low, kernel_high, initrd_offset = 0;
+-    ssize_t kernel_size, initrd_size;
++    ssize_t kernel_size;
+ 
+     kernel_size = load_elf(info->kernel_filename, NULL,
+-                           cpu_loongarch_virt_to_phys, NULL,
++                           cpu_loongarch_virt_to_phys, &phys_addr_mask,
+                            &kernel_entry, &kernel_low,
+-                           &kernel_high, NULL, 0,
++                           &kernel_high, NULL, ELFDATA2LSB,
+                            EM_LOONGARCH, 1, 0);
+-    kernel_entry = cpu_loongarch_virt_to_phys(NULL, kernel_entry);
++    kernel_entry = cpu_loongarch_virt_to_phys(&phys_addr_mask, kernel_entry);
+     if (kernel_size < 0) {
+         kernel_size = load_loongarch_linux_image(info->kernel_filename,
++                                                 phys_addr_mask,
+                                                  &kernel_entry, &kernel_low,
+                                                  &kernel_high);
+     }
+@@ -328,15 +330,16 @@ static int64_t load_kernel_info(struct loongarch_boot_info *info)
+     }
+ 
+     if (info->initrd_filename) {
+-        initrd_size = get_image_size(info->initrd_filename);
++        ssize_t initrd_size = get_image_size(info->initrd_filename);
+         if (initrd_size > 0) {
++            initrd_offset = ROUND_UP(kernel_high + 4 * kernel_size, 64 * KiB);
+             initrd_offset = alloc_initrd_memory(info, initrd_offset,
+                                                 initrd_size);
+             initrd_size = load_image_targphys(info->initrd_filename,
+                                               initrd_offset, initrd_size);
+         }
+ 
+-        if (initrd_size == (target_ulong)-1) {
++        if (initrd_size == -1) {
+             error_report("could not load initial ram disk '%s'",
+                          info->initrd_filename);
+             exit(1);
+@@ -394,14 +397,15 @@ static void init_boot_rom(MachineState *ms,
+ }
+ 
+ static void loongarch_direct_kernel_boot(MachineState *ms,
+-                                         struct loongarch_boot_info *info)
++                                         struct loongarch_boot_info *info,
++                                         uint64_t phys_addr_mask)
+ {
+     void *p, *bp;
+     int64_t kernel_addr = VIRT_FLASH0_BASE;
+     uint64_t *data;
+ 
+     if (info->kernel_filename) {
+-        kernel_addr = load_kernel_info(info);
++        kernel_addr = load_kernel_info(info, phys_addr_mask);
+     } else {
+         if (!qtest_enabled()) {
+             warn_report("No kernel provided, booting from flash drive.");
+@@ -428,7 +432,8 @@ static void loongarch_direct_kernel_boot(MachineState *ms,
+     g_free(bp);
+ }
+ 
+-void loongarch_load_kernel(MachineState *ms, struct loongarch_boot_info *info)
++void loongarch_load_kernel(MachineState *ms, struct loongarch_boot_info *info,
++                           uint64_t phys_addr_mask)
+ {
+     LoongArchVirtMachineState *lvms = LOONGARCH_VIRT_MACHINE(ms);
+ 
+@@ -439,6 +444,6 @@ void loongarch_load_kernel(MachineState *ms, struct loongarch_boot_info *info)
+     if (lvms->bios_loaded) {
+         loongarch_firmware_boot(lvms, info);
+     } else {
+-        loongarch_direct_kernel_boot(ms, info);
++        loongarch_direct_kernel_boot(ms, info, phys_addr_mask);
+     }
+ }
+diff --git a/hw/loongarch/virt.c b/hw/loongarch/virt.c
+index 97e5da0ec5de..11bf1366be8e 100644
+--- a/hw/loongarch/virt.c
++++ b/hw/loongarch/virt.c
+@@ -33,6 +33,7 @@
+ #include "hw/misc/unimp.h"
+ #include "hw/loongarch/fw_cfg.h"
+ #include "target/loongarch/cpu.h"
++#include "target/loongarch/internals.h"
+ #include "hw/firmware/smbios.h"
+ #include "qapi/qapi-visit-common.h"
+ #include "hw/acpi/generic_event_device.h"
+@@ -47,7 +48,6 @@
+ #include "qemu/error-report.h"
+ #include "qemu/log.h"
+ #include "kvm/kvm_loongarch.h"
+-#include "sysemu/kvm.h"
+ 
+ static void virt_get_dmsi(Object *obj, Visitor *v, const char *name,
+                              void *opaque, Error **errp)
+@@ -929,6 +929,7 @@ static void virt_init(MachineState *machine)
+     hwaddr base, size, ram_size = machine->ram_size;
+     MachineClass *mc = MACHINE_GET_CLASS(machine);
+     Object *cpuobj;
++    uint64_t phys_addr_mask = 0;
+ 
+     if (!cpu_model) {
+         cpu_model = LOONGARCH_CPU_TYPE_NAME("la464");
+@@ -1018,7 +1019,8 @@ static void virt_init(MachineState *machine)
+     qemu_register_powerdown_notifier(&lvms->powerdown_notifier);
+ 
+     lvms->bootinfo.ram_size = ram_size;
+-    loongarch_load_kernel(machine, &lvms->bootinfo);
++    phys_addr_mask = loongarch_palen_mask(&LOONGARCH_CPU(first_cpu)->env);
++    loongarch_load_kernel(machine, &lvms->bootinfo, phys_addr_mask);
+ }
+ 
+ static void virt_get_acpi(Object *obj, Visitor *v, const char *name,
+diff --git a/include/hw/loongarch/boot.h b/include/hw/loongarch/boot.h
+index 9819f7fbe30e..4984322f75e3 100644
+--- a/include/hw/loongarch/boot.h
++++ b/include/hw/loongarch/boot.h
+@@ -113,6 +113,7 @@ struct memmap_entry {
+     uint32_t reserved;
+ };
+ 
+-void loongarch_load_kernel(MachineState *ms, struct loongarch_boot_info *info);
++void loongarch_load_kernel(MachineState *ms, struct loongarch_boot_info *info,
++                           uint64_t phys_addr_mask);
+ 
+ #endif /* HW_LOONGARCH_BOOT_H */
+diff --git a/target/loongarch/cpu_helper.c b/target/loongarch/cpu_helper.c
+index 39037eecb4bd..d85db52d0094 100644
+--- a/target/loongarch/cpu_helper.c
++++ b/target/loongarch/cpu_helper.c
+@@ -238,3 +238,10 @@ hwaddr loongarch_cpu_get_phys_page_debug(CPUState *cs, vaddr addr)
+     }
+     return phys_addr;
+ }
++
++uint64_t loongarch_palen_mask(CPULoongArchState *env)
++{
++    /* PALEN stores physical address bits - 1 */
++    uint64_t phys_bits = FIELD_EX32(env->cpucfg[1], CPUCFG1, PALEN) + 1;
++    return MAKE_64BIT_MASK(0, phys_bits);
++}
+diff --git a/target/loongarch/internals.h b/target/loongarch/internals.h
+index adff24d0b7f9..d9735652a698 100644
+--- a/target/loongarch/internals.h
++++ b/target/loongarch/internals.h
+@@ -60,6 +60,7 @@ int get_physical_address(CPULoongArchState *env, hwaddr *physical,
+                          int *prot, target_ulong address,
+                          MMUAccessType access_type, int mmu_idx);
+ hwaddr loongarch_cpu_get_phys_page_debug(CPUState *cpu, vaddr addr);
++uint64_t loongarch_palen_mask(CPULoongArchState *env);
+ 
+ #ifdef CONFIG_TCG
+ bool loongarch_cpu_tlb_fill(CPUState *cs, vaddr address, int size,
+-- 
+2.51.0
+

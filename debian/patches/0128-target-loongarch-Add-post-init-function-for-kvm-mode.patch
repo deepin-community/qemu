@@ -1,0 +1,67 @@
+From 3a5ec2dae26105227a7b168919d93ad0d393b648 Mon Sep 17 00:00:00 2001
+From: Bibo Mao <maobibo@loongson.cn>
+Date: Fri, 14 Feb 2025 16:30:50 +0800
+Subject: [PATCH 128/285] target/loongarch: Add post init function for kvm mode
+
+Some features such as LBT and PMU are implemented in kvm mode,
+With paravirt features in future, post init function is added
+for kvm mode, so that property for these features will be created
+in kvm post init function.
+
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+Reviewed-by: Bibo Mao <maobibo@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ target/loongarch/cpu.c     | 1 +
+ target/loongarch/cpu.h     | 8 ++++++++
+ target/loongarch/kvm/kvm.c | 4 ++++
+ 3 files changed, 13 insertions(+)
+
+diff --git a/target/loongarch/cpu.c b/target/loongarch/cpu.c
+index e8e3052d44b2..6f8276bc241f 100644
+--- a/target/loongarch/cpu.c
++++ b/target/loongarch/cpu.c
+@@ -769,6 +769,7 @@ void loongarch_cpu_post_init(Object *obj)
+                                  loongarch_set_pmu);
+         object_property_set_description(obj, "pmu",
+                                    "Set off to performance monitor unit.");
++        kvm_loongarch_cpu_post_init(cpu);
+     } else {
+         cpu->lbt = ON_OFF_AUTO_OFF;
+         cpu->pmu = ON_OFF_AUTO_OFF;
+diff --git a/target/loongarch/cpu.h b/target/loongarch/cpu.h
+index 8b0e574708c5..87087ecbeeac 100644
+--- a/target/loongarch/cpu.h
++++ b/target/loongarch/cpu.h
+@@ -522,4 +522,12 @@ void loongarch_cpu_list(void);
+ 
+ void loongarch_cpu_post_init(Object *obj);
+ 
++#ifdef CONFIG_KVM
++void kvm_loongarch_cpu_post_init(LoongArchCPU *cpu);
++#else
++static inline void kvm_loongarch_cpu_post_init(LoongArchCPU *cpu)
++{
++}
++#endif
++
+ #endif /* LOONGARCH_CPU_H */
+diff --git a/target/loongarch/kvm/kvm.c b/target/loongarch/kvm/kvm.c
+index 736d9e27c3b6..58347409f081 100644
+--- a/target/loongarch/kvm/kvm.c
++++ b/target/loongarch/kvm/kvm.c
+@@ -1034,6 +1034,10 @@ int kvm_arch_init_vcpu(CPUState *cs)
+     return ret;
+ }
+ 
++void kvm_loongarch_cpu_post_init(LoongArchCPU *cpu)
++{
++}
++
+ int kvm_arch_destroy_vcpu(CPUState *cs)
+ {
+     LoongArchCPU *cpu = LOONGARCH_CPU(cs);
+-- 
+2.51.0
+

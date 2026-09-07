@@ -1,0 +1,71 @@
+From 7c9ddc9e4530badca7e93c52f2c4457159e951b8 Mon Sep 17 00:00:00 2001
+From: Bibo Mao <maobibo@loongson.cn>
+Date: Wed, 7 May 2025 10:31:41 +0800
+Subject: [PATCH 183/285] hw/intc/loongarch_pch: Use generic read callback for
+ iomem8 region
+
+Add iomem8 region register read operation emulation in generic read
+function loongarch_pch_pic_read(), and use this function for iomem8
+region.
+
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+Reviewed-by: Song Gao <gaosong@loongson.cn>
+Message-Id: <20250507023148.1877287-10-maobibo@loongson.cn>
+Signed-off-by: Song Gao <gaosong@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ hw/intc/loongarch_pch_pic.c | 28 ++++++++--------------------
+ 1 file changed, 8 insertions(+), 20 deletions(-)
+
+diff --git a/hw/intc/loongarch_pch_pic.c b/hw/intc/loongarch_pch_pic.c
+index 35e829496d0c..f710f3a84055 100644
+--- a/hw/intc/loongarch_pch_pic.c
++++ b/hw/intc/loongarch_pch_pic.c
+@@ -112,6 +112,12 @@ static uint64_t pch_pic_read(void *opaque, hwaddr addr, uint64_t field_mask)
+     case PCH_PIC_INT_POL:
+         val = s->int_polarity;
+         break;
++    case PCH_PIC_HTMSI_VEC ... PCH_PIC_HTMSI_VEC_END:
++        val = *(uint64_t *)(s->htmsi_vector + addr - PCH_PIC_HTMSI_VEC);
++        break;
++    case PCH_PIC_ROUTE_ENTRY ... PCH_PIC_ROUTE_ENTRY_END:
++        val = *(uint64_t *)(s->route_entry + addr - PCH_PIC_ROUTE_ENTRY);
++        break;
+     default:
+         qemu_log_mask(LOG_GUEST_ERROR,
+                       "pch_pic_read: Bad address 0x%"PRIx64"\n", addr);
+@@ -273,28 +279,10 @@ static void loongarch_pch_pic_high_writew(void *opaque, hwaddr addr,
+ static uint64_t loongarch_pch_pic_readb(void *opaque, hwaddr addr,
+                                         unsigned size)
+ {
+-    LoongArchPICCommonState *s = LOONGARCH_PIC_COMMON(opaque);
+-    uint64_t val = 0;
+-    int64_t offset_tmp;
++    uint64_t val;
+ 
+     addr += PCH_PIC_ROUTE_ENTRY;
+-    switch (addr) {
+-    case PCH_PIC_HTMSI_VEC ... PCH_PIC_HTMSI_VEC_END:
+-        offset_tmp = addr - PCH_PIC_HTMSI_VEC;
+-        if (offset_tmp >= 0 && offset_tmp < 64) {
+-            val = s->htmsi_vector[offset_tmp];
+-        }
+-        break;
+-    case PCH_PIC_ROUTE_ENTRY ... PCH_PIC_ROUTE_ENTRY_END:
+-        offset_tmp = addr - PCH_PIC_ROUTE_ENTRY;
+-        if (offset_tmp >= 0 && offset_tmp < 64) {
+-            val = s->route_entry[offset_tmp];
+-        }
+-        break;
+-    default:
+-        break;
+-    }
+-
++    val = loongarch_pch_pic_read(opaque, addr, size);
+     trace_loongarch_pch_pic_readb(size, addr, val);
+     return val;
+ }
+-- 
+2.51.0
+

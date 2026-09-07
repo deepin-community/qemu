@@ -1,0 +1,487 @@
+From a8df0578a5086d83fde408d47adc4ab4dbc95122 Mon Sep 17 00:00:00 2001
+From: Bibo Mao <maobibo@loongson.cn>
+Date: Fri, 6 Jun 2025 14:30:21 +0800
+Subject: [PATCH 198/285] hw/intc/loongarch_extioi: Add kernel irqchip realize
+ function
+
+Function kvm_extioi_realize() is added if kvm_irqchip_in_kernel is
+set. It is to create and initialize ExtIOI device in kernel mode.
+
+Reviewed-by: Song Gao <gaosong@loongson.cn>
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+Message-ID: <20250606063033.2557365-2-maobibo@loongson.cn>
+Signed-off-by: Song Gao <gaosong@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ hw/intc/Kconfig                    |   3 -
+ hw/intc/loongarch_extioi.c         |  31 ++--
+ hw/intc/loongarch_extioi_kvm.c     | 223 ++++-------------------------
+ hw/intc/loongarch_ipi.c            |   5 +
+ hw/intc/loongson_ipi_common.c      |   5 +
+ hw/intc/meson.build                |   3 +-
+ hw/loongarch/Kconfig               |   1 -
+ include/hw/intc/loongarch_extioi.h |  34 +----
+ include/hw/intc/loongarch_ipi.h    |   3 +
+ 9 files changed, 63 insertions(+), 245 deletions(-)
+
+diff --git a/hw/intc/Kconfig b/hw/intc/Kconfig
+index 4552892dee16..61c43e4da50c 100644
+--- a/hw/intc/Kconfig
++++ b/hw/intc/Kconfig
+@@ -118,6 +118,3 @@ config LOONGARCH_PCH_MSI
+ 
+ config LOONGARCH_EXTIOI
+     bool
+-
+-config LOONGARCH_EXTIOI_KVM
+-    bool
+diff --git a/hw/intc/loongarch_extioi.c b/hw/intc/loongarch_extioi.c
+index a8d07d02be7f..7f0fda03311a 100644
+--- a/hw/intc/loongarch_extioi.c
++++ b/hw/intc/loongarch_extioi.c
+@@ -12,6 +12,7 @@
+ #include "hw/irq.h"
+ #include "hw/loongarch/virt.h"
+ #include "exec/address-spaces.h"
++#include "sysemu/kvm.h"
+ #include "hw/intc/loongarch_extioi.h"
+ #include "trace.h"
+ 
+@@ -390,23 +391,29 @@ static void loongarch_extioi_realize(DeviceState *dev, Error **errp)
+         return;
+     }
+ 
+-    for (i = 0; i < EXTIOI_IRQS; i++) {
+-        sysbus_init_irq(sbd, &s->irq[i]);
+-    }
+-
+-    qdev_init_gpio_in(dev, extioi_setirq, EXTIOI_IRQS);
+-    memory_region_init_io(&s->extioi_system_mem, OBJECT(s), &extioi_ops,
+-                          s, "extioi_system_mem", 0x900);
+-    sysbus_init_mmio(sbd, &s->extioi_system_mem);
+-
+     if (s->features & BIT(EXTIOI_HAS_VIRT_EXTENSION)) {
+-        memory_region_init_io(&s->virt_extend, OBJECT(s), &extioi_virt_ops,
+-                              s, "extioi_virt", EXTIOI_VIRT_SIZE);
+-        sysbus_init_mmio(sbd, &s->virt_extend);
+         s->features |= EXTIOI_VIRT_HAS_FEATURES;
+     } else {
+         s->status |= BIT(EXTIOI_ENABLE);
+     }
++
++    if (kvm_irqchip_in_kernel()) {
++        kvm_extioi_realize(dev, errp);
++    } else {
++        for (i = 0; i < EXTIOI_IRQS; i++) {
++            sysbus_init_irq(sbd, &s->irq[i]);
++        }
++
++        qdev_init_gpio_in(dev, extioi_setirq, EXTIOI_IRQS);
++        memory_region_init_io(&s->extioi_system_mem, OBJECT(s), &extioi_ops,
++                              s, "extioi_system_mem", 0x900);
++        sysbus_init_mmio(sbd, &s->extioi_system_mem);
++        if (s->features & BIT(EXTIOI_HAS_VIRT_EXTENSION)) {
++            memory_region_init_io(&s->virt_extend, OBJECT(s), &extioi_virt_ops,
++                                  s, "extioi_virt", EXTIOI_VIRT_SIZE);
++            sysbus_init_mmio(sbd, &s->virt_extend);
++        }
++    }
+ }
+ 
+ static void loongarch_extioi_unrealize(DeviceState *dev)
+diff --git a/hw/intc/loongarch_extioi_kvm.c b/hw/intc/loongarch_extioi_kvm.c
+index df71f2932073..7f103acf3e59 100644
+--- a/hw/intc/loongarch_extioi_kvm.c
++++ b/hw/intc/loongarch_extioi_kvm.c
+@@ -1,217 +1,46 @@
+ /* SPDX-License-Identifier: GPL-2.0-or-later */
+ /*
+- * LoongArch kvm extioi interrupt support
++ * LoongArch EXTIOI interrupt kvm support
+  *
+- * Copyright (C) 2024 Loongson Technology Corporation Limited
++ * Copyright (C) 2025 Loongson Technology Corporation Limited
+  */
+ 
+ #include "qemu/osdep.h"
+-#include "hw/qdev-properties.h"
+ #include "qemu/typedefs.h"
+ #include "hw/intc/loongarch_extioi.h"
+-#include "hw/sysbus.h"
+ #include "linux/kvm.h"
+-#include "migration/vmstate.h"
+ #include "qapi/error.h"
+ #include "sysemu/kvm.h"
+ 
+-static void kvm_extioi_access_regs(int fd, uint64_t addr,
+-                                       void *val, int is_write)
++void kvm_extioi_realize(DeviceState *dev, Error **errp)
+ {
+-        kvm_device_access(fd, KVM_DEV_LOONGARCH_EXTIOI_GRP_REGS,
+-                          addr, val, is_write, &error_abort);
+-}
+-
+-static void kvm_extioi_access_sw_status(int fd, uint64_t addr,
+-                                       void *val, bool is_write)
+-{
+-        kvm_device_access(fd, KVM_DEV_LOONGARCH_EXTIOI_GRP_SW_STATUS,
+-                          addr, val, is_write, &error_abort);
+-}
+-
+-static void kvm_extioi_save_load_sw_status(void *opaque, bool is_write)
+-{
+-    KVMLoongArchExtIOI *s = (KVMLoongArchExtIOI *)opaque;
+-    KVMLoongArchExtIOIClass *class = KVM_LOONGARCH_EXTIOI_GET_CLASS(s);
+-    int fd = class->dev_fd;
+-    int addr;
+-
+-    addr = KVM_DEV_LOONGARCH_EXTIOI_SW_STATUS_NUM_CPU;
+-    kvm_extioi_access_sw_status(fd, addr, (void *)&s->num_cpu, is_write);
+-
+-    addr = KVM_DEV_LOONGARCH_EXTIOI_SW_STATUS_FEATURE;
+-    kvm_extioi_access_sw_status(fd, addr, (void *)&s->features, is_write);
+-
+-    addr = KVM_DEV_LOONGARCH_EXTIOI_SW_STATUS_STATE;
+-    kvm_extioi_access_sw_status(fd, addr, (void *)&s->status, is_write);
+-}
+-
+-static int kvm_loongarch_extioi_pre_save(void *opaque)
+-{
+-    KVMLoongArchExtIOI *s = (KVMLoongArchExtIOI *)opaque;
+-    KVMLoongArchExtIOIClass *class = KVM_LOONGARCH_EXTIOI_GET_CLASS(s);
+-    int fd = class->dev_fd;
+-
+-    kvm_extioi_access_regs(fd, EXTIOI_NODETYPE_START,
+-                           (void *)s->nodetype, false);
+-    kvm_extioi_access_regs(fd, EXTIOI_IPMAP_START, (void *)s->ipmap, false);
+-    kvm_extioi_access_regs(fd, EXTIOI_ENABLE_START, (void *)s->enable, false);
+-    kvm_extioi_access_regs(fd, EXTIOI_BOUNCE_START, (void *)s->bounce, false);
+-    kvm_extioi_access_regs(fd, EXTIOI_ISR_START, (void *)s->isr, false);
+-    kvm_extioi_access_regs(fd, EXTIOI_COREMAP_START,
+-                           (void *)s->coremap, false);
+-    kvm_extioi_access_regs(fd, EXTIOI_SW_COREMAP_FLAG,
+-                           (void *)s->sw_coremap, false);
+-    kvm_extioi_access_regs(fd, EXTIOI_COREISR_START,
+-                           (void *)s->coreisr, false);
+-
+-    kvm_extioi_save_load_sw_status(opaque, false);
+-
+-    return 0;
+-}
+-
+-static int kvm_loongarch_extioi_post_load(void *opaque, int version_id)
+-{
+-    KVMLoongArchExtIOI *s = (KVMLoongArchExtIOI *)opaque;
+-    KVMLoongArchExtIOIClass *class = KVM_LOONGARCH_EXTIOI_GET_CLASS(s);
+-    int fd = class->dev_fd;
+-
+-    kvm_extioi_access_regs(fd, EXTIOI_NODETYPE_START,
+-                           (void *)s->nodetype, true);
+-    kvm_extioi_access_regs(fd, EXTIOI_IPMAP_START, (void *)s->ipmap, true);
+-    kvm_extioi_access_regs(fd, EXTIOI_ENABLE_START, (void *)s->enable, true);
+-    kvm_extioi_access_regs(fd, EXTIOI_BOUNCE_START, (void *)s->bounce, true);
+-    kvm_extioi_access_regs(fd, EXTIOI_ISR_START, (void *)s->isr, true);
+-    kvm_extioi_access_regs(fd, EXTIOI_COREMAP_START, (void *)s->coremap, true);
+-    kvm_extioi_access_regs(fd, EXTIOI_SW_COREMAP_FLAG,
+-                           (void *)s->sw_coremap, true);
+-    kvm_extioi_access_regs(fd, EXTIOI_COREISR_START, (void *)s->coreisr, true);
+-
+-    kvm_extioi_save_load_sw_status(opaque, true);
+-
+-    kvm_device_access(fd, KVM_DEV_LOONGARCH_EXTIOI_GRP_CTRL,
+-                      KVM_DEV_LOONGARCH_EXTIOI_CTRL_LOAD_FINISHED,
+-                      NULL, true, &error_abort);
++    LoongArchExtIOICommonState *lecs = LOONGARCH_EXTIOI_COMMON(dev);
++    LoongArchExtIOIState *les = LOONGARCH_EXTIOI(dev);
++    int ret;
+ 
+-    return 0;
+-}
+-
+-static void kvm_loongarch_extioi_realize(DeviceState *dev, Error **errp)
+-{
+-    KVMLoongArchExtIOIClass *extioi_class = KVM_LOONGARCH_EXTIOI_GET_CLASS(dev);
+-    KVMLoongArchExtIOI *s = KVM_LOONGARCH_EXTIOI(dev);
+-    struct kvm_create_device cd = {0};
+-    Error *err = NULL;
+-    int ret,i;
+-
+-    extioi_class->parent_realize(dev, &err);
+-    if (err) {
+-        error_propagate(errp, err);
+-        return;
++    ret = kvm_create_device(kvm_state, KVM_DEV_TYPE_LOONGARCH_EIOINTC, false);
++    if (ret < 0) {
++        fprintf(stderr, "create KVM_LOONGARCH_EIOINTC failed: %s\n",
++                strerror(-ret));
++        abort();
+     }
+ 
+-    if (s->features & BIT(EXTIOI_HAS_VIRT_EXTENSION)) {
+-        s->features |= EXTIOI_VIRT_HAS_FEATURES;
++    les->dev_fd = ret;
++    ret = kvm_device_access(les->dev_fd, KVM_DEV_LOONGARCH_EXTIOI_GRP_CTRL,
++                            KVM_DEV_LOONGARCH_EXTIOI_CTRL_INIT_NUM_CPU,
++                            &lecs->num_cpu, true, NULL);
++    if (ret < 0) {
++        fprintf(stderr, "KVM_LOONGARCH_EXTIOI_INIT_NUM_CPU failed: %s\n",
++                strerror(-ret));
++        abort();
+     }
+ 
+-    if (!extioi_class->is_created) {
+-        cd.type = KVM_DEV_TYPE_LOONGARCH_EIOINTC;
+-        ret = kvm_vm_ioctl(kvm_state, KVM_CREATE_DEVICE, &cd);
+-        if (ret < 0) {
+-            error_setg_errno(errp, errno,
+-                             "Creating the KVM extioi device failed");
+-            return;
+-        }
+-        extioi_class->is_created = true;
+-        extioi_class->dev_fd = cd.fd;
+-
+-        ret = kvm_device_access(cd.fd, KVM_DEV_LOONGARCH_EXTIOI_GRP_CTRL,
+-                                KVM_DEV_LOONGARCH_EXTIOI_CTRL_INIT_NUM_CPU,
+-                                &s->num_cpu, true, NULL);
+-        if (ret < 0) {
+-            error_setg_errno(errp, errno,
+-                             "KVM EXTIOI: failed to set the num-cpu of EXTIOI");
+-            exit(1);
+-        }
+-
+-        ret = kvm_device_access(cd.fd, KVM_DEV_LOONGARCH_EXTIOI_GRP_CTRL,
+-                                KVM_DEV_LOONGARCH_EXTIOI_CTRL_INIT_FEATURE,
+-                                &s->features, true, NULL);
+-        if (ret < 0) {
+-            error_setg_errno(errp, errno,
+-                             "KVM EXTIOI: failed to set the feature of EXTIOI");
+-            exit(1);
+-        }
+-
+-        fprintf(stdout, "Create LoongArch extioi irqchip in KVM done!\n");
+-    }
+-
+-    kvm_async_interrupts_allowed = true;
+-    kvm_msi_via_irqfd_allowed = kvm_irqfds_enabled();
+-    if (kvm_has_gsi_routing()) {
+-        for (i = 0; i < 64; ++i) {
+-            kvm_irqchip_add_irq_route(kvm_state, i, 0, i);
+-        }
+-        kvm_gsi_routing_allowed = true;
++    ret = kvm_device_access(les->dev_fd, KVM_DEV_LOONGARCH_EXTIOI_GRP_CTRL,
++                            KVM_DEV_LOONGARCH_EXTIOI_CTRL_INIT_FEATURE,
++                            &lecs->features, true, NULL);
++    if (ret < 0) {
++        fprintf(stderr, "KVM_LOONGARCH_EXTIOI_INIT_FEATURE failed: %s\n",
++                strerror(-ret));
++        abort();
+     }
+ }
+-
+-static const VMStateDescription vmstate_kvm_extioi_core = {
+-    .name = "kvm-extioi-single",
+-    .version_id = 2,
+-    .minimum_version_id = 2,
+-    .pre_save = kvm_loongarch_extioi_pre_save,
+-    .post_load = kvm_loongarch_extioi_post_load,
+-    .fields = (VMStateField[]) {
+-        VMSTATE_UINT32_ARRAY(nodetype, KVMLoongArchExtIOI,
+-                             EXTIOI_IRQS_NODETYPE_COUNT / 2),
+-        VMSTATE_UINT32_ARRAY(bounce, KVMLoongArchExtIOI,
+-                             EXTIOI_IRQS_GROUP_COUNT),
+-        VMSTATE_UINT32_ARRAY(isr, KVMLoongArchExtIOI, EXTIOI_IRQS / 32),
+-        VMSTATE_UINT32_2DARRAY(coreisr, KVMLoongArchExtIOI, EXTIOI_CPUS,
+-                               EXTIOI_IRQS_GROUP_COUNT),
+-        VMSTATE_UINT32_ARRAY(enable, KVMLoongArchExtIOI, EXTIOI_IRQS / 32),
+-        VMSTATE_UINT32_ARRAY(ipmap, KVMLoongArchExtIOI,
+-                             EXTIOI_IRQS_IPMAP_SIZE / 4),
+-        VMSTATE_UINT32_ARRAY(coremap, KVMLoongArchExtIOI, EXTIOI_IRQS / 4),
+-        VMSTATE_UINT8_ARRAY(sw_coremap, KVMLoongArchExtIOI, EXTIOI_IRQS),
+-        VMSTATE_UINT32(num_cpu, KVMLoongArchExtIOI),
+-        VMSTATE_UINT32(features, KVMLoongArchExtIOI),
+-        VMSTATE_UINT32(status, KVMLoongArchExtIOI),
+-        VMSTATE_END_OF_LIST()
+-    }
+-};
+-
+-static Property extioi_properties[] = {
+-    DEFINE_PROP_UINT32("num-cpu", KVMLoongArchExtIOI, num_cpu, 1),
+-    DEFINE_PROP_BIT("has-virtualization-extension", KVMLoongArchExtIOI,
+-                    features, EXTIOI_HAS_VIRT_EXTENSION, 0),
+-    DEFINE_PROP_END_OF_LIST(),
+-};
+-
+-static void kvm_loongarch_extioi_class_init(ObjectClass *oc, void *data)
+-{
+-    DeviceClass *dc = DEVICE_CLASS(oc);
+-    KVMLoongArchExtIOIClass *extioi_class = KVM_LOONGARCH_EXTIOI_CLASS(oc);
+-
+-    extioi_class->parent_realize = dc->realize;
+-    dc->realize = kvm_loongarch_extioi_realize;
+-    extioi_class->is_created = false;
+-    device_class_set_props(dc, extioi_properties);
+-    dc->vmsd = &vmstate_kvm_extioi_core;
+-}
+-
+-static const TypeInfo kvm_loongarch_extioi_info = {
+-    .name = TYPE_KVM_LOONGARCH_EXTIOI,
+-    .parent = TYPE_SYS_BUS_DEVICE,
+-    .instance_size = sizeof(KVMLoongArchExtIOI),
+-    .class_size = sizeof(KVMLoongArchExtIOIClass),
+-    .class_init = kvm_loongarch_extioi_class_init,
+-};
+-
+-static void kvm_loongarch_extioi_register_types(void)
+-{
+-    type_register_static(&kvm_loongarch_extioi_info);
+-}
+-
+-type_init(kvm_loongarch_extioi_register_types)
+diff --git a/hw/intc/loongarch_ipi.c b/hw/intc/loongarch_ipi.c
+index 22565d75930e..171977af977c 100644
+--- a/hw/intc/loongarch_ipi.c
++++ b/hw/intc/loongarch_ipi.c
+@@ -11,6 +11,7 @@
+ #include "qapi/error.h"
+ #include "hw/intc/loongarch_ipi.h"
+ #include "hw/qdev-properties.h"
++#include "sysemu/kvm.h"
+ #include "target/loongarch/cpu.h"
+ 
+ static AddressSpace *get_iocsr_as(CPUState *cpu)
+@@ -91,6 +92,10 @@ static void loongarch_ipi_realize(DeviceState *dev, Error **errp)
+         lics->cpu[i].ipi = lics;
+         qdev_init_gpio_out(dev, &lics->cpu[i].irq, 1);
+     }
++
++    if (kvm_irqchip_in_kernel()) {
++        kvm_ipi_realize(dev, errp);
++    }
+ }
+ 
+ static void loongarch_ipi_reset_hold(Object *obj)
+diff --git a/hw/intc/loongson_ipi_common.c b/hw/intc/loongson_ipi_common.c
+index f5ab5024c017..2669057b7ab7 100644
+--- a/hw/intc/loongson_ipi_common.c
++++ b/hw/intc/loongson_ipi_common.c
+@@ -11,6 +11,7 @@
+ #include "hw/irq.h"
+ #include "qemu/log.h"
+ #include "migration/vmstate.h"
++#include "sysemu/kvm.h"
+ #include "trace.h"
+ 
+ MemTxResult loongson_ipi_core_readl(void *opaque, hwaddr addr, uint64_t *data,
+@@ -255,6 +256,10 @@ static void loongson_ipi_common_realize(DeviceState *dev, Error **errp)
+     LoongsonIPICommonState *s = LOONGSON_IPI_COMMON(dev);
+     SysBusDevice *sbd = SYS_BUS_DEVICE(dev);
+ 
++    if (kvm_irqchip_in_kernel()) {
++        return;
++    }
++
+     memory_region_init_io(&s->ipi_iocsr_mem, OBJECT(dev),
+                           &loongson_ipi_iocsr_ops,
+                           s, "loongson_ipi_iocsr", 0x48);
+diff --git a/hw/intc/meson.build b/hw/intc/meson.build
+index 0aae1ae7664f..d7bdaf4f6ca3 100644
+--- a/hw/intc/meson.build
++++ b/hw/intc/meson.build
+@@ -76,5 +76,6 @@ specific_ss.add(when: 'CONFIG_LOONGARCH_IPI_KVM', if_true: files('loongarch_ipi_
+ specific_ss.add(when: 'CONFIG_LOONGARCH_PCH_PIC', if_true: files('loongarch_pch_pic.c', 'loongarch_pic_common.c'))
+ specific_ss.add(when: 'CONFIG_LOONGARCH_PCH_MSI', if_true: files('loongarch_pch_msi.c'))
+ specific_ss.add(when: 'CONFIG_LOONGARCH_EXTIOI', if_true: files('loongarch_extioi.c', 'loongarch_extioi_common.c'))
+-specific_ss.add(when: 'CONFIG_LOONGARCH_EXTIOI_KVM', if_true: files('loongarch_extioi_kvm.c'))
++specific_ss.add(when: ['CONFIG_KVM', 'CONFIG_LOONGARCH_EXTIOI'],
++               if_true: files('loongarch_extioi_kvm.c'))
+ specific_ss.add(when: 'CONFIG_LOONGARCH_PCH_PIC_KVM', if_true: files('loongarch_pch_pic_kvm.c'))
+diff --git a/hw/loongarch/Kconfig b/hw/loongarch/Kconfig
+index 16c854c0d595..d3a427edb184 100644
+--- a/hw/loongarch/Kconfig
++++ b/hw/loongarch/Kconfig
+@@ -16,7 +16,6 @@ config LOONGARCH_VIRT
+     select LOONGARCH_EXTIOI
+     select LOONGARCH_IPI_KVM if KVM
+     select LOONGARCH_PCH_PIC_KVM if KVM
+-    select LOONGARCH_EXTIOI_KVM if KVM
+     select LS7A_RTC
+     select SMBIOS
+     select ACPI_CPU_HOTPLUG
+diff --git a/include/hw/intc/loongarch_extioi.h b/include/hw/intc/loongarch_extioi.h
+index 10f573effbeb..69565e14ab0d 100644
+--- a/include/hw/intc/loongarch_extioi.h
++++ b/include/hw/intc/loongarch_extioi.h
+@@ -10,12 +10,12 @@
+ 
+ #include "hw/intc/loongarch_extioi_common.h"
+ 
+-#define TYPE_LOONGARCH_EXTIOI        "loongarch-extioi"
+-#define TYPE_KVM_LOONGARCH_EXTIOI    "loongarch-kvm-extioi"
++#define TYPE_LOONGARCH_EXTIOI "loongarch.extioi"
+ OBJECT_DECLARE_TYPE(LoongArchExtIOIState, LoongArchExtIOIClass, LOONGARCH_EXTIOI)
+ 
+ struct LoongArchExtIOIState {
+     LoongArchExtIOICommonState parent_obj;
++    int dev_fd;
+ };
+ 
+ struct LoongArchExtIOIClass {
+@@ -26,34 +26,6 @@ struct LoongArchExtIOIClass {
+     ResettablePhases parent_phases;
+ };
+ 
+-struct KVMLoongArchExtIOI {
+-    SysBusDevice parent_obj;
+-    uint32_t num_cpu;
+-    uint32_t features;
+-    uint32_t status;
+-
+-    /* hardware state */
+-    uint32_t nodetype[EXTIOI_IRQS_NODETYPE_COUNT / 2];
+-    uint32_t bounce[EXTIOI_IRQS_GROUP_COUNT];
+-    uint32_t isr[EXTIOI_IRQS / 32];
+-    uint32_t coreisr[EXTIOI_CPUS][EXTIOI_IRQS_GROUP_COUNT];
+-    uint32_t enable[EXTIOI_IRQS / 32];
+-    uint32_t ipmap[EXTIOI_IRQS_IPMAP_SIZE / 4];
+-    uint32_t coremap[EXTIOI_IRQS / 4];
+-    uint8_t  sw_coremap[EXTIOI_IRQS];
+-};
+-typedef struct KVMLoongArchExtIOI KVMLoongArchExtIOI;
+-DECLARE_INSTANCE_CHECKER(KVMLoongArchExtIOI, KVM_LOONGARCH_EXTIOI,
+-                         TYPE_KVM_LOONGARCH_EXTIOI)
+-
+-struct KVMLoongArchExtIOIClass {
+-    SysBusDeviceClass parent_class;
+-    DeviceRealize parent_realize;
++void kvm_extioi_realize(DeviceState *dev, Error **errp);
+ 
+-    bool is_created;
+-    int dev_fd;
+-};
+-typedef struct KVMLoongArchExtIOIClass KVMLoongArchExtIOIClass;
+-DECLARE_CLASS_CHECKERS(KVMLoongArchExtIOIClass, KVM_LOONGARCH_EXTIOI,
+-                       TYPE_KVM_LOONGARCH_EXTIOI)
+ #endif /* LOONGARCH_EXTIOI_H */
+diff --git a/include/hw/intc/loongarch_ipi.h b/include/hw/intc/loongarch_ipi.h
+index a7c6bf85d3b2..608cd09a78e5 100644
+--- a/include/hw/intc/loongarch_ipi.h
++++ b/include/hw/intc/loongarch_ipi.h
+@@ -16,6 +16,7 @@ OBJECT_DECLARE_TYPE(LoongarchIPIState, LoongarchIPIClass, LOONGARCH_IPI)
+ 
+ struct LoongarchIPIState {
+     LoongsonIPICommonState parent_obj;
++    int  dev_fd;
+ };
+ 
+ struct LoongarchIPIClass {
+@@ -24,4 +25,6 @@ struct LoongarchIPIClass {
+     ResettablePhases parent_phases;
+ };
+ 
++void kvm_ipi_realize(DeviceState *dev, Error **errp);
++
+ #endif
+-- 
+2.51.0
+

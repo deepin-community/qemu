@@ -1,0 +1,69 @@
+From 74d489765a8bebe81f3ad0c11fc968d48b870588 Mon Sep 17 00:00:00 2001
+From: Bibo Mao <maobibo@loongson.cn>
+Date: Wed, 7 May 2025 10:31:40 +0800
+Subject: [PATCH 182/285] hw/intc/loongarch_pch: Use generic read callback for
+ iomem32_high region
+
+Add register read operation emulation in generic read function
+loongarch_pch_pic_read(), and use this function for iomem32_high region.
+
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+Reviewed-by: Song Gao <gaosong@loongson.cn>
+Message-Id: <20250507023148.1877287-9-maobibo@loongson.cn>
+Signed-off-by: Song Gao <gaosong@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ hw/intc/loongarch_pch_pic.c | 27 ++++++++-------------------
+ 1 file changed, 8 insertions(+), 19 deletions(-)
+
+diff --git a/hw/intc/loongarch_pch_pic.c b/hw/intc/loongarch_pch_pic.c
+index 6b5751fcd2de..35e829496d0c 100644
+--- a/hw/intc/loongarch_pch_pic.c
++++ b/hw/intc/loongarch_pch_pic.c
+@@ -106,6 +106,12 @@ static uint64_t pch_pic_read(void *opaque, hwaddr addr, uint64_t field_mask)
+     case PCH_PIC_AUTO_CTRL1:
+         /* PCH PIC connect to EXTIOI always, discard auto_ctrl access */
+         break;
++    case PCH_PIC_INT_STATUS:
++        val = s->intisr & (~s->int_mask);
++        break;
++    case PCH_PIC_INT_POL:
++        val = s->int_polarity;
++        break;
+     default:
+         qemu_log_mask(LOG_GUEST_ERROR,
+                       "pch_pic_read: Bad address 0x%"PRIx64"\n", addr);
+@@ -235,27 +241,10 @@ static void loongarch_pch_pic_low_writew(void *opaque, hwaddr addr,
+ static uint64_t loongarch_pch_pic_high_readw(void *opaque, hwaddr addr,
+                                         unsigned size)
+ {
+-    LoongArchPICCommonState *s = LOONGARCH_PIC_COMMON(opaque);
+-    uint64_t val = 0;
++    uint64_t val;
+ 
+     addr += PCH_PIC_INT_STATUS;
+-    switch (addr) {
+-    case PCH_PIC_INT_STATUS:
+-        val = (uint32_t)(s->intisr & (~s->int_mask));
+-        break;
+-    case PCH_PIC_INT_STATUS + 4:
+-        val = (s->intisr & (~s->int_mask)) >> 32;
+-        break;
+-    case PCH_PIC_INT_POL:
+-        val = (uint32_t)s->int_polarity;
+-        break;
+-    case PCH_PIC_INT_POL + 4:
+-        val = s->int_polarity >> 32;
+-        break;
+-    default:
+-        break;
+-    }
+-
++    val = loongarch_pch_pic_read(opaque, addr, size);
+     trace_loongarch_pch_pic_high_readw(size, addr, val);
+     return val;
+ }
+-- 
+2.51.0
+

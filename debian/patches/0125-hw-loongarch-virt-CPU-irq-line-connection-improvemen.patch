@@ -1,0 +1,129 @@
+From d08affeade1e2a7d7f90cef6bbd612cb2dbd2b94 Mon Sep 17 00:00:00 2001
+From: Bibo Mao <maobibo@loongson.cn>
+Date: Wed, 5 Feb 2025 11:36:14 +0800
+Subject: [PATCH 125/285] hw/loongarch/virt: CPU irq line connection
+ improvement
+
+Interrupt controller extioi and ipi connect to CPU with irq line method.
+With command -smp x, -device la464-loongarch-cpu, smp.cpus is not
+accurate for all possible CPU objects, possible_cpu_arch_ids() is used.
+
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+Reviewed-by: Bibo Mao <maobibo@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ hw/loongarch/virt.c | 61 +++++++++++++++++++++++++++------------------
+ 1 file changed, 37 insertions(+), 24 deletions(-)
+
+diff --git a/hw/loongarch/virt.c b/hw/loongarch/virt.c
+index 1a88d6963227..5d13e48d68ca 100644
+--- a/hw/loongarch/virt.c
++++ b/hw/loongarch/virt.c
+@@ -329,14 +329,43 @@ static void virt_devices_init(DeviceState *pch_pic,
+     lvms->platform_bus_dev = create_platform_bus(pch_pic);
+ }
+ 
+-static void virt_irq_init(LoongArchVirtMachineState *lvms)
++static void virt_cpu_irq_init(LoongArchVirtMachineState *lvms)
+ {
++    int num, pin;
+     MachineState *ms = MACHINE(lvms);
+-    DeviceState *pch_pic, *pch_msi, *cpudev;
++    MachineClass *mc = MACHINE_GET_CLASS(ms);
++    const CPUArchIdList *possible_cpus;
++    CPUState *cs;
++
++    /* cpu nodes */
++    possible_cpus = mc->possible_cpu_arch_ids(ms);
++    for (num = 0; num < possible_cpus->len; num++) {
++        cs = possible_cpus->cpus[num].cpu;
++        if (cs == NULL) {
++            continue;
++        }
++
++        /* connect ipi irq to cpu irq */
++        qdev_connect_gpio_out(lvms->ipi, num,
++                              qdev_get_gpio_in(DEVICE(cs), IRQ_IPI));
++
++        /*
++         * connect ext irq to the cpu irq
++         * cpu_pin[9:2] <= intc_pin[7:0]
++         */
++        for (pin = 0; pin < LS3A_INTC_IP; pin++) {
++            qdev_connect_gpio_out(lvms->extioi, (num * LS3A_INTC_IP + pin),
++                                  qdev_get_gpio_in(DEVICE(cs), pin + 2));
++        }
++    }
++}
++
++static void virt_irq_init(LoongArchVirtMachineState *lvms)
++{
++    DeviceState *pch_pic, *pch_msi;
+     DeviceState *ipi, *extioi;
+     SysBusDevice *d;
+-    CPUState *cpu_state;
+-    int cpu, pin, i, start, num;
++    int i, start, num;
+ 
+     /*
+      * Extended IRQ model.
+@@ -388,6 +417,8 @@ static void virt_irq_init(LoongArchVirtMachineState *lvms)
+         sysbus_realize_and_unref(SYS_BUS_DEVICE(ipi), &error_fatal);
+     } else {
+         ipi = qdev_new(TYPE_LOONGARCH_IPI);
++        lvms->ipi = ipi;
++
+         sysbus_realize_and_unref(SYS_BUS_DEVICE(ipi), &error_fatal);
+ 
+         /* IPI iocsr memory region */
+@@ -395,14 +426,6 @@ static void virt_irq_init(LoongArchVirtMachineState *lvms)
+                        sysbus_mmio_get_region(SYS_BUS_DEVICE(ipi), 0));
+         memory_region_add_subregion(&lvms->system_iocsr, MAIL_SEND_ADDR,
+                        sysbus_mmio_get_region(SYS_BUS_DEVICE(ipi), 1));
+-
+-        for (cpu = 0; cpu < ms->smp.cpus; cpu++) {
+-            cpu_state = qemu_get_cpu(cpu);
+-            cpudev = DEVICE(cpu_state);
+-
+-            /* connect ipi irq to cpu irq */
+-            qdev_connect_gpio_out(ipi, cpu, qdev_get_gpio_in(cpudev, IRQ_IPI));
+-        }
+     }
+ 
+     lvms->ipi = ipi;
+@@ -414,6 +437,7 @@ static void virt_irq_init(LoongArchVirtMachineState *lvms)
+         sysbus_realize_and_unref(SYS_BUS_DEVICE(extioi), &error_fatal);
+     } else {
+         extioi = qdev_new(TYPE_LOONGARCH_EXTIOI);
++        lvms->extioi = extioi;
+         if (virt_is_veiointc_enabled(lvms)) {
+             qdev_prop_set_bit(extioi, "has-virtualization-extension", true);
+         }
+@@ -424,22 +448,11 @@ static void virt_irq_init(LoongArchVirtMachineState *lvms)
+             memory_region_add_subregion(&lvms->system_iocsr, EXTIOI_VIRT_BASE,
+                         sysbus_mmio_get_region(SYS_BUS_DEVICE(extioi), 1));
+         }
+-
+-        /*
+-         * connect ext irq to the cpu irq
+-         * cpu_pin[9:2] <= intc_pin[7:0]
+-         */
+-        for (cpu = 0; cpu < ms->smp.cpus; cpu++) {
+-            cpudev = DEVICE(qemu_get_cpu(cpu));
+-            for (pin = 0; pin < LS3A_INTC_IP; pin++) {
+-                qdev_connect_gpio_out(extioi, (cpu * 8 + pin),
+-                                      qdev_get_gpio_in(cpudev, pin + 2));
+-            }
+-        }
+     }
+ 
+     lvms->extioi = extioi;
+ 
++    virt_cpu_irq_init(lvms);
+     if (kvm_enabled() && kvm_irqchip_in_kernel()) {
+         pch_pic = qdev_new(TYPE_KVM_LOONGARCH_PCH_PIC);
+         sysbus_realize_and_unref(SYS_BUS_DEVICE(pch_pic), &error_fatal);
+-- 
+2.51.0
+

@@ -1,0 +1,205 @@
+From 48f43bda7e231784b67b411cfcc0ffded47a8ed7 Mon Sep 17 00:00:00 2001
+From: Bibo Mao <maobibo@loongson.cn>
+Date: Wed, 7 May 2025 10:31:33 +0800
+Subject: [PATCH 175/285] hw/intc/loongarch_pch: Modify name of some registers
+
+For some registers with width 8 bytes, its name is something like
+PCH_PIC_INT_ID_LO and PCH_PIC_INT_ID_HI. From hardware manual,
+register name is PCH_PIC_INT_ID instead. Here name PCH_PIC_INT_ID
+is used, and PCH_PIC_INT_ID + 4 is used for PCH_PIC_INT_ID_HI.
+
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+Reviewed-by: Clement Mathieu--Drif <clement.mathieu--drif@eviden.com>
+Reviewed-by: Song Gao <gaosong@loongson.cn>
+Message-Id: <20250507023148.1877287-2-maobibo@loongson.cn>
+Signed-off-by: Song Gao <gaosong@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ hw/intc/loongarch_pch_pic.c            | 50 +++++++++++++-------------
+ hw/loongarch/virt.c                    |  2 +-
+ include/hw/intc/loongarch_pic_common.h | 27 +++++---------
+ 3 files changed, 36 insertions(+), 43 deletions(-)
+
+diff --git a/hw/intc/loongarch_pch_pic.c b/hw/intc/loongarch_pch_pic.c
+index d43b75c944ff..7b8b6154ea39 100644
+--- a/hw/intc/loongarch_pch_pic.c
++++ b/hw/intc/loongarch_pch_pic.c
+@@ -88,10 +88,10 @@ static uint64_t loongarch_pch_pic_low_readw(void *opaque, hwaddr addr,
+     uint32_t offset = addr & 0xfff;
+ 
+     switch (offset) {
+-    case PCH_PIC_INT_ID_LO:
++    case PCH_PIC_INT_ID:
+         val = PCH_PIC_INT_ID_VAL;
+         break;
+-    case PCH_PIC_INT_ID_HI:
++    case PCH_PIC_INT_ID + 4:
+         /*
+          * With 7A1000 manual
+          *   bit  0-15 pch irqchip version
+@@ -99,28 +99,29 @@ static uint64_t loongarch_pch_pic_low_readw(void *opaque, hwaddr addr,
+          */
+         val = deposit32(PCH_PIC_INT_ID_VER, 16, 16, s->irq_num - 1);
+         break;
+-    case PCH_PIC_INT_MASK_LO:
++    case PCH_PIC_INT_MASK:
+         val = (uint32_t)s->int_mask;
+         break;
+-    case PCH_PIC_INT_MASK_HI:
++    case PCH_PIC_INT_MASK + 4:
+         val = s->int_mask >> 32;
+         break;
+-    case PCH_PIC_INT_EDGE_LO:
++    case PCH_PIC_INT_EDGE:
+         val = (uint32_t)s->intedge;
+         break;
+-    case PCH_PIC_INT_EDGE_HI:
++    case PCH_PIC_INT_EDGE + 4:
+         val = s->intedge >> 32;
+         break;
+-    case PCH_PIC_HTMSI_EN_LO:
++    case PCH_PIC_HTMSI_EN:
+         val = (uint32_t)s->htmsi_en;
+         break;
+-    case PCH_PIC_HTMSI_EN_HI:
++    case PCH_PIC_HTMSI_EN + 4:
+         val = s->htmsi_en >> 32;
+         break;
+-    case PCH_PIC_AUTO_CTRL0_LO:
+-    case PCH_PIC_AUTO_CTRL0_HI:
+-    case PCH_PIC_AUTO_CTRL1_LO:
+-    case PCH_PIC_AUTO_CTRL1_HI:
++    case PCH_PIC_AUTO_CTRL0:
++    case PCH_PIC_AUTO_CTRL0 + 4:
++    case PCH_PIC_AUTO_CTRL1:
++    case PCH_PIC_AUTO_CTRL1 + 4:
++        /* PCH PIC connect to EXTIOI always, discard auto_ctrl access */
+         break;
+     default:
+         break;
+@@ -149,7 +150,7 @@ static void loongarch_pch_pic_low_writew(void *opaque, hwaddr addr,
+     trace_loongarch_pch_pic_low_writew(size, addr, data);
+ 
+     switch (offset) {
+-    case PCH_PIC_INT_MASK_LO:
++    case PCH_PIC_INT_MASK:
+         old = s->int_mask;
+         s->int_mask = get_writew_val(old, data, 0);
+         old_valid = (uint32_t)old;
+@@ -160,7 +161,7 @@ static void loongarch_pch_pic_low_writew(void *opaque, hwaddr addr,
+             pch_pic_update_irq(s, (~old_valid & data), 0);
+         }
+         break;
+-    case PCH_PIC_INT_MASK_HI:
++    case PCH_PIC_INT_MASK + 4:
+         old = s->int_mask;
+         s->int_mask = get_writew_val(old, data, 1);
+         old_valid = (uint32_t)(old >> 32);
+@@ -173,20 +174,20 @@ static void loongarch_pch_pic_low_writew(void *opaque, hwaddr addr,
+             pch_pic_update_irq(s, int_mask << 32, 0);
+         }
+         break;
+-    case PCH_PIC_INT_EDGE_LO:
++    case PCH_PIC_INT_EDGE:
+         s->intedge = get_writew_val(s->intedge, data, 0);
+         break;
+-    case PCH_PIC_INT_EDGE_HI:
++    case PCH_PIC_INT_EDGE + 4:
+         s->intedge = get_writew_val(s->intedge, data, 1);
+         break;
+-    case PCH_PIC_INT_CLEAR_LO:
++    case PCH_PIC_INT_CLEAR:
+         if (s->intedge & data) {
+             s->intirr &= (~data);
+             pch_pic_update_irq(s, data, 0);
+             s->intisr &= (~data);
+         }
+         break;
+-    case PCH_PIC_INT_CLEAR_HI:
++    case PCH_PIC_INT_CLEAR + 4:
+         value <<= 32;
+         if (s->intedge & value) {
+             s->intirr &= (~value);
+@@ -194,16 +195,17 @@ static void loongarch_pch_pic_low_writew(void *opaque, hwaddr addr,
+             s->intisr &= (~value);
+         }
+         break;
+-    case PCH_PIC_HTMSI_EN_LO:
++    case PCH_PIC_HTMSI_EN:
+         s->htmsi_en = get_writew_val(s->htmsi_en, data, 0);
+         break;
+-    case PCH_PIC_HTMSI_EN_HI:
++    case PCH_PIC_HTMSI_EN + 4:
+         s->htmsi_en = get_writew_val(s->htmsi_en, data, 1);
+         break;
+-    case PCH_PIC_AUTO_CTRL0_LO:
+-    case PCH_PIC_AUTO_CTRL0_HI:
+-    case PCH_PIC_AUTO_CTRL1_LO:
+-    case PCH_PIC_AUTO_CTRL1_HI:
++    case PCH_PIC_AUTO_CTRL0:
++    case PCH_PIC_AUTO_CTRL0 + 4:
++    case PCH_PIC_AUTO_CTRL1:
++    case PCH_PIC_AUTO_CTRL1 + 4:
++        /* discard auto_ctrl access */
+         break;
+     default:
+         break;
+diff --git a/hw/loongarch/virt.c b/hw/loongarch/virt.c
+index bda1196bdaeb..366990be5408 100644
+--- a/hw/loongarch/virt.c
++++ b/hw/loongarch/virt.c
+@@ -453,7 +453,7 @@ static void virt_irq_init(LoongArchVirtMachineState *lvms)
+                             sysbus_mmio_get_region(d, 1));
+ 
+         memory_region_add_subregion(get_system_memory(),
+-                                VIRT_IOAPIC_REG_BASE + PCH_PIC_INT_STATUS_LO,
++                                VIRT_IOAPIC_REG_BASE + PCH_PIC_INT_STATUS,
+                                 sysbus_mmio_get_region(d, 2));
+ 
+         /* Connect pch_pic irqs to extioi */
+diff --git a/include/hw/intc/loongarch_pic_common.h b/include/hw/intc/loongarch_pic_common.h
+index eab184fb63c9..937ff679dac6 100644
+--- a/include/hw/intc/loongarch_pic_common.h
++++ b/include/hw/intc/loongarch_pic_common.h
+@@ -12,28 +12,19 @@
+ 
+ #define PCH_PIC_INT_ID_VAL              0x7000000UL
+ #define PCH_PIC_INT_ID_VER              0x1UL
+-#define PCH_PIC_INT_ID_LO               0x00
+-#define PCH_PIC_INT_ID_HI               0x04
+-#define PCH_PIC_INT_MASK_LO             0x20
+-#define PCH_PIC_INT_MASK_HI             0x24
+-#define PCH_PIC_HTMSI_EN_LO             0x40
+-#define PCH_PIC_HTMSI_EN_HI             0x44
+-#define PCH_PIC_INT_EDGE_LO             0x60
+-#define PCH_PIC_INT_EDGE_HI             0x64
+-#define PCH_PIC_INT_CLEAR_LO            0x80
+-#define PCH_PIC_INT_CLEAR_HI            0x84
+-#define PCH_PIC_AUTO_CTRL0_LO           0xc0
+-#define PCH_PIC_AUTO_CTRL0_HI           0xc4
+-#define PCH_PIC_AUTO_CTRL1_LO           0xe0
+-#define PCH_PIC_AUTO_CTRL1_HI           0xe4
++#define PCH_PIC_INT_ID                  0x00
++#define PCH_PIC_INT_MASK                0x20
++#define PCH_PIC_HTMSI_EN                0x40
++#define PCH_PIC_INT_EDGE                0x60
++#define PCH_PIC_INT_CLEAR               0x80
++#define PCH_PIC_AUTO_CTRL0              0xc0
++#define PCH_PIC_AUTO_CTRL1              0xe0
+ #define PCH_PIC_ROUTE_ENTRY_OFFSET      0x100
+ #define PCH_PIC_ROUTE_ENTRY_END         0x13f
+ #define PCH_PIC_HTMSI_VEC_OFFSET        0x200
+ #define PCH_PIC_HTMSI_VEC_END           0x23f
+-#define PCH_PIC_INT_STATUS_LO           0x3a0
+-#define PCH_PIC_INT_STATUS_HI           0x3a4
+-#define PCH_PIC_INT_POL_LO              0x3e0
+-#define PCH_PIC_INT_POL_HI              0x3e4
++#define PCH_PIC_INT_STATUS              0x3a0
++#define PCH_PIC_INT_POL                 0x3e0
+ 
+ #define PCH_PIC_INT_ID_START            PCH_PIC_INT_ID_LO
+ #define PCH_PIC_MASK_START              PCH_PIC_INT_MASK_LO
+-- 
+2.51.0
+

@@ -1,0 +1,135 @@
+From 991efde803a57c19b126503b5259751e2df3710a Mon Sep 17 00:00:00 2001
+From: Bibo Mao <maobibo@loongson.cn>
+Date: Mon, 15 Jul 2024 16:50:51 +0200
+Subject: [PATCH 054/285] hw/intc/loongson_ipi: Rename LoongsonIPI ->
+ LoongsonIPIState
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+We'll have to add LoongsonIPIClass in few commits,
+so rename LoongsonIPI as LoongsonIPIState for clarity.
+
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+[PMD: Extracted from bigger commit, added commit description]
+Co-Developed-by: Philippe Mathieu-Daudé <philmd@linaro.org>
+Signed-off-by: Philippe Mathieu-Daudé <philmd@linaro.org>
+Reviewed-by: Bibo Mao <maobibo@loongson.cn>
+Tested-by: Bibo Mao <maobibo@loongson.cn>
+Acked-by: Song Gao <gaosong@loongson.cn>
+Reviewed-by: Richard Henderson <richard.henderson@linaro.org>
+Reviewed-by: Jiaxun Yang <jiaxun.yang@flygoat.com>
+Tested-by: Jiaxun Yang <jiaxun.yang@flygoat.com>
+Message-Id: <20240805180622.21001-2-philmd@linaro.org>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ hw/intc/loongson_ipi.c         | 16 ++++++++--------
+ include/hw/intc/loongson_ipi.h |  6 +++---
+ 2 files changed, 11 insertions(+), 11 deletions(-)
+
+diff --git a/hw/intc/loongson_ipi.c b/hw/intc/loongson_ipi.c
+index 682cec96f3fe..903483ae8080 100644
+--- a/hw/intc/loongson_ipi.c
++++ b/hw/intc/loongson_ipi.c
+@@ -64,7 +64,7 @@ static MemTxResult loongson_ipi_iocsr_readl(void *opaque, hwaddr addr,
+                                             uint64_t *data,
+                                             unsigned size, MemTxAttrs attrs)
+ {
+-    LoongsonIPI *ipi = opaque;
++    LoongsonIPIState *ipi = opaque;
+     IPICore *s;
+ 
+     if (attrs.requester_id >= ipi->num_cpu) {
+@@ -160,7 +160,7 @@ static MemTxResult loongson_ipi_core_writel(void *opaque, hwaddr addr,
+                                             MemTxAttrs attrs)
+ {
+     IPICore *s = opaque;
+-    LoongsonIPI *ipi = s->ipi;
++    LoongsonIPIState *ipi = s->ipi;
+     int index = 0;
+     uint32_t cpuid;
+     uint8_t vector;
+@@ -214,7 +214,7 @@ static MemTxResult loongson_ipi_iocsr_writel(void *opaque, hwaddr addr,
+                                             uint64_t val, unsigned size,
+                                             MemTxAttrs attrs)
+ {
+-    LoongsonIPI *ipi = opaque;
++    LoongsonIPIState *ipi = opaque;
+     IPICore *s;
+ 
+     if (attrs.requester_id >= ipi->num_cpu) {
+@@ -277,7 +277,7 @@ static const MemoryRegionOps loongson_ipi64_ops = {
+ 
+ static void loongson_ipi_realize(DeviceState *dev, Error **errp)
+ {
+-    LoongsonIPI *s = LOONGSON_IPI(dev);
++    LoongsonIPIState *s = LOONGSON_IPI(dev);
+     SysBusDevice *sbd = SYS_BUS_DEVICE(dev);
+     int i;
+ 
+@@ -320,7 +320,7 @@ static void loongson_ipi_realize(DeviceState *dev, Error **errp)
+ 
+ static void loongson_ipi_unrealize(DeviceState *dev)
+ {
+-    LoongsonIPI *s = LOONGSON_IPI(dev);
++    LoongsonIPIState *s = LOONGSON_IPI(dev);
+ 
+     g_free(s->cpu);
+ }
+@@ -344,14 +344,14 @@ static const VMStateDescription vmstate_loongson_ipi = {
+     .version_id = 2,
+     .minimum_version_id = 2,
+     .fields = (const VMStateField[]) {
+-        VMSTATE_STRUCT_VARRAY_POINTER_UINT32(cpu, LoongsonIPI, num_cpu,
++        VMSTATE_STRUCT_VARRAY_POINTER_UINT32(cpu, LoongsonIPIState, num_cpu,
+                          vmstate_ipi_core, IPICore),
+         VMSTATE_END_OF_LIST()
+     }
+ };
+ 
+ static Property ipi_properties[] = {
+-    DEFINE_PROP_UINT32("num-cpu", LoongsonIPI, num_cpu, 1),
++    DEFINE_PROP_UINT32("num-cpu", LoongsonIPIState, num_cpu, 1),
+     DEFINE_PROP_END_OF_LIST(),
+ };
+ 
+@@ -369,7 +369,7 @@ static const TypeInfo loongson_ipi_types[] = {
+     {
+         .name               = TYPE_LOONGSON_IPI,
+         .parent             = TYPE_SYS_BUS_DEVICE,
+-        .instance_size      = sizeof(LoongsonIPI),
++        .instance_size      = sizeof(LoongsonIPIState),
+         .class_init         = loongson_ipi_class_init,
+     }
+ };
+diff --git a/include/hw/intc/loongson_ipi.h b/include/hw/intc/loongson_ipi.h
+index 55d7435cfdaa..3c292735e5b8 100644
+--- a/include/hw/intc/loongson_ipi.h
++++ b/include/hw/intc/loongson_ipi.h
+@@ -31,11 +31,11 @@
+ #define IPI_MBX_NUM           4
+ 
+ #define TYPE_LOONGSON_IPI "loongson_ipi"
+-OBJECT_DECLARE_SIMPLE_TYPE(LoongsonIPI, LOONGSON_IPI)
++OBJECT_DECLARE_SIMPLE_TYPE(LoongsonIPIState, LOONGSON_IPI)
+ #define TYPE_KVM_LOONGARCH_IPI "loongarch-ipi-kvm"
+ 
+ typedef struct IPICore {
+-    LoongsonIPI *ipi;
++    LoongsonIPIState *ipi;
+     MemoryRegion *ipi_mmio_mem;
+     uint32_t status;
+     uint32_t en;
+@@ -46,7 +46,7 @@ typedef struct IPICore {
+     qemu_irq irq;
+ } IPICore;
+ 
+-struct LoongsonIPI {
++struct LoongsonIPIState {
+     SysBusDevice parent_obj;
+     MemoryRegion ipi_iocsr_mem;
+     MemoryRegion ipi64_iocsr_mem;
+-- 
+2.51.0
+

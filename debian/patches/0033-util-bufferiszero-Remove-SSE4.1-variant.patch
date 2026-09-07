@@ -1,0 +1,80 @@
+From 44b332238e984354416340bac9a2b614b82de3ee Mon Sep 17 00:00:00 2001
+From: Alexander Monakov <amonakov@ispras.ru>
+Date: Tue, 6 Feb 2024 23:48:04 +0300
+Subject: [PATCH 033/285] util/bufferiszero: Remove SSE4.1 variant
+
+The SSE4.1 variant is virtually identical to the SSE2 variant, except
+for using 'PTEST+JNZ' in place of 'PCMPEQB+PMOVMSKB+CMP+JNE' for testing
+if an SSE register is all zeroes. The PTEST instruction decodes to two
+uops, so it can be handled only by the complex decoder, and since
+CMP+JNE are macro-fused, both sequences decode to three uops. The uops
+comprising the PTEST instruction dispatch to p0 and p5 on Intel CPUs, so
+PCMPEQB+PMOVMSKB is comparatively more flexible from dispatch
+standpoint.
+
+Hence, the use of PTEST brings no benefit from throughput standpoint.
+Its latency is not important, since it feeds only a conditional jump,
+which terminates the dependency chain.
+
+I never observed PTEST variants to be faster on real hardware.
+
+Signed-off-by: Alexander Monakov <amonakov@ispras.ru>
+Signed-off-by: Mikhail Romanov <mmromanov@ispras.ru>
+Reviewed-by: Richard Henderson <richard.henderson@linaro.org>
+Message-Id: <20240206204809.9859-2-amonakov@ispras.ru>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ util/bufferiszero.c | 29 -----------------------------
+ 1 file changed, 29 deletions(-)
+
+diff --git a/util/bufferiszero.c b/util/bufferiszero.c
+index 3e6a5dfd632e..f5a3634f9a13 100644
+--- a/util/bufferiszero.c
++++ b/util/bufferiszero.c
+@@ -100,34 +100,6 @@ buffer_zero_sse2(const void *buf, size_t len)
+ }
+ 
+ #ifdef CONFIG_AVX2_OPT
+-static bool __attribute__((target("sse4")))
+-buffer_zero_sse4(const void *buf, size_t len)
+-{
+-    __m128i t = _mm_loadu_si128(buf);
+-    __m128i *p = (__m128i *)(((uintptr_t)buf + 5 * 16) & -16);
+-    __m128i *e = (__m128i *)(((uintptr_t)buf + len) & -16);
+-
+-    /* Loop over 16-byte aligned blocks of 64.  */
+-    while (likely(p <= e)) {
+-        __builtin_prefetch(p);
+-        if (unlikely(!_mm_testz_si128(t, t))) {
+-            return false;
+-        }
+-        t = p[-4] | p[-3] | p[-2] | p[-1];
+-        p += 4;
+-    }
+-
+-    /* Finish the aligned tail.  */
+-    t |= e[-3];
+-    t |= e[-2];
+-    t |= e[-1];
+-
+-    /* Finish the unaligned tail.  */
+-    t |= _mm_loadu_si128(buf + len - 16);
+-
+-    return _mm_testz_si128(t, t);
+-}
+-
+ static bool __attribute__((target("avx2")))
+ buffer_zero_avx2(const void *buf, size_t len)
+ {
+@@ -221,7 +193,6 @@ select_accel_cpuinfo(unsigned info)
+ #endif
+ #ifdef CONFIG_AVX2_OPT
+         { CPUINFO_AVX2,    128, buffer_zero_avx2 },
+-        { CPUINFO_SSE4,     64, buffer_zero_sse4 },
+ #endif
+         { CPUINFO_SSE2,     64, buffer_zero_sse2 },
+         { CPUINFO_ALWAYS,    0, buffer_zero_int },
+-- 
+2.51.0
+

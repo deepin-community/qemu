@@ -1,0 +1,132 @@
+From 1ac096e29c67c383c5575cf82659ca6c4f5c1dad Mon Sep 17 00:00:00 2001
+From: Bibo Mao <maobibo@loongson.cn>
+Date: Fri, 14 Feb 2025 17:10:48 +0800
+Subject: [PATCH 129/285] target/loongarch: Move kvm specified vCPU property to
+ kvm directory
+
+LBT and PMU feature is supported only in kvm mode, move property
+about these two features to function kvm_loongarch_cpu_post_init().
+
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+Reviewed-by: Bibo Mao <maobibo@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ target/loongarch/cpu.c     | 40 ++------------------------------------
+ target/loongarch/kvm/kvm.c | 35 +++++++++++++++++++++++++++++++++
+ 2 files changed, 37 insertions(+), 38 deletions(-)
+
+diff --git a/target/loongarch/cpu.c b/target/loongarch/cpu.c
+index 6f8276bc241f..1be43c3c24b4 100644
+--- a/target/loongarch/cpu.c
++++ b/target/loongarch/cpu.c
+@@ -722,34 +722,12 @@ static void loongarch_set_lasx(Object *obj, bool value, Error **errp)
+     cpu->env.cpucfg[2] = FIELD_DP32(val, CPUCFG2, LASX, value);
+ }
+ 
+-static bool loongarch_get_lbt(Object *obj, Error **errp)
+-{
+-    return LOONGARCH_CPU(obj)->lbt != ON_OFF_AUTO_OFF;
+-}
+-
+-static void loongarch_set_lbt(Object *obj, bool value, Error **errp)
+-{
+-    LoongArchCPU *cpu = LOONGARCH_CPU(obj);
+-
+-    cpu->lbt = value ? ON_OFF_AUTO_ON : ON_OFF_AUTO_OFF;
+-}
+-
+-static bool loongarch_get_pmu(Object *obj, Error **errp)
+-{
+-    return LOONGARCH_CPU(obj)->pmu != ON_OFF_AUTO_OFF;
+-}
+-
+-static void loongarch_set_pmu(Object *obj, bool value, Error **errp)
+-{
+-    LoongArchCPU *cpu = LOONGARCH_CPU(obj);
+-
+-    cpu->pmu = value ? ON_OFF_AUTO_ON : ON_OFF_AUTO_OFF;
+-}
+-
+ void loongarch_cpu_post_init(Object *obj)
+ {
+     LoongArchCPU *cpu = LOONGARCH_CPU(obj);
+ 
++    cpu->lbt = ON_OFF_AUTO_OFF;
++    cpu->pmu = ON_OFF_AUTO_OFF;
+     cpu->lsx = ON_OFF_AUTO_AUTO;
+     cpu->lasx = ON_OFF_AUTO_AUTO;
+     object_property_add_bool(obj, "lsx", loongarch_get_lsx,
+@@ -758,21 +736,7 @@ void loongarch_cpu_post_init(Object *obj)
+                              loongarch_set_lasx);
+     /* lbt is enabled only in kvm mode, not supported in tcg mode */
+     if (kvm_enabled()) {
+-        cpu->lbt = ON_OFF_AUTO_AUTO;
+-        object_property_add_bool(obj, "lbt", loongarch_get_lbt,
+-                                 loongarch_set_lbt);
+-        object_property_set_description(obj, "lbt",
+-                                   "Set off to disable Binary Tranlation.");
+-
+-        cpu->pmu = ON_OFF_AUTO_AUTO;
+-        object_property_add_bool(obj, "pmu", loongarch_get_pmu,
+-                                 loongarch_set_pmu);
+-        object_property_set_description(obj, "pmu",
+-                                   "Set off to performance monitor unit.");
+         kvm_loongarch_cpu_post_init(cpu);
+-    } else {
+-        cpu->lbt = ON_OFF_AUTO_OFF;
+-        cpu->pmu = ON_OFF_AUTO_OFF;
+     }
+ }
+ 
+diff --git a/target/loongarch/kvm/kvm.c b/target/loongarch/kvm/kvm.c
+index 58347409f081..1f53a02ce64d 100644
+--- a/target/loongarch/kvm/kvm.c
++++ b/target/loongarch/kvm/kvm.c
+@@ -1034,8 +1034,43 @@ int kvm_arch_init_vcpu(CPUState *cs)
+     return ret;
+ }
+ 
++static bool loongarch_get_lbt(Object *obj, Error **errp)
++{
++    return LOONGARCH_CPU(obj)->lbt != ON_OFF_AUTO_OFF;
++}
++
++static void loongarch_set_lbt(Object *obj, bool value, Error **errp)
++{
++    LoongArchCPU *cpu = LOONGARCH_CPU(obj);
++
++    cpu->lbt = value ? ON_OFF_AUTO_ON : ON_OFF_AUTO_OFF;
++}
++
++static bool loongarch_get_pmu(Object *obj, Error **errp)
++{
++    return LOONGARCH_CPU(obj)->pmu != ON_OFF_AUTO_OFF;
++}
++
++static void loongarch_set_pmu(Object *obj, bool value, Error **errp)
++{
++    LoongArchCPU *cpu = LOONGARCH_CPU(obj);
++
++    cpu->pmu = value ? ON_OFF_AUTO_ON : ON_OFF_AUTO_OFF;
++}
++
+ void kvm_loongarch_cpu_post_init(LoongArchCPU *cpu)
+ {
++    cpu->lbt = ON_OFF_AUTO_AUTO;
++    object_property_add_bool(OBJECT(cpu), "lbt", loongarch_get_lbt,
++                             loongarch_set_lbt);
++    object_property_set_description(OBJECT(cpu), "lbt",
++                                   "Set off to disable Binary Tranlation.");
++
++    cpu->pmu = ON_OFF_AUTO_AUTO;
++    object_property_add_bool(OBJECT(cpu), "pmu", loongarch_get_pmu,
++                             loongarch_set_pmu);
++    object_property_set_description(OBJECT(cpu), "pmu",
++                               "Set off to disable performance monitor unit.");
+ }
+ 
+ int kvm_arch_destroy_vcpu(CPUState *cs)
+-- 
+2.51.0
+

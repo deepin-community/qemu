@@ -1,0 +1,86 @@
+From eb989df894ca4f1342bae49b891426c26b674c9b Mon Sep 17 00:00:00 2001
+From: Bibo Mao <maobibo@loongson.cn>
+Date: Mon, 15 Jul 2024 18:51:31 +0200
+Subject: [PATCH 063/285] hw/intc/loongson_ipi: Expose
+ loongson_ipi_core_read/write helpers
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+In order to access loongson_ipi_core_read/write helpers
+from loongson_ipi_common.c in the next commit, make their
+prototype declaration public.
+
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+[PMD: Extracted from bigger commit, added commit description]
+Co-Developed-by: Philippe Mathieu-Daudé <philmd@linaro.org>
+Signed-off-by: Philippe Mathieu-Daudé <philmd@linaro.org>
+Reviewed-by: Bibo Mao <maobibo@loongson.cn>
+Tested-by: Bibo Mao <maobibo@loongson.cn>
+Acked-by: Song Gao <gaosong@loongson.cn>
+Reviewed-by: Richard Henderson <richard.henderson@linaro.org>
+Reviewed-by: Jiaxun Yang <jiaxun.yang@flygoat.com>
+Tested-by: Jiaxun Yang <jiaxun.yang@flygoat.com>
+Message-Id: <20240805180622.21001-11-philmd@linaro.org>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ hw/intc/loongson_ipi.c                | 10 ++++------
+ include/hw/intc/loongson_ipi_common.h |  6 ++++++
+ 2 files changed, 10 insertions(+), 6 deletions(-)
+
+diff --git a/hw/intc/loongson_ipi.c b/hw/intc/loongson_ipi.c
+index 4a8e7435282f..c13cb5a1d200 100644
+--- a/hw/intc/loongson_ipi.c
++++ b/hw/intc/loongson_ipi.c
+@@ -24,9 +24,8 @@
+ #endif
+ #include "trace.h"
+ 
+-static MemTxResult loongson_ipi_core_readl(void *opaque, hwaddr addr,
+-                                           uint64_t *data,
+-                                           unsigned size, MemTxAttrs attrs)
++MemTxResult loongson_ipi_core_readl(void *opaque, hwaddr addr, uint64_t *data,
++                                    unsigned size, MemTxAttrs attrs)
+ {
+     IPICore *s = opaque;
+     uint64_t ret = 0;
+@@ -165,9 +164,8 @@ static MemTxResult any_send(LoongsonIPICommonState *ipi,
+     return send_ipi_data(ipi, cs, val, addr, attrs);
+ }
+ 
+-static MemTxResult loongson_ipi_core_writel(void *opaque, hwaddr addr,
+-                                            uint64_t val, unsigned size,
+-                                            MemTxAttrs attrs)
++MemTxResult loongson_ipi_core_writel(void *opaque, hwaddr addr, uint64_t val,
++                                     unsigned size, MemTxAttrs attrs)
+ {
+     IPICore *s = opaque;
+     LoongsonIPICommonState *ipi = s->ipi;
+diff --git a/include/hw/intc/loongson_ipi_common.h b/include/hw/intc/loongson_ipi_common.h
+index 8997676f0df7..65f8ef795779 100644
+--- a/include/hw/intc/loongson_ipi_common.h
++++ b/include/hw/intc/loongson_ipi_common.h
+@@ -10,6 +10,7 @@
+ 
+ #include "qom/object.h"
+ #include "hw/sysbus.h"
++#include "exec/memattrs.h"
+ 
+ #define IPI_MBX_NUM           4
+ 
+@@ -44,6 +45,11 @@ struct LoongsonIPICommonClass {
+     CPUState *(*cpu_by_arch_id)(int64_t id);
+ };
+ 
++MemTxResult loongson_ipi_core_readl(void *opaque, hwaddr addr, uint64_t *data,
++                                    unsigned size, MemTxAttrs attrs);
++MemTxResult loongson_ipi_core_writel(void *opaque, hwaddr addr, uint64_t val,
++                                     unsigned size, MemTxAttrs attrs);
++
+ /* Mainy used by iocsr read and write */
+ #define SMP_IPI_MAILBOX         0x1000ULL
+ 
+-- 
+2.51.0
+

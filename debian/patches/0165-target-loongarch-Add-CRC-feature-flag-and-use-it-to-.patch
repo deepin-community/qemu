@@ -1,0 +1,110 @@
+From 2a5c077c323319227694c4259b0c172062bd7860 Mon Sep 17 00:00:00 2001
+From: WANG Rui <wangrui@loongson.cn>
+Date: Fri, 18 Apr 2025 16:21:01 +0800
+Subject: [PATCH 165/285] target/loongarch: Add CRC feature flag and use it to
+ gate CRC instructions
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+This patch replaces the obsolete IOCSR_BRD bit with CRC in cpucfg1[25],
+in both LA464 and LA132 CPU initialization functions. The corresponding
+field macro in `cpu.h` is updated to reflect this change.
+
+Additionally, the availability macro `avail_CRC()` is introduced in
+`translate.h` to check the CRC feature flag.
+
+All CRC-related instruction translations are updated to be gated by
+the new CRC feature flag instead of hardcoded CPU features.
+
+This ensures correctness and configurability when enabling CRC
+instructions based on hardware capabilities.
+
+Signed-off-by: WANG Rui <wangrui@loongson.cn>
+Reviewed-by: Bibo Mao <maobibo@loongson.cn>
+Reviewed-by: Philippe Mathieu-Daudé <philmd@linaro.org>
+Message-Id: <20250418082103.447780-2-wangrui@loongson.cn>
+Signed-off-by: Song Gao <gaosong@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ target/loongarch/cpu.c                           |  4 ++--
+ target/loongarch/cpu.h                           |  2 +-
+ .../loongarch/tcg/insn_trans/trans_extra.c.inc   | 16 ++++++++--------
+ target/loongarch/translate.h                     |  1 +
+ 4 files changed, 12 insertions(+), 11 deletions(-)
+
+diff --git a/target/loongarch/cpu.c b/target/loongarch/cpu.c
+index ecbe511ef17c..71bed779d377 100644
+--- a/target/loongarch/cpu.c
++++ b/target/loongarch/cpu.c
+@@ -405,7 +405,7 @@ static void loongarch_la464_initfn(Object *obj)
+     data = FIELD_DP32(data, CPUCFG1, EP, 1);
+     data = FIELD_DP32(data, CPUCFG1, RPLV, 1);
+     data = FIELD_DP32(data, CPUCFG1, HP, 1);
+-    data = FIELD_DP32(data, CPUCFG1, IOCSR_BRD, 1);
++    data = FIELD_DP32(data, CPUCFG1, CRC, 1);
+     env->cpucfg[1] = data;
+ 
+     data = 0;
+@@ -503,7 +503,7 @@ static void loongarch_la132_initfn(Object *obj)
+     data = FIELD_DP32(data, CPUCFG1, EP, 0);
+     data = FIELD_DP32(data, CPUCFG1, RPLV, 0);
+     data = FIELD_DP32(data, CPUCFG1, HP, 1);
+-    data = FIELD_DP32(data, CPUCFG1, IOCSR_BRD, 1);
++    data = FIELD_DP32(data, CPUCFG1, CRC, 1);
+     env->cpucfg[1] = data;
+ }
+ 
+diff --git a/target/loongarch/cpu.h b/target/loongarch/cpu.h
+index ae8527f346e8..faae3bb2382b 100644
+--- a/target/loongarch/cpu.h
++++ b/target/loongarch/cpu.h
+@@ -132,7 +132,7 @@ FIELD(CPUCFG1, RI, 21, 1)
+ FIELD(CPUCFG1, EP, 22, 1)
+ FIELD(CPUCFG1, RPLV, 23, 1)
+ FIELD(CPUCFG1, HP, 24, 1)
+-FIELD(CPUCFG1, IOCSR_BRD, 25, 1)
++FIELD(CPUCFG1, CRC, 25, 1)
+ FIELD(CPUCFG1, MSG_INT, 26, 1)
+ 
+ /* cpucfg[1].arch */
+diff --git a/target/loongarch/tcg/insn_trans/trans_extra.c.inc b/target/loongarch/tcg/insn_trans/trans_extra.c.inc
+index cfa361fecfa9..eda3d6e56111 100644
+--- a/target/loongarch/tcg/insn_trans/trans_extra.c.inc
++++ b/target/loongarch/tcg/insn_trans/trans_extra.c.inc
+@@ -97,11 +97,11 @@ static bool gen_crc(DisasContext *ctx, arg_rrr *a,
+     return true;
+ }
+ 
+-TRANS(crc_w_b_w, 64, gen_crc, gen_helper_crc32, tcg_constant_tl(1))
+-TRANS(crc_w_h_w, 64, gen_crc, gen_helper_crc32, tcg_constant_tl(2))
+-TRANS(crc_w_w_w, 64, gen_crc, gen_helper_crc32, tcg_constant_tl(4))
+-TRANS(crc_w_d_w, 64, gen_crc, gen_helper_crc32, tcg_constant_tl(8))
+-TRANS(crcc_w_b_w, 64, gen_crc, gen_helper_crc32c, tcg_constant_tl(1))
+-TRANS(crcc_w_h_w, 64, gen_crc, gen_helper_crc32c, tcg_constant_tl(2))
+-TRANS(crcc_w_w_w, 64, gen_crc, gen_helper_crc32c, tcg_constant_tl(4))
+-TRANS(crcc_w_d_w, 64, gen_crc, gen_helper_crc32c, tcg_constant_tl(8))
++TRANS(crc_w_b_w, CRC, gen_crc, gen_helper_crc32, tcg_constant_tl(1))
++TRANS(crc_w_h_w, CRC, gen_crc, gen_helper_crc32, tcg_constant_tl(2))
++TRANS(crc_w_w_w, CRC, gen_crc, gen_helper_crc32, tcg_constant_tl(4))
++TRANS(crc_w_d_w, CRC, gen_crc, gen_helper_crc32, tcg_constant_tl(8))
++TRANS(crcc_w_b_w, CRC, gen_crc, gen_helper_crc32c, tcg_constant_tl(1))
++TRANS(crcc_w_h_w, CRC, gen_crc, gen_helper_crc32c, tcg_constant_tl(2))
++TRANS(crcc_w_w_w, CRC, gen_crc, gen_helper_crc32c, tcg_constant_tl(4))
++TRANS(crcc_w_d_w, CRC, gen_crc, gen_helper_crc32c, tcg_constant_tl(8))
+diff --git a/target/loongarch/translate.h b/target/loongarch/translate.h
+index 195f53573a0b..018dc5eb171b 100644
+--- a/target/loongarch/translate.h
++++ b/target/loongarch/translate.h
+@@ -25,6 +25,7 @@
+ #define avail_LSX(C)   (FIELD_EX32((C)->cpucfg2, CPUCFG2, LSX))
+ #define avail_LASX(C)  (FIELD_EX32((C)->cpucfg2, CPUCFG2, LASX))
+ #define avail_IOCSR(C) (FIELD_EX32((C)->cpucfg1, CPUCFG1, IOCSR))
++#define avail_CRC(C)   (FIELD_EX32((C)->cpucfg1, CPUCFG1, CRC))
+ 
+ /*
+  * If an operation is being performed on less than TARGET_LONG_BITS,
+-- 
+2.51.0
+

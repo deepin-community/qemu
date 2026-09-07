@@ -1,0 +1,43 @@
+From 483289ef7b31d0418d0610717e96024241f14f79 Mon Sep 17 00:00:00 2001
+From: Bibo Mao <maobibo@loongson.cn>
+Date: Mon, 10 Feb 2025 10:19:49 +0800
+Subject: [PATCH 138/285] hw/intc/loongarch_ipi: Notify ipi object when cpu is
+ plugged
+
+Use hotplug_handler_plug() to nofity ipi object when cold-plug
+cpu is created, so that ipi can set and configure irq routing
+to new cpu.
+
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ hw/loongarch/virt.c | 5 ++---
+ 1 file changed, 2 insertions(+), 3 deletions(-)
+
+diff --git a/hw/loongarch/virt.c b/hw/loongarch/virt.c
+index 2c5ab3b2ad8d..2b506b91f199 100644
+--- a/hw/loongarch/virt.c
++++ b/hw/loongarch/virt.c
+@@ -328,6 +328,7 @@ static void virt_cpu_irq_init(LoongArchVirtMachineState *lvms)
+     MachineClass *mc = MACHINE_GET_CLASS(ms);
+     const CPUArchIdList *possible_cpus;
+     CPUState *cs;
++    Error *err = NULL;
+ 
+     /* cpu nodes */
+     possible_cpus = mc->possible_cpu_arch_ids(ms);
+@@ -337,9 +338,7 @@ static void virt_cpu_irq_init(LoongArchVirtMachineState *lvms)
+             continue;
+         }
+ 
+-        /* connect ipi irq to cpu irq */
+-        qdev_connect_gpio_out(lvms->ipi, num,
+-                              qdev_get_gpio_in(DEVICE(cs), IRQ_IPI));
++        hotplug_handler_plug(HOTPLUG_HANDLER(lvms->ipi), DEVICE(cs), &err);
+ 
+         /*
+          * connect ext irq to the cpu irq
+-- 
+2.51.0
+

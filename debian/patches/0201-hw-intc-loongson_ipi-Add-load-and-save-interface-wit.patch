@@ -1,0 +1,80 @@
+From 31033bcb796d5ecefae70f14252553e5c2be4cb0 Mon Sep 17 00:00:00 2001
+From: Bibo Mao <maobibo@loongson.cn>
+Date: Fri, 6 Jun 2025 14:30:24 +0800
+Subject: [PATCH 201/285] hw/intc/loongson_ipi: Add load and save interface
+ with ipi_common class
+
+Add pre_save and post_load interfaces with ipi_common class, here only
+framework ipi_common adds these interfaces. The defailed implementation
+is LoongArchIPI child device in later.
+
+Reviewed-by: Song Gao <gaosong@loongson.cn>
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+Message-ID: <20250606063033.2557365-5-maobibo@loongson.cn>
+Signed-off-by: Song Gao <gaosong@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ hw/intc/loongson_ipi_common.c         | 28 +++++++++++++++++++++++++++
+ include/hw/intc/loongson_ipi_common.h |  2 ++
+ 2 files changed, 30 insertions(+)
+
+diff --git a/hw/intc/loongson_ipi_common.c b/hw/intc/loongson_ipi_common.c
+index 2669057b7ab7..b000e92bedc7 100644
+--- a/hw/intc/loongson_ipi_common.c
++++ b/hw/intc/loongson_ipi_common.c
+@@ -282,10 +282,38 @@ static void loongson_ipi_common_unrealize(DeviceState *dev)
+     g_free(s->cpu);
+ }
+ 
++static int loongson_ipi_common_pre_save(void *opaque)
++{
++    IPICore *ipicore = (IPICore *)opaque;
++    LoongsonIPICommonState *s = ipicore->ipi;
++    LoongsonIPICommonClass *licc = LOONGSON_IPI_COMMON_GET_CLASS(s);
++
++    if (licc->pre_save) {
++        return licc->pre_save(s);
++    }
++
++    return 0;
++}
++
++static int loongson_ipi_common_post_load(void *opaque, int version_id)
++{
++    IPICore *ipicore = (IPICore *)opaque;
++    LoongsonIPICommonState *s = ipicore->ipi;
++    LoongsonIPICommonClass *licc = LOONGSON_IPI_COMMON_GET_CLASS(s);
++
++    if (licc->post_load) {
++        return licc->post_load(s, version_id);
++    }
++
++    return 0;
++}
++
+ static const VMStateDescription vmstate_ipi_core = {
+     .name = "ipi-single",
+     .version_id = 2,
+     .minimum_version_id = 2,
++    .pre_save  = loongson_ipi_common_pre_save,
++    .post_load = loongson_ipi_common_post_load,
+     .fields = (const VMStateField[]) {
+         VMSTATE_UINT32(status, IPICore),
+         VMSTATE_UINT32(en, IPICore),
+diff --git a/include/hw/intc/loongson_ipi_common.h b/include/hw/intc/loongson_ipi_common.h
+index b587f9c571a0..e58ce2aa1c4b 100644
+--- a/include/hw/intc/loongson_ipi_common.h
++++ b/include/hw/intc/loongson_ipi_common.h
+@@ -48,6 +48,8 @@ struct LoongsonIPICommonClass {
+     AddressSpace *(*get_iocsr_as)(CPUState *cpu);
+     int (*cpu_by_arch_id)(LoongsonIPICommonState *lics, int64_t id,
+                           int *index, CPUState **pcs);
++    int (*pre_save)(void *opaque);
++    int (*post_load)(void *opaque, int version_id);
+ };
+ 
+ MemTxResult loongson_ipi_core_readl(void *opaque, hwaddr addr, uint64_t *data,
+-- 
+2.51.0
+

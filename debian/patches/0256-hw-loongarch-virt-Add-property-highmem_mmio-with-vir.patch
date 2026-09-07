@@ -1,0 +1,80 @@
+From bfd04c852312840fe51574545b719a8ea440491d Mon Sep 17 00:00:00 2001
+From: Bibo Mao <maobibo@loongson.cn>
+Date: Fri, 17 Oct 2025 14:45:21 +0800
+Subject: [PATCH 256/285] hw/loongarch/virt: Add property highmem_mmio with
+ virt machine
+
+On LoongArch Virt Machine, MMIO region with GPEX host bridge is
+0x40000000 -- 0x7FFFFFFF. The total size is 1G bytes and it is enough
+for emulated virtio devices basically.
+
+However on some conditions such as hostmem is added with virtio-gpu
+device, the command line is -device virtio-gpu-gl,hostmem=4G. The
+PCIE MMIO region is not enough, 64-bit high MMIO region is required.
+
+Here add property highmem_mmio with virt machine, however it brings
+out incompatible issue. Here the default value is false.
+
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+Reviewed-by: Song Gao <gaosong@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ hw/loongarch/virt.c         | 21 +++++++++++++++++++++
+ include/hw/loongarch/virt.h |  1 +
+ 2 files changed, 22 insertions(+)
+
+diff --git a/hw/loongarch/virt.c b/hw/loongarch/virt.c
+index 52ba039cae85..1678371be64f 100644
+--- a/hw/loongarch/virt.c
++++ b/hw/loongarch/virt.c
+@@ -88,6 +88,20 @@ static void virt_set_veiointc(Object *obj, Visitor *v, const char *name,
+     visit_type_OnOffAuto(v, name, &lvms->veiointc, errp);
+ }
+ 
++static bool virt_get_highmem_mmio(Object *obj, Error **errp)
++{
++    LoongArchVirtMachineState *lvms = LOONGARCH_VIRT_MACHINE(obj);
++
++    return lvms->highmem_mmio;
++}
++
++static void virt_set_highmem_mmio(Object *obj, bool value, Error **errp)
++{
++    LoongArchVirtMachineState *lvms = LOONGARCH_VIRT_MACHINE(obj);
++
++    lvms->highmem_mmio = value;
++}
++
+ static PFlashCFI01 *virt_flash_create1(LoongArchVirtMachineState *lvms,
+                                        const char *name,
+                                        const char *alias_prop_name)
+@@ -1383,6 +1397,13 @@ static void virt_class_init(ObjectClass *oc, void *data)
+                                           "Override the default value of field OEM Table ID "
+                                           "in ACPI table header."
+                                           "The string may be up to 8 bytes in size");
++
++    object_class_property_add_bool(oc, "highmem-mmio",
++                                   virt_get_highmem_mmio,
++                                   virt_set_highmem_mmio);
++    object_class_property_set_description(oc, "highmem-mmio",
++                                          "Set on/off to enable/disable high "
++                                          "memory region for PCI MMIO");
+ }
+ 
+ static const TypeInfo virt_machine_types[] = {
+diff --git a/include/hw/loongarch/virt.h b/include/hw/loongarch/virt.h
+index ee76851ae716..17a4467e6dd8 100644
+--- a/include/hw/loongarch/virt.h
++++ b/include/hw/loongarch/virt.h
+@@ -127,6 +127,7 @@ struct LoongArchVirtMachineState {
+     DeviceState *dintc;
+     hwaddr ram_end;
+     struct GPEXConfig gpex;
++    bool highmem_mmio;
+ };
+ 
+ #define TYPE_LOONGARCH_VIRT_MACHINE  MACHINE_TYPE_NAME("virt")
+-- 
+2.51.0
+

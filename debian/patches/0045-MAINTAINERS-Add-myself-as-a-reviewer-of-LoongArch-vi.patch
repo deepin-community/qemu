@@ -1,0 +1,37 @@
+From 642ceff43a8f51fce4d6f4727d080b5ba03062f4 Mon Sep 17 00:00:00 2001
+From: Jiaxun Yang <jiaxun.yang@flygoat.com>
+Date: Thu, 27 Jun 2024 05:13:28 +0100
+Subject: [PATCH 045/285] MAINTAINERS: Add myself as a reviewer of LoongArch
+ virt machine
+
+I would like to be informed on changes made to the LoongArch virt machine.
+
+I'm fairly familiar with Loongson-3 series platform hardware and doing
+firmwre (U-Boot) development as hobbyist on LoongArch virt platform,
+so I believe I can give positive review input to changes on that machine.
+
+Signed-off-by: Jiaxun Yang <jiaxun.yang@flygoat.com>
+Reviewed-by: Song Gao <gaosong@loongson.cn>
+Message-Id: <20240627-ipi-fixes-v1-2-9b061dc28a3a@flygoat.com>
+Signed-off-by: Song Gao <gaosong@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ MAINTAINERS | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/MAINTAINERS b/MAINTAINERS
+index 8e8df860e720..73744dc96dca 100644
+--- a/MAINTAINERS
++++ b/MAINTAINERS
+@@ -1230,6 +1230,7 @@ LoongArch Machines
+ ------------------
+ Virt
+ M: Song Gao <gaosong@loongson.cn>
++R: Jiaxun Yang <jiaxun.yang@flygoat.com>
+ S: Maintained
+ F: docs/system/loongarch/virt.rst
+ F: configs/targets/loongarch64-softmmu.mak
+-- 
+2.51.0
+

@@ -1,0 +1,45 @@
+From 2e6469d40527722054292ce3051a35c9d89bb15f Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Philippe=20Mathieu-Daud=C3=A9?= <philmd@linaro.org>
+Date: Thu, 12 Dec 2024 15:10:18 +0100
+Subject: [PATCH 154/285] qemu/atomic128: Include missing 'qemu/atomic.h'
+ header
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+qatomic_cmpxchg__nocheck() is declared in "qemu/atomic.h".
+Include it in order to avoid when refactoring unrelated headers:
+
+    In file included from ../../accel/tcg/tcg-runtime-gvec.c:22:
+    In file included from include/exec/helper-proto-common.h:10:
+    In file included from include/qemu/atomic128.h:61:
+    host/include/generic/host/atomic128-cas.h.inc:23:11: error: call to undeclared function 'qatomic_cmpxchg__nocheck'; ISO C99 and later do not support implicit function declarations [-Wimplicit-function-declaration]
+       23 |     r.i = qatomic_cmpxchg__nocheck(ptr_align, c.i, n.i);
+          |           ^
+    1 error generated.
+
+Signed-off-by: Philippe Mathieu-Daudé <philmd@linaro.org>
+Reviewed-by: Richard Henderson <richard.henderson@linaro.org>
+Signed-off-by: Richard Henderson <richard.henderson@linaro.org>
+Message-ID: <20241212141018.59428-4-philmd@linaro.org>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ include/qemu/atomic128.h | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/include/qemu/atomic128.h b/include/qemu/atomic128.h
+index 448fb6447997..31e5c48d8fa3 100644
+--- a/include/qemu/atomic128.h
++++ b/include/qemu/atomic128.h
+@@ -13,6 +13,7 @@
+ #ifndef QEMU_ATOMIC128_H
+ #define QEMU_ATOMIC128_H
+ 
++#include "qemu/atomic.h"
+ #include "qemu/int128.h"
+ 
+ /*
+-- 
+2.51.0
+

@@ -1,0 +1,56 @@
+From ae1e223e56232a925cd3952634fcca77c67a1de7 Mon Sep 17 00:00:00 2001
+From: Bibo Mao <maobibo@loongson.cn>
+Date: Fri, 17 Oct 2025 14:45:19 +0800
+Subject: [PATCH 254/285] hw/loongarch/virt: Get irq number from gpex config
+ info
+
+The base irq number of GPEX PCIE host bridge can comes from gpex::irq.
+
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+Reviewed-by: Song Gao <gaosong@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ hw/loongarch/virt.c | 12 ++++++------
+ 1 file changed, 6 insertions(+), 6 deletions(-)
+
+diff --git a/hw/loongarch/virt.c b/hw/loongarch/virt.c
+index 5dfb90235a0d..9916538f62af 100644
+--- a/hw/loongarch/virt.c
++++ b/hw/loongarch/virt.c
+@@ -289,7 +289,7 @@ static void virt_devices_init(DeviceState *pch_pic,
+     PCIBus *pci_bus;
+     MemoryRegion *ecam_alias, *ecam_reg, *pio_alias, *pio_reg;
+     MemoryRegion *mmio_alias, *mmio_reg;
+-    int i;
++    int i, irq;
+ 
+     gpex_dev = qdev_new(TYPE_GPEX_HOST);
+     d = SYS_BUS_DEVICE(gpex_dev);
+@@ -328,10 +328,10 @@ static void virt_devices_init(DeviceState *pch_pic,
+     memory_region_add_subregion(get_system_memory(), VIRT_PCI_IO_BASE,
+                                 pio_alias);
+ 
+-    for (i = 0; i < GPEX_NUM_IRQS; i++) {
+-        sysbus_connect_irq(d, i,
+-                           qdev_get_gpio_in(pch_pic, 16 + i));
+-        gpex_set_irq_num(GPEX_HOST(gpex_dev), i, 16 + i);
++    for (i = 0; i < PCI_NUM_PINS; i++) {
++        irq = lvms->gpex.irq + i - VIRT_GSI_BASE;
++        sysbus_connect_irq(d, i, qdev_get_gpio_in(pch_pic, irq));
++        gpex_set_irq_num(GPEX_HOST(gpex_dev), i, irq);
+     }
+ 
+     /*
+@@ -340,7 +340,7 @@ static void virt_devices_init(DeviceState *pch_pic,
+      */
+     for (i = VIRT_UART_COUNT; i-- > 0;) {
+         hwaddr base = VIRT_UART_BASE + i * VIRT_UART_SIZE;
+-        int irq = VIRT_UART_IRQ + i - VIRT_GSI_BASE;
++        irq = VIRT_UART_IRQ + i - VIRT_GSI_BASE;
+         serial_mm_init(get_system_memory(), base, 0,
+                        qdev_get_gpio_in(pch_pic, irq),
+                        115200, serial_hd(i), DEVICE_LITTLE_ENDIAN);
+-- 
+2.51.0
+

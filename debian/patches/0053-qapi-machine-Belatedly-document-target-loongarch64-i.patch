@@ -1,0 +1,36 @@
+From 5030d46697f4efc3c2dc31b87e3d258e4dc8ae48 Mon Sep 17 00:00:00 2001
+From: Markus Armbruster <armbru@redhat.com>
+Date: Thu, 18 Jul 2024 16:10:01 +0200
+Subject: [PATCH 053/285] qapi/machine: Belatedly document target loongarch64
+ is since 7.1
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Fixes: a8a506c39070 (hw/loongarch: Add support loongson3 virt machine type.)
+Signed-off-by: Markus Armbruster <armbru@redhat.com>
+Message-ID: <20240718141001.3077709-1-armbru@redhat.com>
+Reviewed-by: Philippe Mathieu-Daudé <philmd@linaro.org>
+Reviewed-by: Song Gao <gaosong@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ qapi/machine.json | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/qapi/machine.json b/qapi/machine.json
+index b6d634b30d55..b0e83e7f925c 100644
+--- a/qapi/machine.json
++++ b/qapi/machine.json
+@@ -24,6 +24,8 @@
+ #
+ # @avr: since 5.1
+ #
++# @loongarch64: since 7.1
++#
+ # Notes: The resulting QMP strings can be appended to the
+ #     "qemu-system-" prefix to produce the corresponding QEMU
+ #     executable name.  This is true even for "qemu-system-x86_64".
+-- 
+2.51.0
+

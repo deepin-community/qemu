@@ -1,0 +1,32 @@
+From d1fb444fc197e026af2dcbd7a4a72d7b724111f1 Mon Sep 17 00:00:00 2001
+From: Bibo Mao <maobibo@loongson.cn>
+Date: Mon, 6 Jan 2025 15:36:26 +0800
+Subject: [PATCH 107/285] hw/intc/loongarch_extioi: Remove num-cpu property
+
+Since cpu number can be acquired from possible_cpu_arch_ids(),
+num-cpu property is not necessary. Here remove num-cpu property
+for object TYPE_LOONGARCH_EXTIOI_COMMON object.
+
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+Reviewed-by: Bibo Mao <maobibo@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ hw/loongarch/virt.c | 1 -
+ 1 file changed, 1 deletion(-)
+
+diff --git a/hw/loongarch/virt.c b/hw/loongarch/virt.c
+index eba1ad02a0b2..02d31d716c5a 100644
+--- a/hw/loongarch/virt.c
++++ b/hw/loongarch/virt.c
+@@ -954,7 +954,6 @@ static void virt_irq_init(LoongArchVirtMachineState *lvms)
+         sysbus_realize_and_unref(SYS_BUS_DEVICE(extioi), &error_fatal);
+     } else {
+         extioi = qdev_new(TYPE_LOONGARCH_EXTIOI);
+-        qdev_prop_set_uint32(extioi, "num-cpu", ms->smp.max_cpus);
+         if (virt_is_veiointc_enabled(lvms)) {
+             qdev_prop_set_bit(extioi, "has-virtualization-extension", true);
+         }
+-- 
+2.51.0
+

@@ -1,0 +1,46 @@
+From 96c21945c448b0fb4c961d4e49235c2db58650e1 Mon Sep 17 00:00:00 2001
+From: Bibo Mao <maobibo@loongson.cn>
+Date: Mon, 10 Feb 2025 16:47:00 +0800
+Subject: [PATCH 148/285] hw/loongarch/virt: Update the ACPI table for hotplug
+ cpu
+
+On LoongArch virt machine, ACPI GED hardware is used for CPU hotplug
+handler, here CPU hotplug support feature is added based on GED handler,
+also CPU scan and reject method is added about CPU device in DSDT table.
+
+Co-developed-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ hw/loongarch/virt-acpi-build.c | 5 ++---
+ 1 file changed, 2 insertions(+), 3 deletions(-)
+
+diff --git a/hw/loongarch/virt-acpi-build.c b/hw/loongarch/virt-acpi-build.c
+index 3770bd39d9c0..b3561ceaecd9 100644
+--- a/hw/loongarch/virt-acpi-build.c
++++ b/hw/loongarch/virt-acpi-build.c
+@@ -128,7 +128,7 @@ build_madt(GArray *table_data, BIOSLinker *linker,
+     MachineState *ms = MACHINE(lvms);
+     MachineClass *mc = MACHINE_GET_CLASS(ms);
+     const CPUArchIdList *arch_ids = mc->possible_cpu_arch_ids(ms);
+-    int i, arch_id;
++    int i, arch_id, flags;
+     AcpiTable table = { .sig = "APIC", .rev = 1, .oem_id = lvms->oem_id,
+                         .oem_table_id = lvms->oem_table_id };
+ 
+@@ -139,10 +139,9 @@ build_madt(GArray *table_data, BIOSLinker *linker,
+     build_append_int_noprefix(table_data, 1 /* PCAT_COMPAT */, 4); /* Flags */
+ 
+     for (i = 0; i < arch_ids->len; i++) {
+-        uint32_t flags;
+-
+         /* Processor Core Interrupt Controller Structure */
+         arch_id = arch_ids->cpus[i].arch_id;
++
+         flags   = arch_ids->cpus[i].cpu ? 1 : 0;
+         build_append_int_noprefix(table_data, 17, 1);    /* Type */
+         build_append_int_noprefix(table_data, 15, 1);    /* Length */
+-- 
+2.51.0
+

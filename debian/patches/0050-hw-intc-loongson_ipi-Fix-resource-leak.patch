@@ -1,0 +1,73 @@
+From 2b4fdde9d5a8d3493148336c43535ac438c218b8 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Philippe=20Mathieu-Daud=C3=A9?= <philmd@linaro.org>
+Date: Tue, 23 Jul 2024 13:08:33 +0200
+Subject: [PATCH 050/285] hw/intc/loongson_ipi: Fix resource leak
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Once initialised, QOM objects can be realized and
+unrealized multiple times before being finalized.
+Resources allocated in REALIZE must be deallocated
+in an equivalent UNREALIZE handler.
+
+Free the CPU array in loongson_ipi_unrealize()
+instead of loongson_ipi_finalize().
+
+Cc: qemu-stable@nongnu.org
+Fixes: 5e90b8db382 ("hw/loongarch: Set iocsr address space per-board rather than percpu")
+Signed-off-by: Philippe Mathieu-Daudé <philmd@linaro.org>
+Reviewed-by: Song Gao <gaosong@loongson.cn>
+Message-Id: <20240723111405.14208-3-philmd@linaro.org>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ hw/intc/loongson_ipi.c | 16 ++++++++--------
+ 1 file changed, 8 insertions(+), 8 deletions(-)
+
+diff --git a/hw/intc/loongson_ipi.c b/hw/intc/loongson_ipi.c
+index e7979dbdd8b5..4013f81745eb 100644
+--- a/hw/intc/loongson_ipi.c
++++ b/hw/intc/loongson_ipi.c
+@@ -318,6 +318,13 @@ static void loongson_ipi_realize(DeviceState *dev, Error **errp)
+     }
+ }
+ 
++static void loongson_ipi_unrealize(DeviceState *dev)
++{
++    LoongsonIPI *s = LOONGSON_IPI(dev);
++
++    g_free(s->cpu);
++}
++
+ static const VMStateDescription vmstate_ipi_core = {
+     .name = "ipi-single",
+     .version_id = 2,
+@@ -353,23 +360,16 @@ static void loongson_ipi_class_init(ObjectClass *klass, void *data)
+     DeviceClass *dc = DEVICE_CLASS(klass);
+ 
+     dc->realize = loongson_ipi_realize;
++    dc->unrealize = loongson_ipi_unrealize;
+     device_class_set_props(dc, ipi_properties);
+     dc->vmsd = &vmstate_loongson_ipi;
+ }
+ 
+-static void loongson_ipi_finalize(Object *obj)
+-{
+-    LoongsonIPI *s = LOONGSON_IPI(obj);
+-
+-    g_free(s->cpu);
+-}
+-
+ static const TypeInfo loongson_ipi_info = {
+     .name          = TYPE_LOONGSON_IPI,
+     .parent        = TYPE_SYS_BUS_DEVICE,
+     .instance_size = sizeof(LoongsonIPI),
+     .class_init    = loongson_ipi_class_init,
+-    .instance_finalize = loongson_ipi_finalize,
+ };
+ 
+ static void loongson_ipi_register_types(void)
+-- 
+2.51.0
+

@@ -1,0 +1,85 @@
+From fc2c2ee66c65e6b73a11d2d1697b3ec1c660e86b Mon Sep 17 00:00:00 2001
+From: Bibo Mao <maobibo@loongson.cn>
+Date: Wed, 25 Feb 2026 09:41:27 +0800
+Subject: [PATCH 269/285] target/loongarch: Add detailed information with CPU
+ Product ID
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+CPUCFG0 is LoongArch CPU Product ID, it is a combination of Vendor ID,
+Series ID and Product ID, here is the layout:
+ +-------------+----------------+------------+----------------+
+ | Reserved    | Vendor  ID     | Series ID  |  Product ID    |
+ +-------------+----------------+------------+----------------+
+  31         24 23            16 15        12 11              0
+
+Here adds detailed information with CPUCFG0, it is convenient to add
+such information with host or LA664 CPU type in future.
+
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+Reviewed-by: Philippe Mathieu-Daudé <philmd@linaro.org>
+Signed-off-by: Song Gao <gaosong@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ target/loongarch/cpu.c | 12 ++++++++++--
+ target/loongarch/cpu.h | 10 +++++++++-
+ 2 files changed, 19 insertions(+), 3 deletions(-)
+
+diff --git a/target/loongarch/cpu.c b/target/loongarch/cpu.c
+index 14033aab6b82..4871ed5baf6b 100644
+--- a/target/loongarch/cpu.c
++++ b/target/loongarch/cpu.c
+@@ -552,8 +552,12 @@ static void loongarch_la464_initfn(Object *obj)
+     }
+ 
+     cpu->dtb_compatible = "loongarch,Loongson-3A5000";
+-    env->cpucfg[0] = 0x14c010;  /* PRID */
++    data = FIELD_DP32(data, CPUCFG0, PRID, 0x10);
++    data = FIELD_DP32(data, CPUCFG0, SERID, PRID_SERIES_LA464);
++    data = FIELD_DP32(data, CPUCFG0, VENID, PRID_VENDOR_LOONGSON);
++    env->cpucfg[0] = data;
+ 
++    data = 0;
+     data = FIELD_DP32(data, CPUCFG1, ARCH, 2);
+     data = FIELD_DP32(data, CPUCFG1, PGMMU, 1);
+     data = FIELD_DP32(data, CPUCFG1, IOCSR, 1);
+@@ -658,8 +662,12 @@ static void loongarch_la132_initfn(Object *obj)
+     }
+ 
+     cpu->dtb_compatible = "loongarch,Loongson-1C103";
+-    env->cpucfg[0] = 0x148042;  /* PRID */
++    data = FIELD_DP32(data, CPUCFG0, PRID, 0x42);
++    data = FIELD_DP32(data, CPUCFG0, SERID, PRID_SERIES_LA132);
++    data = FIELD_DP32(data, CPUCFG0, VENID, PRID_VENDOR_LOONGSON);
++    env->cpucfg[0] = data;
+ 
++    data = 0;
+     data = FIELD_DP32(data, CPUCFG1, ARCH, 1); /* LA32 */
+     data = FIELD_DP32(data, CPUCFG1, PGMMU, 1);
+     data = FIELD_DP32(data, CPUCFG1, IOCSR, 1);
+diff --git a/target/loongarch/cpu.h b/target/loongarch/cpu.h
+index c7979b005713..02d23e51d109 100644
+--- a/target/loongarch/cpu.h
++++ b/target/loongarch/cpu.h
+@@ -98,7 +98,15 @@ FIELD(FCSR0, CAUSE, 24, 5)
+ #define  EXCCODE_DBP                 EXCODE(26, 0) /* Reserved subcode used for debug */
+ 
+ /* cpucfg[0] bits */
+-FIELD(CPUCFG0, PRID, 0, 32)
++FIELD(CPUCFG0, PRID, 0, 12)
++FIELD(CPUCFG0, SERID, 12, 4)
++FIELD(CPUCFG0, VENID, 16, 8)
++#define PRID_SERIES_LA132            0x8  /* Loongson 32bit */
++#define PRID_SERIES_LA264            0xa  /* Loongson 64bit, 2-issue */
++#define PRID_SERIES_LA364            0xb  /* Loongson 64bit, 3-issue */
++#define PRID_SERIES_LA464            0xc  /* Loongson 64bit, 4-issue */
++#define PRID_SERIES_LA664            0xd  /* Loongson 64bit, 6-issue */
++#define PRID_VENDOR_LOONGSON         0x14
+ 
+ /* cpucfg[1] bits */
+ FIELD(CPUCFG1, ARCH, 0, 2)
+-- 
+2.51.0
+

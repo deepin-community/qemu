@@ -1,0 +1,91 @@
+From 4b1c6bd76dffb1bf54ce7a661c11bff209e64d76 Mon Sep 17 00:00:00 2001
+From: Bibo Mao <maobibo@loongson.cn>
+Date: Fri, 10 Jan 2025 15:35:24 +0800
+Subject: [PATCH 140/285] hw/intc/loongarch_extioi: Add basic hotplug framework
+
+LoongArch extioi interrupt controller routes peripheral interrupt
+to multiple CPUs, physical cpu id is used in interrupt routing table.
+Here hotplug interface is added for extioi object, so that parent irq
+line can be connected, and routing table can be added for new created
+cpu.
+
+Here only basic hotplug framework is added, it is stub function.
+
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ hw/intc/loongarch_extioi_common.c | 33 +++++++++++++++++++++++++++++++
+ 1 file changed, 33 insertions(+)
+
+diff --git a/hw/intc/loongarch_extioi_common.c b/hw/intc/loongarch_extioi_common.c
+index 4f01575b6f1f..fcae4f0d01e1 100644
+--- a/hw/intc/loongarch_extioi_common.c
++++ b/hw/intc/loongarch_extioi_common.c
+@@ -4,11 +4,37 @@
+  * Copyright (C) 2024 Loongson Technology Corporation Limited
+  */
+ #include "qemu/osdep.h"
++#include "qemu/error-report.h"
+ #include "qemu/module.h"
+ #include "qapi/error.h"
+ #include "hw/qdev-properties.h"
+ #include "hw/intc/loongarch_extioi_common.h"
+ #include "migration/vmstate.h"
++#include "target/loongarch/cpu.h"
++
++static void loongarch_extioi_cpu_plug(HotplugHandler *hotplug_dev,
++                                      DeviceState *dev, Error **errp)
++{
++    Object *obj = OBJECT(dev);
++
++    if (!object_dynamic_cast(obj, TYPE_LOONGARCH_CPU)) {
++        warn_report("LoongArch extioi: Invalid %s device type",
++                                       object_get_typename(obj));
++        return;
++    }
++}
++
++static void loongarch_extioi_cpu_unplug(HotplugHandler *hotplug_dev,
++                                        DeviceState *dev, Error **errp)
++{
++    Object *obj = OBJECT(dev);
++
++    if (!object_dynamic_cast(obj, TYPE_LOONGARCH_CPU)) {
++        warn_report("LoongArch extioi: Invalid %s device type",
++                                       object_get_typename(obj));
++        return;
++    }
++}
+ 
+ static void loongarch_extioi_common_realize(DeviceState *dev, Error **errp)
+ {
+@@ -108,11 +134,14 @@ static void loongarch_extioi_common_class_init(ObjectClass *klass, void *data)
+ {
+     DeviceClass *dc = DEVICE_CLASS(klass);
+     LoongArchExtIOICommonClass *lecc = LOONGARCH_EXTIOI_COMMON_CLASS(klass);
++    HotplugHandlerClass *hc = HOTPLUG_HANDLER_CLASS(klass);
+ 
+     device_class_set_parent_realize(dc, loongarch_extioi_common_realize,
+                                     &lecc->parent_realize);
+     device_class_set_props(dc, extioi_properties);
+     dc->vmsd = &vmstate_loongarch_extioi;
++    hc->plug = loongarch_extioi_cpu_plug;
++    hc->unplug = loongarch_extioi_cpu_unplug;
+ }
+ 
+ static const TypeInfo loongarch_extioi_common_types[] = {
+@@ -122,6 +151,10 @@ static const TypeInfo loongarch_extioi_common_types[] = {
+         .instance_size      = sizeof(LoongArchExtIOICommonState),
+         .class_size         = sizeof(LoongArchExtIOICommonClass),
+         .class_init         = loongarch_extioi_common_class_init,
++        .interfaces         = (InterfaceInfo[]) {
++            { TYPE_HOTPLUG_HANDLER },
++            { }
++        },
+         .abstract           = true,
+     }
+ };
+-- 
+2.51.0
+

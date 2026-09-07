@@ -1,0 +1,57 @@
+From b8a884417d87cb2052935875eb8ffc4bc3e8a955 Mon Sep 17 00:00:00 2001
+From: Alexander Monakov <amonakov@ispras.ru>
+Date: Tue, 6 Feb 2024 23:48:07 +0300
+Subject: [PATCH 036/285] util/bufferiszero: Remove useless prefetches
+
+Use of prefetching in bufferiszero.c is quite questionable:
+
+- prefetches are issued just a few CPU cycles before the corresponding
+  line would be hit by demand loads;
+
+- they are done for simple access patterns, i.e. where hardware
+  prefetchers can perform better;
+
+- they compete for load ports in loops that should be limited by load
+  port throughput rather than ALU throughput.
+
+Signed-off-by: Alexander Monakov <amonakov@ispras.ru>
+Signed-off-by: Mikhail Romanov <mmromanov@ispras.ru>
+Reviewed-by: Richard Henderson <richard.henderson@linaro.org>
+Message-Id: <20240206204809.9859-5-amonakov@ispras.ru>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ util/bufferiszero.c | 3 ---
+ 1 file changed, 3 deletions(-)
+
+diff --git a/util/bufferiszero.c b/util/bufferiszero.c
+index 972f394cbdde..00118d649ef0 100644
+--- a/util/bufferiszero.c
++++ b/util/bufferiszero.c
+@@ -50,7 +50,6 @@ static bool buffer_is_zero_integer(const void *buf, size_t len)
+         const uint64_t *e = (uint64_t *)(((uintptr_t)buf + len) & -8);
+ 
+         for (; p + 8 <= e; p += 8) {
+-            __builtin_prefetch(p + 8);
+             if (t) {
+                 return false;
+             }
+@@ -80,7 +79,6 @@ buffer_zero_sse2(const void *buf, size_t len)
+ 
+     /* Loop over 16-byte aligned blocks of 64.  */
+     while (likely(p <= e)) {
+-        __builtin_prefetch(p);
+         t = _mm_cmpeq_epi8(t, zero);
+         if (unlikely(_mm_movemask_epi8(t) != 0xFFFF)) {
+             return false;
+@@ -111,7 +109,6 @@ buffer_zero_avx2(const void *buf, size_t len)
+ 
+     /* Loop over 32-byte aligned blocks of 128.  */
+     while (p <= e) {
+-        __builtin_prefetch(p);
+         if (unlikely(!_mm256_testz_si256(t, t))) {
+             return false;
+         }
+-- 
+2.51.0
+

@@ -1,0 +1,81 @@
+From fdcd0d8e1239a01b1372c80bc0d28929031aa177 Mon Sep 17 00:00:00 2001
+From: Bibo Mao <maobibo@loongson.cn>
+Date: Wed, 7 May 2025 10:37:50 +0800
+Subject: [PATCH 186/285] hw/intc/loongarch_pch: Use generic write callback for
+ iomem8 region
+
+Add iomem8 region register write operation emulation in generic write
+function loongarch_pch_pic_write(), and use this function for iomem8
+region.
+
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+Reviewed-by: Song Gao <gaosong@loongson.cn>
+Message-Id: <20250507023754.1877445-1-maobibo@loongson.cn>
+Signed-off-by: Song Gao <gaosong@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ hw/intc/loongarch_pch_pic.c | 31 ++++++++++---------------------
+ 1 file changed, 10 insertions(+), 21 deletions(-)
+
+diff --git a/hw/intc/loongarch_pch_pic.c b/hw/intc/loongarch_pch_pic.c
+index 5d535338df97..06b42dfe281f 100644
+--- a/hw/intc/loongarch_pch_pic.c
++++ b/hw/intc/loongarch_pch_pic.c
+@@ -132,7 +132,7 @@ static void pch_pic_write(void *opaque, hwaddr addr, uint64_t value,
+ {
+     LoongArchPICCommonState *s = LOONGARCH_PIC_COMMON(opaque);
+     uint32_t offset;
+-    uint64_t old, mask, data;
++    uint64_t old, mask, data, *ptemp;
+ 
+     offset = addr & 7;
+     addr -= offset;
+@@ -170,6 +170,14 @@ static void pch_pic_write(void *opaque, hwaddr addr, uint64_t value,
+     case PCH_PIC_INT_POL:
+         s->int_polarity = (s->int_polarity & ~mask) | data;
+         break;
++    case PCH_PIC_HTMSI_VEC ... PCH_PIC_HTMSI_VEC_END:
++        ptemp = (uint64_t *)(s->htmsi_vector + addr - PCH_PIC_HTMSI_VEC);
++        *ptemp = (*ptemp & ~mask) | data;
++        break;
++    case PCH_PIC_ROUTE_ENTRY ... PCH_PIC_ROUTE_ENTRY_END:
++        ptemp = (uint64_t *)(s->route_entry + addr - PCH_PIC_ROUTE_ENTRY);
++        *ptemp = (*ptemp & ~mask) | data;
++        break;
+     default:
+         qemu_log_mask(LOG_GUEST_ERROR,
+                       "pch_pic_write: Bad address 0x%"PRIx64"\n", addr);
+@@ -278,28 +286,9 @@ static uint64_t loongarch_pch_pic_readb(void *opaque, hwaddr addr,
+ static void loongarch_pch_pic_writeb(void *opaque, hwaddr addr,
+                                      uint64_t data, unsigned size)
+ {
+-    LoongArchPICCommonState *s = LOONGARCH_PIC_COMMON(opaque);
+-    int32_t offset_tmp;
+-
+     addr += PCH_PIC_ROUTE_ENTRY;
+     trace_loongarch_pch_pic_writeb(size, addr, data);
+-
+-    switch (addr) {
+-    case PCH_PIC_HTMSI_VEC ... PCH_PIC_HTMSI_VEC_END:
+-        offset_tmp = addr - PCH_PIC_HTMSI_VEC;
+-        if (offset_tmp >= 0 && offset_tmp < 64) {
+-            s->htmsi_vector[offset_tmp] = (uint8_t)(data & 0xff);
+-        }
+-        break;
+-    case PCH_PIC_ROUTE_ENTRY ... PCH_PIC_ROUTE_ENTRY_END:
+-        offset_tmp = addr - PCH_PIC_ROUTE_ENTRY;
+-        if (offset_tmp >= 0 && offset_tmp < 64) {
+-            s->route_entry[offset_tmp] = (uint8_t)(data & 0xff);
+-        }
+-        break;
+-    default:
+-        break;
+-    }
++    loongarch_pch_pic_write(opaque, addr, data, size);
+ }
+ 
+ static const MemoryRegionOps loongarch_pch_pic_reg32_low_ops = {
+-- 
+2.51.0
+

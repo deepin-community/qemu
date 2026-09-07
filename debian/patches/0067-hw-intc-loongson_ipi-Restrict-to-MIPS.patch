@@ -1,0 +1,82 @@
+From f12bb1941b224bf1ff09e8b61e5b36875522eefc Mon Sep 17 00:00:00 2001
+From: Bibo Mao <maobibo@loongson.cn>
+Date: Wed, 17 Jul 2024 23:32:49 +0200
+Subject: [PATCH 067/285] hw/intc/loongson_ipi: Restrict to MIPS
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Now than LoongArch target can use the TYPE_LOONGARCH_IPI
+model, restrict TYPE_LOONGSON_IPI to MIPS.
+
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+[PMD: Extracted from bigger commit, added commit description]
+Co-Developed-by: Philippe Mathieu-Daudé <philmd@linaro.org>
+Signed-off-by: Philippe Mathieu-Daudé <philmd@linaro.org>
+Reviewed-by: Bibo Mao <maobibo@loongson.cn>
+Tested-by: Bibo Mao <maobibo@loongson.cn>
+Acked-by: Song Gao <gaosong@loongson.cn>
+Reviewed-by: Richard Henderson <richard.henderson@linaro.org>
+Reviewed-by: Jiaxun Yang <jiaxun.yang@flygoat.com>
+Tested-by: Jiaxun Yang <jiaxun.yang@flygoat.com>
+Message-Id: <20240805180622.21001-15-philmd@linaro.org>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ MAINTAINERS            |  2 --
+ hw/intc/loongson_ipi.c | 14 --------------
+ 2 files changed, 16 deletions(-)
+
+diff --git a/MAINTAINERS b/MAINTAINERS
+index 1a40941605cf..cf4e88f1f3a2 100644
+--- a/MAINTAINERS
++++ b/MAINTAINERS
+@@ -1239,10 +1239,8 @@ F: hw/loongarch/
+ F: include/hw/loongarch/virt.h
+ F: include/hw/intc/loongarch_*.h
+ F: include/hw/intc/loongson_ipi_common.h
+-F: include/hw/intc/loongson_ipi.h
+ F: hw/intc/loongarch_*.c
+ F: hw/intc/loongson_ipi_common.c
+-F: hw/intc/loongson_ipi.c
+ F: include/hw/pci-host/ls7a.h
+ F: hw/rtc/ls7a_rtc.c
+ F: gdb-xml/loongarch*.xml
+diff --git a/hw/intc/loongson_ipi.c b/hw/intc/loongson_ipi.c
+index 0b88ae323043..8382ceca67b2 100644
+--- a/hw/intc/loongson_ipi.c
++++ b/hw/intc/loongson_ipi.c
+@@ -16,22 +16,9 @@
+ #include "exec/address-spaces.h"
+ #include "exec/memory.h"
+ #include "migration/vmstate.h"
+-#ifdef TARGET_LOONGARCH64
+-#include "target/loongarch/cpu.h"
+-#endif
+-#ifdef TARGET_MIPS
+ #include "target/mips/cpu.h"
+-#endif
+ #include "trace.h"
+ 
+-#ifdef TARGET_LOONGARCH64
+-static AddressSpace *get_iocsr_as(CPUState *cpu)
+-{
+-    return LOONGARCH_CPU(cpu)->env.address_space_iocsr;
+-}
+-#endif
+-
+-#ifdef TARGET_MIPS
+ static AddressSpace *get_iocsr_as(CPUState *cpu)
+ {
+     if (ase_lcsr_available(&MIPS_CPU(cpu)->env)) {
+@@ -40,7 +27,6 @@ static AddressSpace *get_iocsr_as(CPUState *cpu)
+ 
+     return NULL;
+ }
+-#endif
+ 
+ static const MemoryRegionOps loongson_ipi_core_ops = {
+     .read_with_attrs = loongson_ipi_core_readl,
+-- 
+2.51.0
+

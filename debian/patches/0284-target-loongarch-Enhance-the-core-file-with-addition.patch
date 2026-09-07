@@ -1,0 +1,59 @@
+From 924fc8777c514bfb14bc0d4522195073d7c9efc7 Mon Sep 17 00:00:00 2001
+From: Xianglai Li <lixianglai@loongson.cn>
+Date: Wed, 10 Jun 2026 08:54:56 +0800
+Subject: [PATCH 284/285] target/loongarch: Enhance the core file with
+ additional register information
+
+When generating a core file, write more CRS register information into the
+ELF file.
+
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ target/loongarch/arch_dump.c | 19 ++++++++++++++++---
+ 1 file changed, 16 insertions(+), 3 deletions(-)
+
+diff --git a/target/loongarch/arch_dump.c b/target/loongarch/arch_dump.c
+index d9e1120333ce..abe27192968f 100644
+--- a/target/loongarch/arch_dump.c
++++ b/target/loongarch/arch_dump.c
+@@ -26,11 +26,18 @@
+ /* struct user_pt_regs from arch/loongarch/include/uapi/asm/ptrace.h */
+ struct loongarch_user_regs {
+     uint64_t gpr[32];
+-    uint64_t pad1[1];
++    /* Original syscall arg0. */
++    uint64_t orig_a0;
+     /* Special CSR registers. */
+     uint64_t csr_era;
+     uint64_t csr_badv;
+-    uint64_t pad2[10];
++    uint64_t csr_crmd;
++    uint64_t csr_prmd;
++    uint64_t csr_euen;
++    uint64_t csr_ecfg;
++    uint64_t csr_estat;
++
++    uint64_t pad2[5];
+ } QEMU_PACKED;
+ 
+ QEMU_BUILD_BUG_ON(sizeof(struct loongarch_user_regs) != 360);
+@@ -126,8 +133,14 @@ int loongarch_cpu_write_elf64_note(WriteCoreDumpFunction f, CPUState *cs,
+     for (i = 0; i < 32; ++i) {
+         note.prstatus.pr_reg.gpr[i] = cpu_to_dump64(s, env->gpr[i]);
+     }
+-    note.prstatus.pr_reg.csr_era  = cpu_to_dump64(s, env->CSR_ERA);
++    note.prstatus.pr_reg.orig_a0 = cpu_to_dump64(s, env->gpr[4]);
++    note.prstatus.pr_reg.csr_era  = cpu_to_dump64(s, env->pc);
+     note.prstatus.pr_reg.csr_badv = cpu_to_dump64(s, env->CSR_BADV);
++    note.prstatus.pr_reg.csr_crmd = cpu_to_dump64(s, env->CSR_CRMD);
++    note.prstatus.pr_reg.csr_prmd = cpu_to_dump64(s, env->CSR_PRMD);
++    note.prstatus.pr_reg.csr_euen = cpu_to_dump64(s, env->CSR_EUEN);
++    note.prstatus.pr_reg.csr_ecfg = cpu_to_dump64(s, env->CSR_ECFG);
++    note.prstatus.pr_reg.csr_estat = cpu_to_dump64(s, env->CSR_ESTAT);
+     ret = f(&note, LOONGARCH_PRSTATUS_NOTE_SIZE, s);
+     if (ret < 0) {
+         return -1;
+-- 
+2.51.0
+

@@ -1,0 +1,64 @@
+From 71def797acefafa10f5fc81be23cdac48791a255 Mon Sep 17 00:00:00 2001
+From: Bibo Mao <maobibo@loongson.cn>
+Date: Tue, 16 Jul 2024 23:41:23 +0200
+Subject: [PATCH 049/285] hw/intc/loongson_ipi: Access memory in little endian
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Loongson IPI is only available in little-endian,
+so use that to access the guest memory (in case
+we run on a big-endian host).
+
+Cc: qemu-stable@nongnu.org
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+Fixes: f6783e3438 ("hw/loongarch: Add LoongArch ipi interrupt support")
+[PMD: Extracted from bigger commit, added commit description]
+Co-Developed-by: Philippe Mathieu-Daudé <philmd@linaro.org>
+Signed-off-by: Philippe Mathieu-Daudé <philmd@linaro.org>
+Reviewed-by: Bibo Mao <maobibo@loongson.cn>
+Tested-by: Bibo Mao <maobibo@loongson.cn>
+Acked-by: Song Gao <gaosong@loongson.cn>
+Reviewed-by: Richard Henderson <richard.henderson@linaro.org>
+Reviewed-by: Jiaxun Yang <jiaxun.yang@flygoat.com>
+Tested-by: Jiaxun Yang <jiaxun.yang@flygoat.com>
+Message-Id: <20240718133312.10324-3-philmd@linaro.org>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ hw/intc/loongson_ipi.c | 5 +++--
+ 1 file changed, 3 insertions(+), 2 deletions(-)
+
+diff --git a/hw/intc/loongson_ipi.c b/hw/intc/loongson_ipi.c
+index e6a7142480c6..e7979dbdd8b5 100644
+--- a/hw/intc/loongson_ipi.c
++++ b/hw/intc/loongson_ipi.c
+@@ -14,6 +14,7 @@
+ #include "qapi/error.h"
+ #include "qemu/log.h"
+ #include "exec/address-spaces.h"
++#include "exec/memory.h"
+ #include "migration/vmstate.h"
+ #ifdef TARGET_LOONGARCH64
+ #include "target/loongarch/cpu.h"
+@@ -102,7 +103,7 @@ static MemTxResult send_ipi_data(CPUState *cpu, uint64_t val, hwaddr addr,
+      * if the mask is 0, we need not to do anything.
+      */
+     if ((val >> 27) & 0xf) {
+-        data = address_space_ldl(iocsr_as, addr, attrs, NULL);
++        data = address_space_ldl_le(iocsr_as, addr, attrs, NULL);
+         for (i = 0; i < 4; i++) {
+             /* get mask for byte writing */
+             if (val & (0x1 << (27 + i))) {
+@@ -113,7 +114,7 @@ static MemTxResult send_ipi_data(CPUState *cpu, uint64_t val, hwaddr addr,
+ 
+     data &= mask;
+     data |= (val >> 32) & ~mask;
+-    address_space_stl(iocsr_as, addr, data, attrs, NULL);
++    address_space_stl_le(iocsr_as, addr, data, attrs, NULL);
+ 
+     return MEMTX_OK;
+ }
+-- 
+2.51.0
+

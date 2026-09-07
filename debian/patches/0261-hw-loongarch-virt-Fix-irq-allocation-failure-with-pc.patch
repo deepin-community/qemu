@@ -1,0 +1,129 @@
+From b9f32beb508f97c9766f23c6a25cad637c3d219d Mon Sep 17 00:00:00 2001
+From: Xianglai Li <lixianglai@loongson.cn>
+Date: Wed, 14 Jan 2026 15:22:00 +0800
+Subject: [PATCH 261/285] hw/loongarch/virt: Fix irq allocation failure with
+ pci device from fdt
+
+When we use the -kernel parameter to start an elf format kernel relying on
+fdt, we get the following error:
+
+pcieport 0000:00:01.0: of_irq_parse_pci: failed with rc=-22
+pcieport 0000:00:01.0: enabling device (0000 -> 0003)
+pcieport 0000:00:01.0: PME: Signaling with IRQ 19
+pcieport 0000:00:01.0: AER: enabled with IRQ 19
+pcieport 0000:00:01.1: of_irq_parse_pci: failed with rc=-22
+pcieport 0000:00:01.1: enabling device (0000 -> 0003)
+pcieport 0000:00:01.1: PME: Signaling with IRQ 20
+pcieport 0000:00:01.1: AER: enabled with IRQ 20
+pcieport 0000:00:01.2: of_irq_parse_pci: failed with rc=-22
+pcieport 0000:00:01.2: enabling device (0000 -> 0003)
+pcieport 0000:00:01.2: PME: Signaling with IRQ 21
+pcieport 0000:00:01.2: AER: enabled with IRQ 21
+pcieport 0000:00:01.3: of_irq_parse_pci: failed with rc=-22
+pcieport 0000:00:01.3: enabling device (0000 -> 0003)
+pcieport 0000:00:01.3: PME: Signaling with IRQ 22
+pcieport 0000:00:01.3: AER: enabled with IRQ 22
+pcieport 0000:00:01.4: of_irq_parse_pci: failed with rc=-22
+
+This is because  the description of interrupt-cell is missing in the pcie
+irq map.  And there is a lack of a description of the interrupt trigger
+type.  Now it is corrected and the correct interrupt-cell is added in the
+pcie irq map.
+
+Refer to the implementation in arm and add some comments.
+
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+Reviewed-by: Bibo Mao <maobibo@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ hw/loongarch/virt-fdt-build.c | 44 ++++++++++++++++++++++-------------
+ 1 file changed, 28 insertions(+), 16 deletions(-)
+
+diff --git a/hw/loongarch/virt-fdt-build.c b/hw/loongarch/virt-fdt-build.c
+index 5ffef96e94a9..7526a94024ec 100644
+--- a/hw/loongarch/virt-fdt-build.c
++++ b/hw/loongarch/virt-fdt-build.c
+@@ -321,6 +321,8 @@ static void fdt_add_pcie_irq_map_node(const LoongArchVirtMachineState *lvms,
+     uint32_t full_irq_map[PCI_NUM_PINS * PCI_NUM_PINS * 10] = {};
+     uint32_t *irq_map = full_irq_map;
+     const MachineState *ms = MACHINE(lvms);
++    uint32_t pin_mask;
++    uint32_t devfn_mask;
+ 
+     /*
+      * This code creates a standard swizzle of interrupts such that
+@@ -333,37 +335,45 @@ static void fdt_add_pcie_irq_map_node(const LoongArchVirtMachineState *lvms,
+      */
+ 
+     for (dev = 0; dev < PCI_NUM_PINS; dev++) {
+-        int devfn = dev * 0x8;
++        int devfn = PCI_DEVFN(dev, 0);
+ 
+         for (pin = 0; pin < PCI_NUM_PINS; pin++) {
+-            int irq_nr = 16 + ((pin + PCI_SLOT(devfn)) % PCI_NUM_PINS);
++            int irq_nr = VIRT_DEVICE_IRQS + \
++                         ((pin + PCI_SLOT(devfn)) % PCI_NUM_PINS);
+             int i = 0;
+ 
+-            /* Fill PCI address cells */
+-            irq_map[i] = cpu_to_be32(devfn << 8);
+-            i += 3;
+-
+-            /* Fill PCI Interrupt cells */
+-            irq_map[i] = cpu_to_be32(pin + 1);
+-            i += 1;
+-
+-            /* Fill interrupt controller phandle and cells */
+-            irq_map[i++] = cpu_to_be32(*pch_pic_phandle);
+-            irq_map[i++] = cpu_to_be32(irq_nr);
++            uint32_t map[] = {
++                devfn << 8, 0, 0,             /* devfn */
++                pin + 1,                      /* PCI pin */
++                *pch_pic_phandle,             /* interrupt controller handle */
++                irq_nr,                       /* irq number */
++                FDT_IRQ_TYPE_LEVEL_HIGH };    /* irq trigger level */
+ 
+             if (!irq_map_stride) {
+-                irq_map_stride = i;
++                irq_map_stride = sizeof(map) / sizeof(uint32_t);
+             }
++
++            /* Convert map to big endian */
++            for (i = 0; i < irq_map_stride; i++) {
++                irq_map[i] = cpu_to_be32(map[i]);
++            }
++
+             irq_map += irq_map_stride;
+         }
+     }
+ 
+-
+     qemu_fdt_setprop(ms->fdt, nodename, "interrupt-map", full_irq_map,
+                      PCI_NUM_PINS * PCI_NUM_PINS *
+                      irq_map_stride * sizeof(uint32_t));
++
++    /* Only need to match the pci slot bit */
++    devfn_mask = PCI_DEVFN((PCI_NUM_PINS - 1), 0) << 8;
++    /* The pci interrupt only needs to match the specified low bit */
++    pin_mask = (1 << ((PCI_NUM_PINS - 1))) - 1;
++
+     qemu_fdt_setprop_cells(ms->fdt, nodename, "interrupt-map-mask",
+-                     0x1800, 0, 0, 0x7);
++                           devfn_mask, 0, 0,  /* address cells */
++                           pin_mask);
+ }
+ 
+ static void fdt_add_pcie_node(const LoongArchVirtMachineState *lvms,
+@@ -419,6 +429,8 @@ static void fdt_add_pcie_node(const LoongArchVirtMachineState *lvms,
+     }
+     qemu_fdt_setprop_cells(ms->fdt, nodename, "msi-map",
+                            0, *pch_msi_phandle, 0, 0x10000);
++
++    qemu_fdt_setprop_cell(ms->fdt, nodename, "#interrupt-cells", 1);
+     fdt_add_pcie_irq_map_node(lvms, nodename, pch_pic_phandle);
+     g_free(nodename);
+ }
+-- 
+2.51.0
+

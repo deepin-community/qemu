@@ -1,0 +1,227 @@
+From 84143b79b45538627500dcbe16ce6281d5acd089 Mon Sep 17 00:00:00 2001
+From: Bibo Mao <maobibo@loongson.cn>
+Date: Tue, 23 Jul 2024 11:25:53 +0200
+Subject: [PATCH 056/285] hw/intc/loongson_ipi: Add TYPE_LOONGSON_IPI_COMMON
+ stub
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Introduce LOONGSON_IPI_COMMON stubs, QDev parent of LOONGSON_IPI.
+
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+[PMD: Extracted from bigger commit, added commit description]
+Co-Developed-by: Philippe Mathieu-Daudé <philmd@linaro.org>
+Signed-off-by: Philippe Mathieu-Daudé <philmd@linaro.org>
+Reviewed-by: Bibo Mao <maobibo@loongson.cn>
+Tested-by: Bibo Mao <maobibo@loongson.cn>
+Acked-by: Song Gao <gaosong@loongson.cn>
+Reviewed-by: Richard Henderson <richard.henderson@linaro.org>
+Reviewed-by: Jiaxun Yang <jiaxun.yang@flygoat.com>
+Tested-by: Jiaxun Yang <jiaxun.yang@flygoat.com>
+Message-Id: <20240805180622.21001-4-philmd@linaro.org>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ MAINTAINERS                           |  4 ++++
+ hw/intc/Kconfig                       |  4 ++++
+ hw/intc/loongson_ipi.c                | 10 +++++++---
+ hw/intc/loongson_ipi_common.c         | 22 ++++++++++++++++++++++
+ hw/intc/meson.build                   |  1 +
+ include/hw/intc/loongson_ipi.h        | 14 ++++++++++++--
+ include/hw/intc/loongson_ipi_common.h | 26 ++++++++++++++++++++++++++
+ 7 files changed, 76 insertions(+), 5 deletions(-)
+ create mode 100644 hw/intc/loongson_ipi_common.c
+ create mode 100644 include/hw/intc/loongson_ipi_common.h
+
+diff --git a/MAINTAINERS b/MAINTAINERS
+index 73744dc96dca..1a40941605cf 100644
+--- a/MAINTAINERS
++++ b/MAINTAINERS
+@@ -1238,8 +1238,10 @@ F: configs/devices/loongarch64-softmmu/default.mak
+ F: hw/loongarch/
+ F: include/hw/loongarch/virt.h
+ F: include/hw/intc/loongarch_*.h
++F: include/hw/intc/loongson_ipi_common.h
+ F: include/hw/intc/loongson_ipi.h
+ F: hw/intc/loongarch_*.c
++F: hw/intc/loongson_ipi_common.c
+ F: hw/intc/loongson_ipi.c
+ F: include/hw/pci-host/ls7a.h
+ F: hw/rtc/ls7a_rtc.c
+@@ -1373,11 +1375,13 @@ Loongson-3 virtual platforms
+ M: Huacai Chen <chenhuacai@kernel.org>
+ R: Jiaxun Yang <jiaxun.yang@flygoat.com>
+ S: Maintained
++F: hw/intc/loongson_ipi_common.c
+ F: hw/intc/loongson_ipi.c
+ F: hw/intc/loongson_liointc.c
+ F: hw/mips/loongson3_bootp.c
+ F: hw/mips/loongson3_bootp.h
+ F: hw/mips/loongson3_virt.c
++F: include/hw/intc/loongson_ipi_common.h
+ F: include/hw/intc/loongson_ipi.h
+ F: include/hw/intc/loongson_liointc.h
+ F: tests/avocado/machine_mips_loongson3v.py
+diff --git a/hw/intc/Kconfig b/hw/intc/Kconfig
+index 346953ba0445..0f22e910b7c1 100644
+--- a/hw/intc/Kconfig
++++ b/hw/intc/Kconfig
+@@ -90,8 +90,12 @@ config M68K_IRQC
+ config NIOS2_VIC
+     bool
+ 
++config LOONGSON_IPI_COMMON
++    bool
++
+ config LOONGSON_IPI
+     bool
++    select LOONGSON_IPI_COMMON
+ 
+ config LOONGARCH_IPI_KVM
+     bool
+diff --git a/hw/intc/loongson_ipi.c b/hw/intc/loongson_ipi.c
+index 8aab7e48e815..7d15c28e94aa 100644
+--- a/hw/intc/loongson_ipi.c
++++ b/hw/intc/loongson_ipi.c
+@@ -374,9 +374,12 @@ static Property ipi_properties[] = {
+ static void loongson_ipi_class_init(ObjectClass *klass, void *data)
+ {
+     DeviceClass *dc = DEVICE_CLASS(klass);
++    LoongsonIPIClass *lic = LOONGSON_IPI_CLASS(klass);
+ 
+-    dc->realize = loongson_ipi_realize;
+-    dc->unrealize = loongson_ipi_unrealize;
++    device_class_set_parent_realize(dc, loongson_ipi_realize,
++                                    &lic->parent_realize);
++    device_class_set_parent_unrealize(dc, loongson_ipi_unrealize,
++                                      &lic->parent_unrealize);
+     device_class_set_props(dc, ipi_properties);
+     dc->vmsd = &vmstate_loongson_ipi;
+ }
+@@ -384,8 +387,9 @@ static void loongson_ipi_class_init(ObjectClass *klass, void *data)
+ static const TypeInfo loongson_ipi_types[] = {
+     {
+         .name               = TYPE_LOONGSON_IPI,
+-        .parent             = TYPE_SYS_BUS_DEVICE,
++        .parent             = TYPE_LOONGSON_IPI_COMMON,
+         .instance_size      = sizeof(LoongsonIPIState),
++        .class_size         = sizeof(LoongsonIPIClass),
+         .class_init         = loongson_ipi_class_init,
+     }
+ };
+diff --git a/hw/intc/loongson_ipi_common.c b/hw/intc/loongson_ipi_common.c
+new file mode 100644
+index 000000000000..43002fe55642
+--- /dev/null
++++ b/hw/intc/loongson_ipi_common.c
+@@ -0,0 +1,22 @@
++/* SPDX-License-Identifier: GPL-2.0-or-later */
++/*
++ * Loongson IPI interrupt common support
++ *
++ * Copyright (C) 2021 Loongson Technology Corporation Limited
++ */
++
++#include "qemu/osdep.h"
++#include "hw/sysbus.h"
++#include "hw/intc/loongson_ipi_common.h"
++
++static const TypeInfo loongarch_ipi_common_types[] = {
++    {
++        .name               = TYPE_LOONGSON_IPI_COMMON,
++        .parent             = TYPE_SYS_BUS_DEVICE,
++        .instance_size      = sizeof(LoongsonIPICommonState),
++        .class_size         = sizeof(LoongsonIPICommonClass),
++        .abstract           = true,
++    }
++};
++
++DEFINE_TYPES(loongarch_ipi_common_types)
+diff --git a/hw/intc/meson.build b/hw/intc/meson.build
+index f4238fe58092..0f84a709cdca 100644
+--- a/hw/intc/meson.build
++++ b/hw/intc/meson.build
+@@ -69,6 +69,7 @@ specific_ss.add(when: ['CONFIG_KVM', 'CONFIG_XIVE'],
+ 		if_true: files('spapr_xive_kvm.c'))
+ specific_ss.add(when: 'CONFIG_M68K_IRQC', if_true: files('m68k_irqc.c'))
+ specific_ss.add(when: 'CONFIG_NIOS2_VIC', if_true: files('nios2_vic.c'))
++specific_ss.add(when: 'CONFIG_LOONGSON_IPI_COMMON', if_true: files('loongson_ipi_common.c'))
+ specific_ss.add(when: 'CONFIG_LOONGSON_IPI', if_true: files('loongson_ipi.c'))
+ specific_ss.add(when: 'CONFIG_LOONGARCH_IPI_KVM', if_true: files('loongarch_ipi_kvm.c'))
+ specific_ss.add(when: 'CONFIG_LOONGARCH_PCH_PIC', if_true: files('loongarch_pch_pic.c'))
+diff --git a/include/hw/intc/loongson_ipi.h b/include/hw/intc/loongson_ipi.h
+index 3c292735e5b8..061c3835e319 100644
+--- a/include/hw/intc/loongson_ipi.h
++++ b/include/hw/intc/loongson_ipi.h
+@@ -8,6 +8,8 @@
+ #ifndef HW_LOONGSON_IPI_H
+ #define HW_LOONGSON_IPI_H
+ 
++#include "qom/object.h"
++#include "hw/intc/loongson_ipi_common.h"
+ #include "hw/sysbus.h"
+ 
+ /* Mainy used by iocsr read and write */
+@@ -31,7 +33,7 @@
+ #define IPI_MBX_NUM           4
+ 
+ #define TYPE_LOONGSON_IPI "loongson_ipi"
+-OBJECT_DECLARE_SIMPLE_TYPE(LoongsonIPIState, LOONGSON_IPI)
++OBJECT_DECLARE_TYPE(LoongsonIPIState, LoongsonIPIClass, LOONGSON_IPI)
+ #define TYPE_KVM_LOONGARCH_IPI "loongarch-ipi-kvm"
+ 
+ typedef struct IPICore {
+@@ -46,8 +48,16 @@ typedef struct IPICore {
+     qemu_irq irq;
+ } IPICore;
+ 
++struct LoongsonIPIClass {
++    LoongsonIPICommonClass parent_class;
++
++    DeviceRealize parent_realize;
++    DeviceUnrealize parent_unrealize;
++};
++
+ struct LoongsonIPIState {
+-    SysBusDevice parent_obj;
++    LoongsonIPICommonState parent_obj;
++
+     MemoryRegion ipi_iocsr_mem;
+     MemoryRegion ipi64_iocsr_mem;
+     uint32_t num_cpu;
+diff --git a/include/hw/intc/loongson_ipi_common.h b/include/hw/intc/loongson_ipi_common.h
+new file mode 100644
+index 000000000000..70ac69d0bab6
+--- /dev/null
++++ b/include/hw/intc/loongson_ipi_common.h
+@@ -0,0 +1,26 @@
++/* SPDX-License-Identifier: GPL-2.0-or-later */
++/*
++ * Loongson ipi interrupt header files
++ *
++ * Copyright (C) 2021 Loongson Technology Corporation Limited
++ */
++
++#ifndef HW_LOONGSON_IPI_COMMON_H
++#define HW_LOONGSON_IPI_COMMON_H
++
++#include "qom/object.h"
++#include "hw/sysbus.h"
++
++#define TYPE_LOONGSON_IPI_COMMON "loongson_ipi_common"
++OBJECT_DECLARE_TYPE(LoongsonIPICommonState,
++                    LoongsonIPICommonClass, LOONGSON_IPI_COMMON)
++
++struct LoongsonIPICommonState {
++    SysBusDevice parent_obj;
++};
++
++struct LoongsonIPICommonClass {
++    SysBusDeviceClass parent_class;
++};
++
++#endif
+-- 
+2.51.0
+

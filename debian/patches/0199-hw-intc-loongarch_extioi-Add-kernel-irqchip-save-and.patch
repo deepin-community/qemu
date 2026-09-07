@@ -1,0 +1,174 @@
+From b830501c6a73f6cbfda61853ed21f79090777d37 Mon Sep 17 00:00:00 2001
+From: Bibo Mao <maobibo@loongson.cn>
+Date: Fri, 6 Jun 2025 14:30:22 +0800
+Subject: [PATCH 199/285] hw/intc/loongarch_extioi: Add kernel irqchip save and
+ restore function
+
+Add save and store funtction if kvm_irqchip_in_kernel() return true,
+it is to get and set ExtIOI irqchip state from KVM kernel.
+
+Reviewed-by: Song Gao <gaosong@loongson.cn>
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+Message-ID: <20250606063033.2557365-3-maobibo@loongson.cn>
+Signed-off-by: Song Gao <gaosong@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ hw/intc/loongarch_extioi.c         | 14 +++++
+ hw/intc/loongarch_extioi_kvm.c     | 90 ++++++++++++++++++++++++++++++
+ include/hw/intc/loongarch_extioi.h |  2 +
+ 3 files changed, 106 insertions(+)
+
+diff --git a/hw/intc/loongarch_extioi.c b/hw/intc/loongarch_extioi.c
+index 7f0fda03311a..f0b2beae1de0 100644
+--- a/hw/intc/loongarch_extioi.c
++++ b/hw/intc/loongarch_extioi.c
+@@ -432,11 +432,24 @@ static void loongarch_extioi_reset_hold(Object *obj)
+     }
+ }
+ 
++static int vmstate_extioi_pre_save(void *opaque)
++{
++    if (kvm_irqchip_in_kernel()) {
++        return kvm_extioi_get(opaque);
++    }
++
++    return 0;
++}
++
+ static int vmstate_extioi_post_load(void *opaque, int version_id)
+ {
+     LoongArchExtIOICommonState *s = LOONGARCH_EXTIOI_COMMON(opaque);
+     int i, start_irq;
+ 
++    if (kvm_irqchip_in_kernel()) {
++        return kvm_extioi_put(opaque, version_id);
++    }
++
+     for (i = 0; i < (EXTIOI_IRQS / 4); i++) {
+         start_irq = i * 4;
+         extioi_update_sw_coremap(s, start_irq, s->coremap[i], false);
+@@ -462,6 +475,7 @@ static void loongarch_extioi_class_init(ObjectClass *klass, void *data)
+                                       &lec->parent_unrealize);
+     resettable_class_set_parent_phases(rc, NULL, loongarch_extioi_reset_hold,
+                                        NULL, &lec->parent_phases);
++    lecc->pre_save  = vmstate_extioi_pre_save;
+     lecc->post_load = vmstate_extioi_post_load;
+ }
+ 
+diff --git a/hw/intc/loongarch_extioi_kvm.c b/hw/intc/loongarch_extioi_kvm.c
+index 7f103acf3e59..19b89aeadbd2 100644
+--- a/hw/intc/loongarch_extioi_kvm.c
++++ b/hw/intc/loongarch_extioi_kvm.c
+@@ -12,6 +12,96 @@
+ #include "qapi/error.h"
+ #include "sysemu/kvm.h"
+ 
++static void kvm_extioi_access_reg(int fd, uint64_t addr, void *val, bool write)
++{
++    kvm_device_access(fd, KVM_DEV_LOONGARCH_EXTIOI_GRP_REGS,
++                      addr, val, write, &error_abort);
++}
++
++static void kvm_extioi_access_sw_state(int fd, uint64_t addr,
++                                       void *val, bool write)
++{
++    kvm_device_access(fd, KVM_DEV_LOONGARCH_EXTIOI_GRP_SW_STATUS,
++                      addr, val, write, &error_abort);
++}
++
++static void kvm_extioi_access_sw_status(void *opaque, bool write)
++{
++    LoongArchExtIOICommonState *lecs = LOONGARCH_EXTIOI_COMMON(opaque);
++    LoongArchExtIOIState *les = LOONGARCH_EXTIOI(opaque);
++    int addr;
++
++    addr = KVM_DEV_LOONGARCH_EXTIOI_SW_STATUS_STATE;
++    kvm_extioi_access_sw_state(les->dev_fd, addr, &lecs->status, write);
++}
++
++static void kvm_extioi_access_regs(void *opaque, bool write)
++{
++    LoongArchExtIOICommonState *lecs = LOONGARCH_EXTIOI_COMMON(opaque);
++    LoongArchExtIOIState *les = LOONGARCH_EXTIOI(opaque);
++    int fd = les->dev_fd;
++    int addr, offset, cpu;
++
++    for (addr = EXTIOI_NODETYPE_START; addr < EXTIOI_NODETYPE_END; addr += 4) {
++        offset = (addr - EXTIOI_NODETYPE_START) / 4;
++        kvm_extioi_access_reg(fd, addr, &lecs->nodetype[offset], write);
++    }
++
++    for (addr = EXTIOI_IPMAP_START; addr < EXTIOI_IPMAP_END; addr += 4) {
++        offset = (addr - EXTIOI_IPMAP_START) / 4;
++        kvm_extioi_access_reg(fd, addr, &lecs->ipmap[offset], write);
++    }
++
++    for (addr = EXTIOI_ENABLE_START; addr < EXTIOI_ENABLE_END; addr += 4) {
++        offset = (addr - EXTIOI_ENABLE_START) / 4;
++        kvm_extioi_access_reg(fd, addr, &lecs->enable[offset], write);
++    }
++
++    for (addr = EXTIOI_BOUNCE_START; addr < EXTIOI_BOUNCE_END; addr += 4) {
++        offset = (addr - EXTIOI_BOUNCE_START) / 4;
++        kvm_extioi_access_reg(fd, addr, &lecs->bounce[offset], write);
++    }
++
++    for (addr = EXTIOI_ISR_START; addr < EXTIOI_ISR_END; addr += 4) {
++        offset = (addr - EXTIOI_ISR_START) / 4;
++        kvm_extioi_access_reg(fd, addr, &lecs->isr[offset], write);
++    }
++
++    for (addr = EXTIOI_COREMAP_START; addr < EXTIOI_COREMAP_END; addr += 4) {
++        offset = (addr - EXTIOI_COREMAP_START) / 4;
++        kvm_extioi_access_reg(fd, addr, &lecs->coremap[offset], write);
++    }
++
++    for (cpu = 0; cpu < lecs->num_cpu; cpu++) {
++        for (addr = EXTIOI_COREISR_START;
++             addr < EXTIOI_COREISR_END; addr += 4) {
++            offset = (addr - EXTIOI_COREISR_START) / 4;
++            kvm_extioi_access_reg(fd, (cpu << 16) | addr,
++                                  &lecs->cpu[cpu].coreisr[offset], write);
++        }
++    }
++}
++
++int kvm_extioi_get(void *opaque)
++{
++    kvm_extioi_access_regs(opaque, false);
++    kvm_extioi_access_sw_status(opaque, false);
++    return 0;
++}
++
++int kvm_extioi_put(void *opaque, int version_id)
++{
++    LoongArchExtIOIState *les = LOONGARCH_EXTIOI(opaque);
++    int fd = les->dev_fd;
++
++    kvm_extioi_access_regs(opaque, true);
++    kvm_extioi_access_sw_status(opaque, true);
++    kvm_device_access(fd, KVM_DEV_LOONGARCH_EXTIOI_GRP_CTRL,
++                      KVM_DEV_LOONGARCH_EXTIOI_CTRL_LOAD_FINISHED,
++                      NULL, true, &error_abort);
++    return 0;
++}
++
+ void kvm_extioi_realize(DeviceState *dev, Error **errp)
+ {
+     LoongArchExtIOICommonState *lecs = LOONGARCH_EXTIOI_COMMON(dev);
+diff --git a/include/hw/intc/loongarch_extioi.h b/include/hw/intc/loongarch_extioi.h
+index 69565e14ab0d..9be1d736ea6c 100644
+--- a/include/hw/intc/loongarch_extioi.h
++++ b/include/hw/intc/loongarch_extioi.h
+@@ -27,5 +27,7 @@ struct LoongArchExtIOIClass {
+ };
+ 
+ void kvm_extioi_realize(DeviceState *dev, Error **errp);
++int kvm_extioi_get(void *opaque);
++int kvm_extioi_put(void *opaque, int version_id);
+ 
+ #endif /* LOONGARCH_EXTIOI_H */
+-- 
+2.51.0
+

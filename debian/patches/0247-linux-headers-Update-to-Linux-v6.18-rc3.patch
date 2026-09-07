@@ -1,0 +1,2083 @@
+From 8c82313dee605a86a877af9936d7672a0ffb4bf1 Mon Sep 17 00:00:00 2001
+From: Bibo Mao <maobibo@loongson.cn>
+Date: Mon, 27 Oct 2025 09:43:32 +0800
+Subject: [PATCH 247/285] linux-headers: Update to Linux v6.18-rc3
+
+Update headers to retrieve the latest KVM caps for LoongArch. It is added
+to the tree by running `update-linux-headers.sh` on linux v6.18-rc3.
+
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+Reviewed-by: Song Gao <gaosong@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ include/standard-headers/asm-x86/kvm_para.h |   3 +-
+ linux-headers/asm-arm64/kvm.h               |  19 +-
+ linux-headers/asm-loongarch/bitsperlong.h   |  23 +
+ linux-headers/asm-loongarch/kvm.h           |  21 +
+ linux-headers/asm-loongarch/kvm_para.h      |  22 +
+ linux-headers/asm-loongarch/mman.h          |  18 +
+ linux-headers/asm-loongarch/unistd_64.h     | 327 +++++++++++++
+ linux-headers/asm-mips/kvm.h                |   2 -
+ linux-headers/asm-mips/mman.h               |   5 +-
+ linux-headers/asm-mips/unistd_n32.h         |  13 +
+ linux-headers/asm-mips/unistd_n64.h         |  13 +
+ linux-headers/asm-mips/unistd_o32.h         |  13 +
+ linux-headers/asm-powerpc/kvm.h             |  61 ++-
+ linux-headers/asm-powerpc/unistd_32.h       |  13 +
+ linux-headers/asm-powerpc/unistd_64.h       |  13 +
+ linux-headers/asm-riscv/kvm.h               |  88 +++-
+ linux-headers/asm-riscv/unistd.h            |  41 +-
+ linux-headers/asm-s390/kvm.h                | 318 ++++++++++++-
+ linux-headers/asm-s390/unistd_32.h          |  13 +
+ linux-headers/asm-s390/unistd_64.h          |  13 +
+ linux-headers/asm-x86/kvm.h                 | 500 +++++++++++++++++++-
+ linux-headers/asm-x86/mman.h                |   3 -
+ linux-headers/asm-x86/unistd_32.h           |  13 +
+ linux-headers/asm-x86/unistd_64.h           |  15 +
+ linux-headers/asm-x86/unistd_x32.h          |  16 +
+ 25 files changed, 1504 insertions(+), 82 deletions(-)
+ create mode 100644 linux-headers/asm-loongarch/kvm_para.h
+ create mode 100644 linux-headers/asm-loongarch/unistd_64.h
+
+diff --git a/include/standard-headers/asm-x86/kvm_para.h b/include/standard-headers/asm-x86/kvm_para.h
+index f0235e58a1d3..9a011d20f017 100644
+--- a/include/standard-headers/asm-x86/kvm_para.h
++++ b/include/standard-headers/asm-x86/kvm_para.h
+@@ -92,7 +92,7 @@ struct kvm_clock_pairing {
+ #define KVM_ASYNC_PF_DELIVERY_AS_INT		(1 << 3)
+ 
+ /* MSR_KVM_ASYNC_PF_INT */
+-#define KVM_ASYNC_PF_VEC_MASK			GENMASK(7, 0)
++#define KVM_ASYNC_PF_VEC_MASK			__GENMASK(7, 0)
+ 
+ /* MSR_KVM_MIGRATION_CONTROL */
+ #define KVM_MIGRATION_READY		(1 << 0)
+@@ -142,7 +142,6 @@ struct kvm_vcpu_pv_apf_data {
+ 	uint32_t token;
+ 
+ 	uint8_t pad[56];
+-	uint32_t enabled;
+ };
+ 
+ #define KVM_PV_EOI_BIT 0
+diff --git a/linux-headers/asm-arm64/kvm.h b/linux-headers/asm-arm64/kvm.h
+index 68fee67fe8b4..fe1f90197458 100644
+--- a/linux-headers/asm-arm64/kvm.h
++++ b/linux-headers/asm-arm64/kvm.h
+@@ -43,9 +43,6 @@
+ #define KVM_COALESCED_MMIO_PAGE_OFFSET 1
+ #define KVM_DIRTY_LOG_PAGE_OFFSET 64
+ 
+-#define KVM_REG_SIZE(id)						\
+-	(1U << (((id) & KVM_REG_SIZE_MASK) >> KVM_REG_SIZE_SHIFT))
+-
+ struct kvm_regs {
+ 	struct user_pt_regs regs;	/* sp = sp_el0 */
+ 
+@@ -108,6 +105,7 @@ struct kvm_regs {
+ #define KVM_ARM_VCPU_PTRAUTH_ADDRESS	5 /* VCPU uses address authentication */
+ #define KVM_ARM_VCPU_PTRAUTH_GENERIC	6 /* VCPU uses generic authentication */
+ #define KVM_ARM_VCPU_HAS_EL2		7 /* Support nested virtualization */
++#define KVM_ARM_VCPU_HAS_EL2_E2H0	8 /* Limit NV support to E2H RES0 */
+ #define KVM_ARM_VCPU_REC		9 /* VCPU REC state as part of Realm */
+ 
+ struct kvm_vcpu_init {
+@@ -470,10 +468,11 @@ struct arm_rme_init_ripas {
+ 
+ /* Device Control API on vcpu fd */
+ #define KVM_ARM_VCPU_PMU_V3_CTRL	0
+-#define   KVM_ARM_VCPU_PMU_V3_IRQ	0
+-#define   KVM_ARM_VCPU_PMU_V3_INIT	1
+-#define   KVM_ARM_VCPU_PMU_V3_FILTER	2
+-#define   KVM_ARM_VCPU_PMU_V3_SET_PMU	3
++#define   KVM_ARM_VCPU_PMU_V3_IRQ		0
++#define   KVM_ARM_VCPU_PMU_V3_INIT		1
++#define   KVM_ARM_VCPU_PMU_V3_FILTER		2
++#define   KVM_ARM_VCPU_PMU_V3_SET_PMU		3
++#define   KVM_ARM_VCPU_PMU_V3_SET_NR_COUNTERS	4
+ #define KVM_ARM_VCPU_TIMER_CTRL		1
+ #define   KVM_ARM_VCPU_TIMER_IRQ_VTIMER		0
+ #define   KVM_ARM_VCPU_TIMER_IRQ_PTIMER		1
+@@ -532,6 +531,12 @@ struct arm_rme_init_ripas {
+  */
+ #define KVM_SYSTEM_EVENT_RESET_FLAG_PSCI_RESET2	(1ULL << 0)
+ 
++/*
++ * Shutdown caused by a PSCI v1.3 SYSTEM_OFF2 call.
++ * Valid only when the system event has a type of KVM_SYSTEM_EVENT_SHUTDOWN.
++ */
++#define KVM_SYSTEM_EVENT_SHUTDOWN_FLAG_PSCI_OFF2	(1ULL << 0)
++
+ /* run->fail_entry.hardware_entry_failure_reason codes. */
+ #define KVM_EXIT_FAIL_ENTRY_CPU_UNSUPPORTED	(1ULL << 0)
+ 
+diff --git a/linux-headers/asm-loongarch/bitsperlong.h b/linux-headers/asm-loongarch/bitsperlong.h
+index 6dc0bb0c13b2..485d60bee26c 100644
+--- a/linux-headers/asm-loongarch/bitsperlong.h
++++ b/linux-headers/asm-loongarch/bitsperlong.h
+@@ -1 +1,24 @@
++/* SPDX-License-Identifier: GPL-2.0 WITH Linux-syscall-note */
++/*
++ * Copyright (C) 2012 ARM Ltd.
++ *
++ * This program is free software; you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License version 2 as
++ * published by the Free Software Foundation.
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
++ */
++#ifndef __ASM_BITSPERLONG_H
++#define __ASM_BITSPERLONG_H
++
++#define __BITS_PER_LONG 64
++
+ #include <asm-generic/bitsperlong.h>
++
++#endif	/* __ASM_BITSPERLONG_H */
+diff --git a/linux-headers/asm-loongarch/kvm.h b/linux-headers/asm-loongarch/kvm.h
+index 70d89070bfeb..57ba1a563bb1 100644
+--- a/linux-headers/asm-loongarch/kvm.h
++++ b/linux-headers/asm-loongarch/kvm.h
+@@ -8,6 +8,8 @@
+ 
+ #include <linux/types.h>
+ 
++#define __KVM_HAVE_IRQ_LINE
++
+ /*
+  * KVM LoongArch specific structures and definitions.
+  *
+@@ -101,6 +103,7 @@ struct kvm_fpu {
+ #define  KVM_LOONGARCH_VM_FEAT_PMU		5
+ #define  KVM_LOONGARCH_VM_FEAT_PV_IPI		6
+ #define  KVM_LOONGARCH_VM_FEAT_PV_STEALTIME	7
++#define  KVM_LOONGARCH_VM_FEAT_PTW		8
+ 
+ /* Device Control API on vcpu fd */
+ #define KVM_LOONGARCH_VCPU_CPUCFG	0
+@@ -132,4 +135,22 @@ struct kvm_iocsr_entry {
+ #define KVM_IRQCHIP_NUM_PINS	64
+ #define KVM_MAX_CORES		256
+ 
++#define KVM_DEV_LOONGARCH_IPI_GRP_REGS			0x40000001
++
++#define KVM_DEV_LOONGARCH_EXTIOI_GRP_REGS		0x40000002
++
++#define KVM_DEV_LOONGARCH_EXTIOI_GRP_SW_STATUS		0x40000003
++#define KVM_DEV_LOONGARCH_EXTIOI_SW_STATUS_NUM_CPU	0x0
++#define KVM_DEV_LOONGARCH_EXTIOI_SW_STATUS_FEATURE	0x1
++#define KVM_DEV_LOONGARCH_EXTIOI_SW_STATUS_STATE	0x2
++
++#define KVM_DEV_LOONGARCH_EXTIOI_GRP_CTRL		0x40000004
++#define KVM_DEV_LOONGARCH_EXTIOI_CTRL_INIT_NUM_CPU	0x0
++#define KVM_DEV_LOONGARCH_EXTIOI_CTRL_INIT_FEATURE	0x1
++#define KVM_DEV_LOONGARCH_EXTIOI_CTRL_LOAD_FINISHED	0x3
++
++#define KVM_DEV_LOONGARCH_PCH_PIC_GRP_REGS	        0x40000005
++#define KVM_DEV_LOONGARCH_PCH_PIC_GRP_CTRL	        0x40000006
++#define KVM_DEV_LOONGARCH_PCH_PIC_CTRL_INIT	        0
++
+ #endif /* __UAPI_ASM_LOONGARCH_KVM_H */
+diff --git a/linux-headers/asm-loongarch/kvm_para.h b/linux-headers/asm-loongarch/kvm_para.h
+new file mode 100644
+index 000000000000..fd7f40713d49
+--- /dev/null
++++ b/linux-headers/asm-loongarch/kvm_para.h
+@@ -0,0 +1,22 @@
++/* SPDX-License-Identifier: GPL-2.0 WITH Linux-syscall-note */
++#ifndef _ASM_KVM_PARA_H
++#define _ASM_KVM_PARA_H
++
++#include <linux/types.h>
++
++/*
++ * CPUCFG index area: 0x40000000 -- 0x400000ff
++ * SW emulation for KVM hypervirsor
++ */
++#define CPUCFG_KVM_BASE			0x40000000
++#define CPUCFG_KVM_SIZE			0x100
++#define CPUCFG_KVM_SIG			(CPUCFG_KVM_BASE + 0)
++#define  KVM_SIGNATURE			"KVM\0"
++#define CPUCFG_KVM_FEATURE		(CPUCFG_KVM_BASE + 4)
++#define  KVM_FEATURE_IPI		1
++#define  KVM_FEATURE_STEAL_TIME		2
++/* BIT 24 - 31 are features configurable by user space vmm */
++#define  KVM_FEATURE_VIRT_EXTIOI	24
++#define  KVM_FEATURE_USER_HCALL		25
++
++#endif /* _ASM_KVM_PARA_H */
+diff --git a/linux-headers/asm-loongarch/mman.h b/linux-headers/asm-loongarch/mman.h
+index 8eebf89f5ab1..7b500a3a7be7 100644
+--- a/linux-headers/asm-loongarch/mman.h
++++ b/linux-headers/asm-loongarch/mman.h
+@@ -1 +1,19 @@
++/* SPDX-License-Identifier: GPL-2.0 WITH Linux-syscall-note */
++#ifndef __ASM_MMAN_H
++#define __ASM_MMAN_H
++
+ #include <asm-generic/mman.h>
++
++#define PROT_BTI	0x10		/* BTI guarded page */
++#define PROT_MTE	0x20		/* Normal Tagged mapping */
++
++/* Override any generic PKEY permission defines */
++#define PKEY_DISABLE_EXECUTE	0x4
++#define PKEY_DISABLE_READ	0x8
++#undef PKEY_ACCESS_MASK
++#define PKEY_ACCESS_MASK       (PKEY_DISABLE_ACCESS |\
++				PKEY_DISABLE_WRITE  |\
++				PKEY_DISABLE_READ   |\
++				PKEY_DISABLE_EXECUTE)
++
++#endif /* ! _UAPI__ASM_MMAN_H */
+diff --git a/linux-headers/asm-loongarch/unistd_64.h b/linux-headers/asm-loongarch/unistd_64.h
+new file mode 100644
+index 000000000000..5033fc8f2fe9
+--- /dev/null
++++ b/linux-headers/asm-loongarch/unistd_64.h
+@@ -0,0 +1,327 @@
++#ifndef _ASM_UNISTD_64_H
++#define _ASM_UNISTD_64_H
++
++#define __NR_io_setup 0
++#define __NR_io_destroy 1
++#define __NR_io_submit 2
++#define __NR_io_cancel 3
++#define __NR_io_getevents 4
++#define __NR_setxattr 5
++#define __NR_lsetxattr 6
++#define __NR_fsetxattr 7
++#define __NR_getxattr 8
++#define __NR_lgetxattr 9
++#define __NR_fgetxattr 10
++#define __NR_listxattr 11
++#define __NR_llistxattr 12
++#define __NR_flistxattr 13
++#define __NR_removexattr 14
++#define __NR_lremovexattr 15
++#define __NR_fremovexattr 16
++#define __NR_getcwd 17
++#define __NR_lookup_dcookie 18
++#define __NR_eventfd2 19
++#define __NR_epoll_create1 20
++#define __NR_epoll_ctl 21
++#define __NR_epoll_pwait 22
++#define __NR_dup 23
++#define __NR_dup3 24
++#define __NR_fcntl 25
++#define __NR_inotify_init1 26
++#define __NR_inotify_add_watch 27
++#define __NR_inotify_rm_watch 28
++#define __NR_ioctl 29
++#define __NR_ioprio_set 30
++#define __NR_ioprio_get 31
++#define __NR_flock 32
++#define __NR_mknodat 33
++#define __NR_mkdirat 34
++#define __NR_unlinkat 35
++#define __NR_symlinkat 36
++#define __NR_linkat 37
++#define __NR_umount2 39
++#define __NR_mount 40
++#define __NR_pivot_root 41
++#define __NR_nfsservctl 42
++#define __NR_statfs 43
++#define __NR_fstatfs 44
++#define __NR_truncate 45
++#define __NR_ftruncate 46
++#define __NR_fallocate 47
++#define __NR_faccessat 48
++#define __NR_chdir 49
++#define __NR_fchdir 50
++#define __NR_chroot 51
++#define __NR_fchmod 52
++#define __NR_fchmodat 53
++#define __NR_fchownat 54
++#define __NR_fchown 55
++#define __NR_openat 56
++#define __NR_close 57
++#define __NR_vhangup 58
++#define __NR_pipe2 59
++#define __NR_quotactl 60
++#define __NR_getdents64 61
++#define __NR_lseek 62
++#define __NR_read 63
++#define __NR_write 64
++#define __NR_readv 65
++#define __NR_writev 66
++#define __NR_pread64 67
++#define __NR_pwrite64 68
++#define __NR_preadv 69
++#define __NR_pwritev 70
++#define __NR_sendfile 71
++#define __NR_pselect6 72
++#define __NR_ppoll 73
++#define __NR_signalfd4 74
++#define __NR_vmsplice 75
++#define __NR_splice 76
++#define __NR_tee 77
++#define __NR_readlinkat 78
++#define __NR_newfstatat 79
++#define __NR_fstat 80
++#define __NR_sync 81
++#define __NR_fsync 82
++#define __NR_fdatasync 83
++#define __NR_sync_file_range 84
++#define __NR_timerfd_create 85
++#define __NR_timerfd_settime 86
++#define __NR_timerfd_gettime 87
++#define __NR_utimensat 88
++#define __NR_acct 89
++#define __NR_capget 90
++#define __NR_capset 91
++#define __NR_personality 92
++#define __NR_exit 93
++#define __NR_exit_group 94
++#define __NR_waitid 95
++#define __NR_set_tid_address 96
++#define __NR_unshare 97
++#define __NR_futex 98
++#define __NR_set_robust_list 99
++#define __NR_get_robust_list 100
++#define __NR_nanosleep 101
++#define __NR_getitimer 102
++#define __NR_setitimer 103
++#define __NR_kexec_load 104
++#define __NR_init_module 105
++#define __NR_delete_module 106
++#define __NR_timer_create 107
++#define __NR_timer_gettime 108
++#define __NR_timer_getoverrun 109
++#define __NR_timer_settime 110
++#define __NR_timer_delete 111
++#define __NR_clock_settime 112
++#define __NR_clock_gettime 113
++#define __NR_clock_getres 114
++#define __NR_clock_nanosleep 115
++#define __NR_syslog 116
++#define __NR_ptrace 117
++#define __NR_sched_setparam 118
++#define __NR_sched_setscheduler 119
++#define __NR_sched_getscheduler 120
++#define __NR_sched_getparam 121
++#define __NR_sched_setaffinity 122
++#define __NR_sched_getaffinity 123
++#define __NR_sched_yield 124
++#define __NR_sched_get_priority_max 125
++#define __NR_sched_get_priority_min 126
++#define __NR_sched_rr_get_interval 127
++#define __NR_restart_syscall 128
++#define __NR_kill 129
++#define __NR_tkill 130
++#define __NR_tgkill 131
++#define __NR_sigaltstack 132
++#define __NR_rt_sigsuspend 133
++#define __NR_rt_sigaction 134
++#define __NR_rt_sigprocmask 135
++#define __NR_rt_sigpending 136
++#define __NR_rt_sigtimedwait 137
++#define __NR_rt_sigqueueinfo 138
++#define __NR_rt_sigreturn 139
++#define __NR_setpriority 140
++#define __NR_getpriority 141
++#define __NR_reboot 142
++#define __NR_setregid 143
++#define __NR_setgid 144
++#define __NR_setreuid 145
++#define __NR_setuid 146
++#define __NR_setresuid 147
++#define __NR_getresuid 148
++#define __NR_setresgid 149
++#define __NR_getresgid 150
++#define __NR_setfsuid 151
++#define __NR_setfsgid 152
++#define __NR_times 153
++#define __NR_setpgid 154
++#define __NR_getpgid 155
++#define __NR_getsid 156
++#define __NR_setsid 157
++#define __NR_getgroups 158
++#define __NR_setgroups 159
++#define __NR_uname 160
++#define __NR_sethostname 161
++#define __NR_setdomainname 162
++#define __NR_getrusage 165
++#define __NR_umask 166
++#define __NR_prctl 167
++#define __NR_getcpu 168
++#define __NR_gettimeofday 169
++#define __NR_settimeofday 170
++#define __NR_adjtimex 171
++#define __NR_getpid 172
++#define __NR_getppid 173
++#define __NR_getuid 174
++#define __NR_geteuid 175
++#define __NR_getgid 176
++#define __NR_getegid 177
++#define __NR_gettid 178
++#define __NR_sysinfo 179
++#define __NR_mq_open 180
++#define __NR_mq_unlink 181
++#define __NR_mq_timedsend 182
++#define __NR_mq_timedreceive 183
++#define __NR_mq_notify 184
++#define __NR_mq_getsetattr 185
++#define __NR_msgget 186
++#define __NR_msgctl 187
++#define __NR_msgrcv 188
++#define __NR_msgsnd 189
++#define __NR_semget 190
++#define __NR_semctl 191
++#define __NR_semtimedop 192
++#define __NR_semop 193
++#define __NR_shmget 194
++#define __NR_shmctl 195
++#define __NR_shmat 196
++#define __NR_shmdt 197
++#define __NR_socket 198
++#define __NR_socketpair 199
++#define __NR_bind 200
++#define __NR_listen 201
++#define __NR_accept 202
++#define __NR_connect 203
++#define __NR_getsockname 204
++#define __NR_getpeername 205
++#define __NR_sendto 206
++#define __NR_recvfrom 207
++#define __NR_setsockopt 208
++#define __NR_getsockopt 209
++#define __NR_shutdown 210
++#define __NR_sendmsg 211
++#define __NR_recvmsg 212
++#define __NR_readahead 213
++#define __NR_brk 214
++#define __NR_munmap 215
++#define __NR_mremap 216
++#define __NR_add_key 217
++#define __NR_request_key 218
++#define __NR_keyctl 219
++#define __NR_clone 220
++#define __NR_execve 221
++#define __NR_mmap 222
++#define __NR_fadvise64 223
++#define __NR_swapon 224
++#define __NR_swapoff 225
++#define __NR_mprotect 226
++#define __NR_msync 227
++#define __NR_mlock 228
++#define __NR_munlock 229
++#define __NR_mlockall 230
++#define __NR_munlockall 231
++#define __NR_mincore 232
++#define __NR_madvise 233
++#define __NR_remap_file_pages 234
++#define __NR_mbind 235
++#define __NR_get_mempolicy 236
++#define __NR_set_mempolicy 237
++#define __NR_migrate_pages 238
++#define __NR_move_pages 239
++#define __NR_rt_tgsigqueueinfo 240
++#define __NR_perf_event_open 241
++#define __NR_accept4 242
++#define __NR_recvmmsg 243
++#define __NR_wait4 260
++#define __NR_prlimit64 261
++#define __NR_fanotify_init 262
++#define __NR_fanotify_mark 263
++#define __NR_name_to_handle_at 264
++#define __NR_open_by_handle_at 265
++#define __NR_clock_adjtime 266
++#define __NR_syncfs 267
++#define __NR_setns 268
++#define __NR_sendmmsg 269
++#define __NR_process_vm_readv 270
++#define __NR_process_vm_writev 271
++#define __NR_kcmp 272
++#define __NR_finit_module 273
++#define __NR_sched_setattr 274
++#define __NR_sched_getattr 275
++#define __NR_renameat2 276
++#define __NR_seccomp 277
++#define __NR_getrandom 278
++#define __NR_memfd_create 279
++#define __NR_bpf 280
++#define __NR_execveat 281
++#define __NR_userfaultfd 282
++#define __NR_membarrier 283
++#define __NR_mlock2 284
++#define __NR_copy_file_range 285
++#define __NR_preadv2 286
++#define __NR_pwritev2 287
++#define __NR_pkey_mprotect 288
++#define __NR_pkey_alloc 289
++#define __NR_pkey_free 290
++#define __NR_statx 291
++#define __NR_io_pgetevents 292
++#define __NR_rseq 293
++#define __NR_kexec_file_load 294
++#define __NR_pidfd_send_signal 424
++#define __NR_io_uring_setup 425
++#define __NR_io_uring_enter 426
++#define __NR_io_uring_register 427
++#define __NR_open_tree 428
++#define __NR_move_mount 429
++#define __NR_fsopen 430
++#define __NR_fsconfig 431
++#define __NR_fsmount 432
++#define __NR_fspick 433
++#define __NR_pidfd_open 434
++#define __NR_clone3 435
++#define __NR_close_range 436
++#define __NR_openat2 437
++#define __NR_pidfd_getfd 438
++#define __NR_faccessat2 439
++#define __NR_process_madvise 440
++#define __NR_epoll_pwait2 441
++#define __NR_mount_setattr 442
++#define __NR_quotactl_fd 443
++#define __NR_landlock_create_ruleset 444
++#define __NR_landlock_add_rule 445
++#define __NR_landlock_restrict_self 446
++#define __NR_process_mrelease 448
++#define __NR_futex_waitv 449
++#define __NR_set_mempolicy_home_node 450
++#define __NR_cachestat 451
++#define __NR_fchmodat2 452
++#define __NR_map_shadow_stack 453
++#define __NR_futex_wake 454
++#define __NR_futex_wait 455
++#define __NR_futex_requeue 456
++#define __NR_statmount 457
++#define __NR_listmount 458
++#define __NR_lsm_get_self_attr 459
++#define __NR_lsm_set_self_attr 460
++#define __NR_lsm_list_modules 461
++#define __NR_mseal 462
++#define __NR_setxattrat 463
++#define __NR_getxattrat 464
++#define __NR_listxattrat 465
++#define __NR_removexattrat 466
++#define __NR_open_tree_attr 467
++#define __NR_file_getattr 468
++#define __NR_file_setattr 469
++
++
++#endif /* _ASM_UNISTD_64_H */
+diff --git a/linux-headers/asm-mips/kvm.h b/linux-headers/asm-mips/kvm.h
+index edcf717c4327..9673dc9cb315 100644
+--- a/linux-headers/asm-mips/kvm.h
++++ b/linux-headers/asm-mips/kvm.h
+@@ -20,8 +20,6 @@
+  * Some parts derived from the x86 version of this file.
+  */
+ 
+-#define __KVM_HAVE_READONLY_MEM
+-
+ #define KVM_COALESCED_MMIO_PAGE_OFFSET 1
+ 
+ /*
+diff --git a/linux-headers/asm-mips/mman.h b/linux-headers/asm-mips/mman.h
+index c6e1fc77c996..b700dae28c48 100644
+--- a/linux-headers/asm-mips/mman.h
++++ b/linux-headers/asm-mips/mman.h
+@@ -88,7 +88,7 @@
+ #define MADV_HUGEPAGE	14		/* Worth backing with hugepages */
+ #define MADV_NOHUGEPAGE 15		/* Not worth backing with hugepages */
+ 
+-#define MADV_DONTDUMP	16		/* Explicity exclude from the core dump,
++#define MADV_DONTDUMP	16		/* Explicitly exclude from core dump,
+ 					   overrides the coredump filter bits */
+ #define MADV_DODUMP	17		/* Clear the MADV_NODUMP flag */
+ 
+@@ -105,6 +105,9 @@
+ 
+ #define MADV_COLLAPSE	25		/* Synchronous hugepage collapse */
+ 
++#define MADV_GUARD_INSTALL 102		/* fatal signal on access to range */
++#define MADV_GUARD_REMOVE 103		/* unguard range */
++
+ /* compatibility flags */
+ #define MAP_FILE	0
+ 
+diff --git a/linux-headers/asm-mips/unistd_n32.h b/linux-headers/asm-mips/unistd_n32.h
+index 994b6f008f54..c99c10e5bf45 100644
+--- a/linux-headers/asm-mips/unistd_n32.h
++++ b/linux-headers/asm-mips/unistd_n32.h
+@@ -385,5 +385,18 @@
+ #define __NR_futex_wake (__NR_Linux + 454)
+ #define __NR_futex_wait (__NR_Linux + 455)
+ #define __NR_futex_requeue (__NR_Linux + 456)
++#define __NR_statmount (__NR_Linux + 457)
++#define __NR_listmount (__NR_Linux + 458)
++#define __NR_lsm_get_self_attr (__NR_Linux + 459)
++#define __NR_lsm_set_self_attr (__NR_Linux + 460)
++#define __NR_lsm_list_modules (__NR_Linux + 461)
++#define __NR_mseal (__NR_Linux + 462)
++#define __NR_setxattrat (__NR_Linux + 463)
++#define __NR_getxattrat (__NR_Linux + 464)
++#define __NR_listxattrat (__NR_Linux + 465)
++#define __NR_removexattrat (__NR_Linux + 466)
++#define __NR_open_tree_attr (__NR_Linux + 467)
++#define __NR_file_getattr (__NR_Linux + 468)
++#define __NR_file_setattr (__NR_Linux + 469)
+ 
+ #endif /* _ASM_UNISTD_N32_H */
+diff --git a/linux-headers/asm-mips/unistd_n64.h b/linux-headers/asm-mips/unistd_n64.h
+index 41dcf5877a1b..0d975bb18560 100644
+--- a/linux-headers/asm-mips/unistd_n64.h
++++ b/linux-headers/asm-mips/unistd_n64.h
+@@ -361,5 +361,18 @@
+ #define __NR_futex_wake (__NR_Linux + 454)
+ #define __NR_futex_wait (__NR_Linux + 455)
+ #define __NR_futex_requeue (__NR_Linux + 456)
++#define __NR_statmount (__NR_Linux + 457)
++#define __NR_listmount (__NR_Linux + 458)
++#define __NR_lsm_get_self_attr (__NR_Linux + 459)
++#define __NR_lsm_set_self_attr (__NR_Linux + 460)
++#define __NR_lsm_list_modules (__NR_Linux + 461)
++#define __NR_mseal (__NR_Linux + 462)
++#define __NR_setxattrat (__NR_Linux + 463)
++#define __NR_getxattrat (__NR_Linux + 464)
++#define __NR_listxattrat (__NR_Linux + 465)
++#define __NR_removexattrat (__NR_Linux + 466)
++#define __NR_open_tree_attr (__NR_Linux + 467)
++#define __NR_file_getattr (__NR_Linux + 468)
++#define __NR_file_setattr (__NR_Linux + 469)
+ 
+ #endif /* _ASM_UNISTD_N64_H */
+diff --git a/linux-headers/asm-mips/unistd_o32.h b/linux-headers/asm-mips/unistd_o32.h
+index ae9d334d96e3..86ac0ac84b39 100644
+--- a/linux-headers/asm-mips/unistd_o32.h
++++ b/linux-headers/asm-mips/unistd_o32.h
+@@ -431,5 +431,18 @@
+ #define __NR_futex_wake (__NR_Linux + 454)
+ #define __NR_futex_wait (__NR_Linux + 455)
+ #define __NR_futex_requeue (__NR_Linux + 456)
++#define __NR_statmount (__NR_Linux + 457)
++#define __NR_listmount (__NR_Linux + 458)
++#define __NR_lsm_get_self_attr (__NR_Linux + 459)
++#define __NR_lsm_set_self_attr (__NR_Linux + 460)
++#define __NR_lsm_list_modules (__NR_Linux + 461)
++#define __NR_mseal (__NR_Linux + 462)
++#define __NR_setxattrat (__NR_Linux + 463)
++#define __NR_getxattrat (__NR_Linux + 464)
++#define __NR_listxattrat (__NR_Linux + 465)
++#define __NR_removexattrat (__NR_Linux + 466)
++#define __NR_open_tree_attr (__NR_Linux + 467)
++#define __NR_file_getattr (__NR_Linux + 468)
++#define __NR_file_setattr (__NR_Linux + 469)
+ 
+ #endif /* _ASM_UNISTD_O32_H */
+diff --git a/linux-headers/asm-powerpc/kvm.h b/linux-headers/asm-powerpc/kvm.h
+index 9f18fa090f1f..077c5437f521 100644
+--- a/linux-headers/asm-powerpc/kvm.h
++++ b/linux-headers/asm-powerpc/kvm.h
+@@ -1,18 +1,5 @@
+ /* SPDX-License-Identifier: GPL-2.0 WITH Linux-syscall-note */
+ /*
+- * This program is free software; you can redistribute it and/or modify
+- * it under the terms of the GNU General Public License, version 2, as
+- * published by the Free Software Foundation.
+- *
+- * This program is distributed in the hope that it will be useful,
+- * but WITHOUT ANY WARRANTY; without even the implied warranty of
+- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+- * GNU General Public License for more details.
+- *
+- * You should have received a copy of the GNU General Public License
+- * along with this program; if not, write to the Free Software
+- * Foundation, 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+- *
+  * Copyright IBM Corp. 2007
+  *
+  * Authors: Hollis Blanchard <hollisb@us.ibm.com>
+@@ -28,7 +15,6 @@
+ #define __KVM_HAVE_PPC_SMT
+ #define __KVM_HAVE_IRQCHIP
+ #define __KVM_HAVE_IRQ_LINE
+-#define __KVM_HAVE_GUEST_DEBUG
+ 
+ /* Not always available, but if it is, this is the correct offset.  */
+ #define KVM_COALESCED_MMIO_PAGE_OFFSET 1
+@@ -646,6 +632,9 @@ struct kvm_ppc_cpu_char {
+ #define KVM_REG_PPC_SIER3	(KVM_REG_PPC | KVM_REG_SIZE_U64 | 0xc3)
+ #define KVM_REG_PPC_DAWR1	(KVM_REG_PPC | KVM_REG_SIZE_U64 | 0xc4)
+ #define KVM_REG_PPC_DAWRX1	(KVM_REG_PPC | KVM_REG_SIZE_U64 | 0xc5)
++#define KVM_REG_PPC_DEXCR	(KVM_REG_PPC | KVM_REG_SIZE_U64 | 0xc6)
++#define KVM_REG_PPC_HASHKEYR	(KVM_REG_PPC | KVM_REG_SIZE_U64 | 0xc7)
++#define KVM_REG_PPC_HASHPKEYR	(KVM_REG_PPC | KVM_REG_SIZE_U64 | 0xc8)
+ 
+ /* Transactional Memory checkpointed state:
+  * This is all GPRs, all VSX regs and a subset of SPRs
+@@ -733,4 +722,48 @@ struct kvm_ppc_xive_eq {
+ #define KVM_XIVE_TIMA_PAGE_OFFSET	0
+ #define KVM_XIVE_ESB_PAGE_OFFSET	4
+ 
++/* for KVM_PPC_GET_PVINFO */
++
++#define KVM_PPC_PVINFO_FLAGS_EV_IDLE   (1<<0)
++
++struct kvm_ppc_pvinfo {
++	/* out */
++	__u32 flags;
++	__u32 hcall[4];
++	__u8  pad[108];
++};
++
++/* for KVM_PPC_GET_SMMU_INFO */
++#define KVM_PPC_PAGE_SIZES_MAX_SZ	8
++
++struct kvm_ppc_one_page_size {
++	__u32 page_shift;	/* Page shift (or 0) */
++	__u32 pte_enc;		/* Encoding in the HPTE (>>12) */
++};
++
++struct kvm_ppc_one_seg_page_size {
++	__u32 page_shift;	/* Base page shift of segment (or 0) */
++	__u32 slb_enc;		/* SLB encoding for BookS */
++	struct kvm_ppc_one_page_size enc[KVM_PPC_PAGE_SIZES_MAX_SZ];
++};
++
++#define KVM_PPC_PAGE_SIZES_REAL		0x00000001
++#define KVM_PPC_1T_SEGMENTS		0x00000002
++#define KVM_PPC_NO_HASH			0x00000004
++
++struct kvm_ppc_smmu_info {
++	__u64 flags;
++	__u32 slb_size;
++	__u16 data_keys;	/* # storage keys supported for data */
++	__u16 instr_keys;	/* # storage keys supported for instructions */
++	struct kvm_ppc_one_seg_page_size sps[KVM_PPC_PAGE_SIZES_MAX_SZ];
++};
++
++/* for KVM_PPC_RESIZE_HPT_{PREPARE,COMMIT} */
++struct kvm_ppc_resize_hpt {
++	__u64 flags;
++	__u32 shift;
++	__u32 pad;
++};
++
+ #endif /* __LINUX_KVM_POWERPC_H */
+diff --git a/linux-headers/asm-powerpc/unistd_32.h b/linux-headers/asm-powerpc/unistd_32.h
+index b9b23d66d7d9..d7a32c5e0690 100644
+--- a/linux-headers/asm-powerpc/unistd_32.h
++++ b/linux-headers/asm-powerpc/unistd_32.h
+@@ -438,6 +438,19 @@
+ #define __NR_futex_wake 454
+ #define __NR_futex_wait 455
+ #define __NR_futex_requeue 456
++#define __NR_statmount 457
++#define __NR_listmount 458
++#define __NR_lsm_get_self_attr 459
++#define __NR_lsm_set_self_attr 460
++#define __NR_lsm_list_modules 461
++#define __NR_mseal 462
++#define __NR_setxattrat 463
++#define __NR_getxattrat 464
++#define __NR_listxattrat 465
++#define __NR_removexattrat 466
++#define __NR_open_tree_attr 467
++#define __NR_file_getattr 468
++#define __NR_file_setattr 469
+ 
+ 
+ #endif /* _ASM_UNISTD_32_H */
+diff --git a/linux-headers/asm-powerpc/unistd_64.h b/linux-headers/asm-powerpc/unistd_64.h
+index cbb4b3e8f7c2..ff35c51fc656 100644
+--- a/linux-headers/asm-powerpc/unistd_64.h
++++ b/linux-headers/asm-powerpc/unistd_64.h
+@@ -410,6 +410,19 @@
+ #define __NR_futex_wake 454
+ #define __NR_futex_wait 455
+ #define __NR_futex_requeue 456
++#define __NR_statmount 457
++#define __NR_listmount 458
++#define __NR_lsm_get_self_attr 459
++#define __NR_lsm_set_self_attr 460
++#define __NR_lsm_list_modules 461
++#define __NR_mseal 462
++#define __NR_setxattrat 463
++#define __NR_getxattrat 464
++#define __NR_listxattrat 465
++#define __NR_removexattrat 466
++#define __NR_open_tree_attr 467
++#define __NR_file_getattr 468
++#define __NR_file_setattr 469
+ 
+ 
+ #endif /* _ASM_UNISTD_64_H */
+diff --git a/linux-headers/asm-riscv/kvm.h b/linux-headers/asm-riscv/kvm.h
+index 60d3b21dead7..759a4852c09a 100644
+--- a/linux-headers/asm-riscv/kvm.h
++++ b/linux-headers/asm-riscv/kvm.h
+@@ -9,16 +9,16 @@
+ #ifndef __LINUX_KVM_RISCV_H
+ #define __LINUX_KVM_RISCV_H
+ 
+-#ifndef __ASSEMBLY__
++#ifndef __ASSEMBLER__
+ 
+ #include <linux/types.h>
+ #include <asm/bitsperlong.h>
+ #include <asm/ptrace.h>
+ 
+ #define __KVM_HAVE_IRQ_LINE
+-#define __KVM_HAVE_READONLY_MEM
+ 
+ #define KVM_COALESCED_MMIO_PAGE_OFFSET 1
++#define KVM_DIRTY_LOG_PAGE_OFFSET 64
+ 
+ #define KVM_INTERRUPT_SET	-1U
+ #define KVM_INTERRUPT_UNSET	-2U
+@@ -56,6 +56,7 @@ struct kvm_riscv_config {
+ 	unsigned long mimpid;
+ 	unsigned long zicboz_block_size;
+ 	unsigned long satp_mode;
++	unsigned long zicbop_block_size;
+ };
+ 
+ /* CORE registers for KVM_GET_ONE_REG and KVM_SET_ONE_REG */
+@@ -139,6 +140,56 @@ enum KVM_RISCV_ISA_EXT_ID {
+ 	KVM_RISCV_ISA_EXT_ZIHPM,
+ 	KVM_RISCV_ISA_EXT_SMSTATEEN,
+ 	KVM_RISCV_ISA_EXT_ZICOND,
++	KVM_RISCV_ISA_EXT_ZBC,
++	KVM_RISCV_ISA_EXT_ZBKB,
++	KVM_RISCV_ISA_EXT_ZBKC,
++	KVM_RISCV_ISA_EXT_ZBKX,
++	KVM_RISCV_ISA_EXT_ZKND,
++	KVM_RISCV_ISA_EXT_ZKNE,
++	KVM_RISCV_ISA_EXT_ZKNH,
++	KVM_RISCV_ISA_EXT_ZKR,
++	KVM_RISCV_ISA_EXT_ZKSED,
++	KVM_RISCV_ISA_EXT_ZKSH,
++	KVM_RISCV_ISA_EXT_ZKT,
++	KVM_RISCV_ISA_EXT_ZVBB,
++	KVM_RISCV_ISA_EXT_ZVBC,
++	KVM_RISCV_ISA_EXT_ZVKB,
++	KVM_RISCV_ISA_EXT_ZVKG,
++	KVM_RISCV_ISA_EXT_ZVKNED,
++	KVM_RISCV_ISA_EXT_ZVKNHA,
++	KVM_RISCV_ISA_EXT_ZVKNHB,
++	KVM_RISCV_ISA_EXT_ZVKSED,
++	KVM_RISCV_ISA_EXT_ZVKSH,
++	KVM_RISCV_ISA_EXT_ZVKT,
++	KVM_RISCV_ISA_EXT_ZFH,
++	KVM_RISCV_ISA_EXT_ZFHMIN,
++	KVM_RISCV_ISA_EXT_ZIHINTNTL,
++	KVM_RISCV_ISA_EXT_ZVFH,
++	KVM_RISCV_ISA_EXT_ZVFHMIN,
++	KVM_RISCV_ISA_EXT_ZFA,
++	KVM_RISCV_ISA_EXT_ZTSO,
++	KVM_RISCV_ISA_EXT_ZACAS,
++	KVM_RISCV_ISA_EXT_SSCOFPMF,
++	KVM_RISCV_ISA_EXT_ZIMOP,
++	KVM_RISCV_ISA_EXT_ZCA,
++	KVM_RISCV_ISA_EXT_ZCB,
++	KVM_RISCV_ISA_EXT_ZCD,
++	KVM_RISCV_ISA_EXT_ZCF,
++	KVM_RISCV_ISA_EXT_ZCMOP,
++	KVM_RISCV_ISA_EXT_ZAWRS,
++	KVM_RISCV_ISA_EXT_SMNPM,
++	KVM_RISCV_ISA_EXT_SSNPM,
++	KVM_RISCV_ISA_EXT_SVADE,
++	KVM_RISCV_ISA_EXT_SVADU,
++	KVM_RISCV_ISA_EXT_SVVPTC,
++	KVM_RISCV_ISA_EXT_ZABHA,
++	KVM_RISCV_ISA_EXT_ZICCRSE,
++	KVM_RISCV_ISA_EXT_ZAAMO,
++	KVM_RISCV_ISA_EXT_ZALRSC,
++	KVM_RISCV_ISA_EXT_ZICBOP,
++	KVM_RISCV_ISA_EXT_ZFBFMIN,
++	KVM_RISCV_ISA_EXT_ZVFBFMIN,
++	KVM_RISCV_ISA_EXT_ZVFBFWMA,
+ 	KVM_RISCV_ISA_EXT_MAX,
+ };
+ 
+@@ -157,16 +208,34 @@ enum KVM_RISCV_SBI_EXT_ID {
+ 	KVM_RISCV_SBI_EXT_EXPERIMENTAL,
+ 	KVM_RISCV_SBI_EXT_VENDOR,
+ 	KVM_RISCV_SBI_EXT_DBCN,
++	KVM_RISCV_SBI_EXT_STA,
++	KVM_RISCV_SBI_EXT_SUSP,
++	KVM_RISCV_SBI_EXT_FWFT,
+ 	KVM_RISCV_SBI_EXT_MAX,
+ };
+ 
++/* SBI STA extension registers for KVM_GET_ONE_REG and KVM_SET_ONE_REG */
++struct kvm_riscv_sbi_sta {
++	unsigned long shmem_lo;
++	unsigned long shmem_hi;
++};
++
++struct kvm_riscv_sbi_fwft_feature {
++	unsigned long enable;
++	unsigned long flags;
++	unsigned long value;
++};
++
++/* SBI FWFT extension registers for KVM_GET_ONE_REG and KVM_SET_ONE_REG */
++struct kvm_riscv_sbi_fwft {
++	struct kvm_riscv_sbi_fwft_feature misaligned_deleg;
++	struct kvm_riscv_sbi_fwft_feature pointer_masking;
++};
++
+ /* Possible states for kvm_riscv_timer */
+ #define KVM_RISCV_TIMER_STATE_OFF	0
+ #define KVM_RISCV_TIMER_STATE_ON	1
+ 
+-#define KVM_REG_SIZE(id)		\
+-	(1U << (((id) & KVM_REG_SIZE_MASK) >> KVM_REG_SIZE_SHIFT))
+-
+ /* If you need to interpret the index values, here is the key: */
+ #define KVM_REG_RISCV_TYPE_MASK		0x00000000FF000000
+ #define KVM_REG_RISCV_TYPE_SHIFT	24
+@@ -241,6 +310,15 @@ enum KVM_RISCV_SBI_EXT_ID {
+ #define KVM_REG_RISCV_VECTOR_REG(n)	\
+ 		((n) + sizeof(struct __riscv_v_ext_state) / sizeof(unsigned long))
+ 
++/* Registers for specific SBI extensions are mapped as type 10 */
++#define KVM_REG_RISCV_SBI_STATE		(0x0a << KVM_REG_RISCV_TYPE_SHIFT)
++#define KVM_REG_RISCV_SBI_STA		(0x0 << KVM_REG_RISCV_SUBTYPE_SHIFT)
++#define KVM_REG_RISCV_SBI_STA_REG(name)		\
++		(offsetof(struct kvm_riscv_sbi_sta, name) / sizeof(unsigned long))
++#define KVM_REG_RISCV_SBI_FWFT		(0x1 << KVM_REG_RISCV_SUBTYPE_SHIFT)
++#define KVM_REG_RISCV_SBI_FWFT_REG(name)	\
++		(offsetof(struct kvm_riscv_sbi_fwft, name) / sizeof(unsigned long))
++
+ /* Device Control API: RISC-V AIA */
+ #define KVM_DEV_RISCV_APLIC_ALIGN		0x1000
+ #define KVM_DEV_RISCV_APLIC_SIZE		0x4000
+diff --git a/linux-headers/asm-riscv/unistd.h b/linux-headers/asm-riscv/unistd.h
+index 950ab3fd4409..81896bbbf727 100644
+--- a/linux-headers/asm-riscv/unistd.h
++++ b/linux-headers/asm-riscv/unistd.h
+@@ -14,41 +14,10 @@
+  * You should have received a copy of the GNU General Public License
+  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+  */
++#include <asm/bitsperlong.h>
+ 
+-#if defined(__LP64__) && !defined(__SYSCALL_COMPAT)
+-#define __ARCH_WANT_NEW_STAT
+-#define __ARCH_WANT_SET_GET_RLIMIT
+-#endif /* __LP64__ */
+-
+-#define __ARCH_WANT_SYS_CLONE3
+-#define __ARCH_WANT_MEMFD_SECRET
+-
+-#include <asm-generic/unistd.h>
+-
+-/*
+- * Allows the instruction cache to be flushed from userspace.  Despite RISC-V
+- * having a direct 'fence.i' instruction available to userspace (which we
+- * can't trap!), that's not actually viable when running on Linux because the
+- * kernel might schedule a process on another hart.  There is no way for
+- * userspace to handle this without invoking the kernel (as it doesn't know the
+- * thread->hart mappings), so we've defined a RISC-V specific system call to
+- * flush the instruction cache.
+- *
+- * __NR_riscv_flush_icache is defined to flush the instruction cache over an
+- * address range, with the flush applying to either all threads or just the
+- * caller.  We don't currently do anything with the address range, that's just
+- * in there for forwards compatibility.
+- */
+-#ifndef __NR_riscv_flush_icache
+-#define __NR_riscv_flush_icache (__NR_arch_specific_syscall + 15)
+-#endif
+-__SYSCALL(__NR_riscv_flush_icache, sys_riscv_flush_icache)
+-
+-/*
+- * Allows userspace to query the kernel for CPU architecture and
+- * microarchitecture details across a given set of CPUs.
+- */
+-#ifndef __NR_riscv_hwprobe
+-#define __NR_riscv_hwprobe (__NR_arch_specific_syscall + 14)
++#if __BITS_PER_LONG == 64
++#include <asm/unistd_64.h>
++#else
++#include <asm/unistd_32.h>
+ #endif
+-__SYSCALL(__NR_riscv_hwprobe, sys_riscv_hwprobe)
+diff --git a/linux-headers/asm-s390/kvm.h b/linux-headers/asm-s390/kvm.h
+index 023a2763a97c..ab5a6bce590c 100644
+--- a/linux-headers/asm-s390/kvm.h
++++ b/linux-headers/asm-s390/kvm.h
+@@ -12,7 +12,320 @@
+ #include <linux/types.h>
+ 
+ #define __KVM_S390
+-#define __KVM_HAVE_GUEST_DEBUG
++
++struct kvm_s390_skeys {
++	__u64 start_gfn;
++	__u64 count;
++	__u64 skeydata_addr;
++	__u32 flags;
++	__u32 reserved[9];
++};
++
++#define KVM_S390_CMMA_PEEK (1 << 0)
++
++/**
++ * kvm_s390_cmma_log - Used for CMMA migration.
++ *
++ * Used both for input and output.
++ *
++ * @start_gfn: Guest page number to start from.
++ * @count: Size of the result buffer.
++ * @flags: Control operation mode via KVM_S390_CMMA_* flags
++ * @remaining: Used with KVM_S390_GET_CMMA_BITS. Indicates how many dirty
++ *             pages are still remaining.
++ * @mask: Used with KVM_S390_SET_CMMA_BITS. Bitmap of bits to actually set
++ *        in the PGSTE.
++ * @values: Pointer to the values buffer.
++ *
++ * Used in KVM_S390_{G,S}ET_CMMA_BITS ioctls.
++ */
++struct kvm_s390_cmma_log {
++	__u64 start_gfn;
++	__u32 count;
++	__u32 flags;
++	union {
++		__u64 remaining;
++		__u64 mask;
++	};
++	__u64 values;
++};
++
++#define KVM_S390_RESET_POR       1
++#define KVM_S390_RESET_CLEAR     2
++#define KVM_S390_RESET_SUBSYSTEM 4
++#define KVM_S390_RESET_CPU_INIT  8
++#define KVM_S390_RESET_IPL       16
++
++/* for KVM_S390_MEM_OP */
++struct kvm_s390_mem_op {
++	/* in */
++	__u64 gaddr;		/* the guest address */
++	__u64 flags;		/* flags */
++	__u32 size;		/* amount of bytes */
++	__u32 op;		/* type of operation */
++	__u64 buf;		/* buffer in userspace */
++	union {
++		struct {
++			__u8 ar;	/* the access register number */
++			__u8 key;	/* access key, ignored if flag unset */
++			__u8 pad1[6];	/* ignored */
++			__u64 old_addr;	/* ignored if cmpxchg flag unset */
++		};
++		__u32 sida_offset; /* offset into the sida */
++		__u8 reserved[32]; /* ignored */
++	};
++};
++/* types for kvm_s390_mem_op->op */
++#define KVM_S390_MEMOP_LOGICAL_READ	0
++#define KVM_S390_MEMOP_LOGICAL_WRITE	1
++#define KVM_S390_MEMOP_SIDA_READ	2
++#define KVM_S390_MEMOP_SIDA_WRITE	3
++#define KVM_S390_MEMOP_ABSOLUTE_READ	4
++#define KVM_S390_MEMOP_ABSOLUTE_WRITE	5
++#define KVM_S390_MEMOP_ABSOLUTE_CMPXCHG	6
++
++/* flags for kvm_s390_mem_op->flags */
++#define KVM_S390_MEMOP_F_CHECK_ONLY		(1ULL << 0)
++#define KVM_S390_MEMOP_F_INJECT_EXCEPTION	(1ULL << 1)
++#define KVM_S390_MEMOP_F_SKEY_PROTECTION	(1ULL << 2)
++
++/* flags specifying extension support via KVM_CAP_S390_MEM_OP_EXTENSION */
++#define KVM_S390_MEMOP_EXTENSION_CAP_BASE	(1 << 0)
++#define KVM_S390_MEMOP_EXTENSION_CAP_CMPXCHG	(1 << 1)
++
++struct kvm_s390_psw {
++	__u64 mask;
++	__u64 addr;
++};
++
++/* valid values for type in kvm_s390_interrupt */
++#define KVM_S390_SIGP_STOP		0xfffe0000u
++#define KVM_S390_PROGRAM_INT		0xfffe0001u
++#define KVM_S390_SIGP_SET_PREFIX	0xfffe0002u
++#define KVM_S390_RESTART		0xfffe0003u
++#define KVM_S390_INT_PFAULT_INIT	0xfffe0004u
++#define KVM_S390_INT_PFAULT_DONE	0xfffe0005u
++#define KVM_S390_MCHK			0xfffe1000u
++#define KVM_S390_INT_CLOCK_COMP		0xffff1004u
++#define KVM_S390_INT_CPU_TIMER		0xffff1005u
++#define KVM_S390_INT_VIRTIO		0xffff2603u
++#define KVM_S390_INT_SERVICE		0xffff2401u
++#define KVM_S390_INT_EMERGENCY		0xffff1201u
++#define KVM_S390_INT_EXTERNAL_CALL	0xffff1202u
++/* Anything below 0xfffe0000u is taken by INT_IO */
++#define KVM_S390_INT_IO(ai,cssid,ssid,schid)   \
++	(((schid)) |			       \
++	 ((ssid) << 16) |		       \
++	 ((cssid) << 18) |		       \
++	 ((ai) << 26))
++#define KVM_S390_INT_IO_MIN		0x00000000u
++#define KVM_S390_INT_IO_MAX		0xfffdffffu
++#define KVM_S390_INT_IO_AI_MASK		0x04000000u
++
++
++struct kvm_s390_interrupt {
++	__u32 type;
++	__u32 parm;
++	__u64 parm64;
++};
++
++struct kvm_s390_io_info {
++	__u16 subchannel_id;
++	__u16 subchannel_nr;
++	__u32 io_int_parm;
++	__u32 io_int_word;
++};
++
++struct kvm_s390_ext_info {
++	__u32 ext_params;
++	__u32 pad;
++	__u64 ext_params2;
++};
++
++struct kvm_s390_pgm_info {
++	__u64 trans_exc_code;
++	__u64 mon_code;
++	__u64 per_address;
++	__u32 data_exc_code;
++	__u16 code;
++	__u16 mon_class_nr;
++	__u8 per_code;
++	__u8 per_atmid;
++	__u8 exc_access_id;
++	__u8 per_access_id;
++	__u8 op_access_id;
++#define KVM_S390_PGM_FLAGS_ILC_VALID	0x01
++#define KVM_S390_PGM_FLAGS_ILC_0	0x02
++#define KVM_S390_PGM_FLAGS_ILC_1	0x04
++#define KVM_S390_PGM_FLAGS_ILC_MASK	0x06
++#define KVM_S390_PGM_FLAGS_NO_REWIND	0x08
++	__u8 flags;
++	__u8 pad[2];
++};
++
++struct kvm_s390_prefix_info {
++	__u32 address;
++};
++
++struct kvm_s390_extcall_info {
++	__u16 code;
++};
++
++struct kvm_s390_emerg_info {
++	__u16 code;
++};
++
++#define KVM_S390_STOP_FLAG_STORE_STATUS	0x01
++struct kvm_s390_stop_info {
++	__u32 flags;
++};
++
++struct kvm_s390_mchk_info {
++	__u64 cr14;
++	__u64 mcic;
++	__u64 failing_storage_address;
++	__u32 ext_damage_code;
++	__u32 pad;
++	__u8 fixed_logout[16];
++};
++
++struct kvm_s390_irq {
++	__u64 type;
++	union {
++		struct kvm_s390_io_info io;
++		struct kvm_s390_ext_info ext;
++		struct kvm_s390_pgm_info pgm;
++		struct kvm_s390_emerg_info emerg;
++		struct kvm_s390_extcall_info extcall;
++		struct kvm_s390_prefix_info prefix;
++		struct kvm_s390_stop_info stop;
++		struct kvm_s390_mchk_info mchk;
++		char reserved[64];
++	} u;
++};
++
++struct kvm_s390_irq_state {
++	__u64 buf;
++	__u32 flags;        /* will stay unused for compatibility reasons */
++	__u32 len;
++	__u32 reserved[4];  /* will stay unused for compatibility reasons */
++};
++
++struct kvm_s390_ucas_mapping {
++	__u64 user_addr;
++	__u64 vcpu_addr;
++	__u64 length;
++};
++
++struct kvm_s390_pv_sec_parm {
++	__u64 origin;
++	__u64 length;
++};
++
++struct kvm_s390_pv_unp {
++	__u64 addr;
++	__u64 size;
++	__u64 tweak;
++};
++
++enum pv_cmd_dmp_id {
++	KVM_PV_DUMP_INIT,
++	KVM_PV_DUMP_CONFIG_STOR_STATE,
++	KVM_PV_DUMP_COMPLETE,
++	KVM_PV_DUMP_CPU,
++};
++
++struct kvm_s390_pv_dmp {
++	__u64 subcmd;
++	__u64 buff_addr;
++	__u64 buff_len;
++	__u64 gaddr;		/* For dump storage state */
++	__u64 reserved[4];
++};
++
++enum pv_cmd_info_id {
++	KVM_PV_INFO_VM,
++	KVM_PV_INFO_DUMP,
++};
++
++struct kvm_s390_pv_info_dump {
++	__u64 dump_cpu_buffer_len;
++	__u64 dump_config_mem_buffer_per_1m;
++	__u64 dump_config_finalize_len;
++};
++
++struct kvm_s390_pv_info_vm {
++	__u64 inst_calls_list[4];
++	__u64 max_cpus;
++	__u64 max_guests;
++	__u64 max_guest_addr;
++	__u64 feature_indication;
++};
++
++struct kvm_s390_pv_info_header {
++	__u32 id;
++	__u32 len_max;
++	__u32 len_written;
++	__u32 reserved;
++};
++
++struct kvm_s390_pv_info {
++	struct kvm_s390_pv_info_header header;
++	union {
++		struct kvm_s390_pv_info_dump dump;
++		struct kvm_s390_pv_info_vm vm;
++	};
++};
++
++enum pv_cmd_id {
++	KVM_PV_ENABLE,
++	KVM_PV_DISABLE,
++	KVM_PV_SET_SEC_PARMS,
++	KVM_PV_UNPACK,
++	KVM_PV_VERIFY,
++	KVM_PV_PREP_RESET,
++	KVM_PV_UNSHARE_ALL,
++	KVM_PV_INFO,
++	KVM_PV_DUMP,
++	KVM_PV_ASYNC_CLEANUP_PREPARE,
++	KVM_PV_ASYNC_CLEANUP_PERFORM,
++};
++
++struct kvm_pv_cmd {
++	__u32 cmd;	/* Command to be executed */
++	__u16 rc;	/* Ultravisor return code */
++	__u16 rrc;	/* Ultravisor return reason code */
++	__u64 data;	/* Data or address */
++	__u32 flags;    /* flags for future extensions. Must be 0 for now */
++	__u32 reserved[3];
++};
++
++struct kvm_s390_zpci_op {
++	/* in */
++	__u32 fh;               /* target device */
++	__u8  op;               /* operation to perform */
++	__u8  pad[3];
++	union {
++		/* for KVM_S390_ZPCIOP_REG_AEN */
++		struct {
++			__u64 ibv;      /* Guest addr of interrupt bit vector */
++			__u64 sb;       /* Guest addr of summary bit */
++			__u32 flags;
++			__u32 noi;      /* Number of interrupts */
++			__u8 isc;       /* Guest interrupt subclass */
++			__u8 sbo;       /* Offset of guest summary bit vector */
++			__u16 pad;
++		} reg_aen;
++		__u64 reserved[8];
++	} u;
++};
++
++/* types for kvm_s390_zpci_op->op */
++#define KVM_S390_ZPCIOP_REG_AEN                0
++#define KVM_S390_ZPCIOP_DEREG_AEN      1
++
++/* flags for kvm_s390_zpci_op->u.reg_aen.flags */
++#define KVM_S390_ZPCIOP_REGAEN_HOST    (1 << 0)
+ 
+ /* Device control API: s390-specific devices */
+ #define KVM_DEV_FLIC_GET_ALL_IRQS	1
+@@ -156,7 +469,8 @@ struct kvm_s390_vm_cpu_subfunc {
+ 	__u8 kdsa[16];		/* with MSA9 */
+ 	__u8 sortl[32];		/* with STFLE.150 */
+ 	__u8 dfltcc[32];	/* with STFLE.151 */
+-	__u8 reserved[1728];
++	__u8 pfcr[16];		/* with STFLE.201 */
++	__u8 reserved[1712];
+ };
+ 
+ #define KVM_S390_VM_CPU_PROCESSOR_UV_FEAT_GUEST	6
+diff --git a/linux-headers/asm-s390/unistd_32.h b/linux-headers/asm-s390/unistd_32.h
+index c093e6d5f911..37b8f6f3585d 100644
+--- a/linux-headers/asm-s390/unistd_32.h
++++ b/linux-headers/asm-s390/unistd_32.h
+@@ -429,5 +429,18 @@
+ #define __NR_futex_wake 454
+ #define __NR_futex_wait 455
+ #define __NR_futex_requeue 456
++#define __NR_statmount 457
++#define __NR_listmount 458
++#define __NR_lsm_get_self_attr 459
++#define __NR_lsm_set_self_attr 460
++#define __NR_lsm_list_modules 461
++#define __NR_mseal 462
++#define __NR_setxattrat 463
++#define __NR_getxattrat 464
++#define __NR_listxattrat 465
++#define __NR_removexattrat 466
++#define __NR_open_tree_attr 467
++#define __NR_file_getattr 468
++#define __NR_file_setattr 469
+ 
+ #endif /* _ASM_S390_UNISTD_32_H */
+diff --git a/linux-headers/asm-s390/unistd_64.h b/linux-headers/asm-s390/unistd_64.h
+index 114c0569a49a..0652ba63318b 100644
+--- a/linux-headers/asm-s390/unistd_64.h
++++ b/linux-headers/asm-s390/unistd_64.h
+@@ -377,5 +377,18 @@
+ #define __NR_futex_wake 454
+ #define __NR_futex_wait 455
+ #define __NR_futex_requeue 456
++#define __NR_statmount 457
++#define __NR_listmount 458
++#define __NR_lsm_get_self_attr 459
++#define __NR_lsm_set_self_attr 460
++#define __NR_lsm_list_modules 461
++#define __NR_mseal 462
++#define __NR_setxattrat 463
++#define __NR_getxattrat 464
++#define __NR_listxattrat 465
++#define __NR_removexattrat 466
++#define __NR_open_tree_attr 467
++#define __NR_file_getattr 468
++#define __NR_file_setattr 469
+ 
+ #endif /* _ASM_S390_UNISTD_64_H */
+diff --git a/linux-headers/asm-x86/kvm.h b/linux-headers/asm-x86/kvm.h
+index 2b3a8f7bd2c0..3bb38f6c3a41 100644
+--- a/linux-headers/asm-x86/kvm.h
++++ b/linux-headers/asm-x86/kvm.h
+@@ -7,6 +7,8 @@
+  *
+  */
+ 
++#include <linux/const.h>
++#include <linux/bits.h>
+ #include <linux/types.h>
+ #include <linux/ioctl.h>
+ #include <linux/stddef.h>
+@@ -33,6 +35,11 @@
+ #define MC_VECTOR 18
+ #define XM_VECTOR 19
+ #define VE_VECTOR 20
++#define CP_VECTOR 21
++
++#define HV_VECTOR 28
++#define VC_VECTOR 29
++#define SX_VECTOR 30
+ 
+ /* Select x86 specific features in <linux/kvm.h> */
+ #define __KVM_HAVE_PIT
+@@ -40,7 +47,6 @@
+ #define __KVM_HAVE_IRQ_LINE
+ #define __KVM_HAVE_MSI
+ #define __KVM_HAVE_USER_NMI
+-#define __KVM_HAVE_GUEST_DEBUG
+ #define __KVM_HAVE_MSIX
+ #define __KVM_HAVE_MCE
+ #define __KVM_HAVE_PIT_STATE2
+@@ -49,7 +55,6 @@
+ #define __KVM_HAVE_DEBUGREGS
+ #define __KVM_HAVE_XSAVE
+ #define __KVM_HAVE_XCRS
+-#define __KVM_HAVE_READONLY_MEM
+ 
+ /* Architectural interrupt line count. */
+ #define KVM_NR_INTERRUPTS 256
+@@ -106,6 +111,7 @@ struct kvm_ioapic_state {
+ 
+ #define KVM_RUN_X86_SMM		 (1 << 0)
+ #define KVM_RUN_X86_BUS_LOCK     (1 << 1)
++#define KVM_RUN_X86_GUEST_MODE   (1 << 2)
+ 
+ /* for KVM_GET_REGS and KVM_SET_REGS */
+ struct kvm_regs {
+@@ -408,6 +414,35 @@ struct kvm_xcrs {
+ 	__u64 padding[16];
+ };
+ 
++#define KVM_X86_REG_TYPE_MSR		2
++#define KVM_X86_REG_TYPE_KVM		3
++
++#define KVM_X86_KVM_REG_SIZE(reg)						\
++({										\
++	reg == KVM_REG_GUEST_SSP ? KVM_REG_SIZE_U64 : 0;			\
++})
++
++#define KVM_X86_REG_TYPE_SIZE(type, reg)					\
++({										\
++	__u64 type_size = (__u64)type << 32;					\
++										\
++	type_size |= type == KVM_X86_REG_TYPE_MSR ? KVM_REG_SIZE_U64 :		\
++		     type == KVM_X86_REG_TYPE_KVM ? KVM_X86_KVM_REG_SIZE(reg) :	\
++		     0;								\
++	type_size;								\
++})
++
++#define KVM_X86_REG_ID(type, index)				\
++	(KVM_REG_X86 | KVM_X86_REG_TYPE_SIZE(type, index) | index)
++
++#define KVM_X86_REG_MSR(index)					\
++	KVM_X86_REG_ID(KVM_X86_REG_TYPE_MSR, index)
++#define KVM_X86_REG_KVM(index)					\
++	KVM_X86_REG_ID(KVM_X86_REG_TYPE_KVM, index)
++
++/* KVM-defined registers starting from 0 */
++#define KVM_REG_GUEST_SSP	0
++
+ #define KVM_SYNC_X86_REGS      (1UL << 0)
+ #define KVM_SYNC_X86_SREGS     (1UL << 1)
+ #define KVM_SYNC_X86_EVENTS    (1UL << 2)
+@@ -436,6 +471,9 @@ struct kvm_sync_regs {
+ #define KVM_X86_QUIRK_MISC_ENABLE_NO_MWAIT	(1 << 4)
+ #define KVM_X86_QUIRK_FIX_HYPERCALL_INSN	(1 << 5)
+ #define KVM_X86_QUIRK_MWAIT_NEVER_UD_FAULTS	(1 << 6)
++#define KVM_X86_QUIRK_SLOT_ZAP_ALL		(1 << 7)
++#define KVM_X86_QUIRK_STUFF_FEATURE_MSRS	(1 << 8)
++#define KVM_X86_QUIRK_IGNORE_GUEST_PAT		(1 << 9)
+ 
+ #define KVM_STATE_NESTED_FORMAT_VMX	0
+ #define KVM_STATE_NESTED_FORMAT_SVM	1
+@@ -455,8 +493,13 @@ struct kvm_sync_regs {
+ 
+ #define KVM_STATE_VMX_PREEMPTION_TIMER_DEADLINE	0x00000001
+ 
+-/* attributes for system fd (group 0) */
+-#define KVM_X86_XCOMP_GUEST_SUPP	0
++/* vendor-independent attributes for system fd (group 0) */
++#define KVM_X86_GRP_SYSTEM		0
++#  define KVM_X86_XCOMP_GUEST_SUPP	0
++
++/* vendor-specific groups and attributes for system fd */
++#define KVM_X86_GRP_SEV			1
++#  define KVM_X86_SEV_VMSA_FEATURES	0
+ 
+ struct kvm_vmx_nested_state_data {
+ 	__u8 vmcs12[KVM_STATE_NESTED_VMX_VMCS_SIZE];
+@@ -524,9 +567,363 @@ struct kvm_pmu_event_filter {
+ #define KVM_PMU_EVENT_ALLOW 0
+ #define KVM_PMU_EVENT_DENY 1
+ 
+-#define KVM_PMU_EVENT_FLAG_MASKED_EVENTS BIT(0)
++#define KVM_PMU_EVENT_FLAG_MASKED_EVENTS _BITUL(0)
+ #define KVM_PMU_EVENT_FLAGS_VALID_MASK (KVM_PMU_EVENT_FLAG_MASKED_EVENTS)
+ 
++/* for KVM_CAP_MCE */
++struct kvm_x86_mce {
++	__u64 status;
++	__u64 addr;
++	__u64 misc;
++	__u64 mcg_status;
++	__u8 bank;
++	__u8 pad1[7];
++	__u64 pad2[3];
++};
++
++/* for KVM_CAP_XEN_HVM */
++#define KVM_XEN_HVM_CONFIG_HYPERCALL_MSR	(1 << 0)
++#define KVM_XEN_HVM_CONFIG_INTERCEPT_HCALL	(1 << 1)
++#define KVM_XEN_HVM_CONFIG_SHARED_INFO		(1 << 2)
++#define KVM_XEN_HVM_CONFIG_RUNSTATE		(1 << 3)
++#define KVM_XEN_HVM_CONFIG_EVTCHN_2LEVEL	(1 << 4)
++#define KVM_XEN_HVM_CONFIG_EVTCHN_SEND		(1 << 5)
++#define KVM_XEN_HVM_CONFIG_RUNSTATE_UPDATE_FLAG	(1 << 6)
++#define KVM_XEN_HVM_CONFIG_PVCLOCK_TSC_UNSTABLE	(1 << 7)
++#define KVM_XEN_HVM_CONFIG_SHARED_INFO_HVA	(1 << 8)
++
++#define KVM_XEN_MSR_MIN_INDEX			0x40000000u
++#define KVM_XEN_MSR_MAX_INDEX			0x4fffffffu
++
++struct kvm_xen_hvm_config {
++	__u32 flags;
++	__u32 msr;
++	__u64 blob_addr_32;
++	__u64 blob_addr_64;
++	__u8 blob_size_32;
++	__u8 blob_size_64;
++	__u8 pad2[30];
++};
++
++struct kvm_xen_hvm_attr {
++	__u16 type;
++	__u16 pad[3];
++	union {
++		__u8 long_mode;
++		__u8 vector;
++		__u8 runstate_update_flag;
++		union {
++			__u64 gfn;
++#define KVM_XEN_INVALID_GFN ((__u64)-1)
++			__u64 hva;
++		} shared_info;
++		struct {
++			__u32 send_port;
++			__u32 type; /* EVTCHNSTAT_ipi / EVTCHNSTAT_interdomain */
++			__u32 flags;
++#define KVM_XEN_EVTCHN_DEASSIGN		(1 << 0)
++#define KVM_XEN_EVTCHN_UPDATE		(1 << 1)
++#define KVM_XEN_EVTCHN_RESET		(1 << 2)
++			/*
++			 * Events sent by the guest are either looped back to
++			 * the guest itself (potentially on a different port#)
++			 * or signalled via an eventfd.
++			 */
++			union {
++				struct {
++					__u32 port;
++					__u32 vcpu;
++					__u32 priority;
++				} port;
++				struct {
++					__u32 port; /* Zero for eventfd */
++					__s32 fd;
++				} eventfd;
++				__u32 padding[4];
++			} deliver;
++		} evtchn;
++		__u32 xen_version;
++		__u64 pad[8];
++	} u;
++};
++
++
++/* Available with KVM_CAP_XEN_HVM / KVM_XEN_HVM_CONFIG_SHARED_INFO */
++#define KVM_XEN_ATTR_TYPE_LONG_MODE		0x0
++#define KVM_XEN_ATTR_TYPE_SHARED_INFO		0x1
++#define KVM_XEN_ATTR_TYPE_UPCALL_VECTOR		0x2
++/* Available with KVM_CAP_XEN_HVM / KVM_XEN_HVM_CONFIG_EVTCHN_SEND */
++#define KVM_XEN_ATTR_TYPE_EVTCHN		0x3
++#define KVM_XEN_ATTR_TYPE_XEN_VERSION		0x4
++/* Available with KVM_CAP_XEN_HVM / KVM_XEN_HVM_CONFIG_RUNSTATE_UPDATE_FLAG */
++#define KVM_XEN_ATTR_TYPE_RUNSTATE_UPDATE_FLAG	0x5
++/* Available with KVM_CAP_XEN_HVM / KVM_XEN_HVM_CONFIG_SHARED_INFO_HVA */
++#define KVM_XEN_ATTR_TYPE_SHARED_INFO_HVA	0x6
++
++struct kvm_xen_vcpu_attr {
++	__u16 type;
++	__u16 pad[3];
++	union {
++		__u64 gpa;
++#define KVM_XEN_INVALID_GPA ((__u64)-1)
++		__u64 hva;
++		__u64 pad[8];
++		struct {
++			__u64 state;
++			__u64 state_entry_time;
++			__u64 time_running;
++			__u64 time_runnable;
++			__u64 time_blocked;
++			__u64 time_offline;
++		} runstate;
++		__u32 vcpu_id;
++		struct {
++			__u32 port;
++			__u32 priority;
++			__u64 expires_ns;
++		} timer;
++		__u8 vector;
++	} u;
++};
++
++/* Available with KVM_CAP_XEN_HVM / KVM_XEN_HVM_CONFIG_SHARED_INFO */
++#define KVM_XEN_VCPU_ATTR_TYPE_VCPU_INFO	0x0
++#define KVM_XEN_VCPU_ATTR_TYPE_VCPU_TIME_INFO	0x1
++#define KVM_XEN_VCPU_ATTR_TYPE_RUNSTATE_ADDR	0x2
++#define KVM_XEN_VCPU_ATTR_TYPE_RUNSTATE_CURRENT	0x3
++#define KVM_XEN_VCPU_ATTR_TYPE_RUNSTATE_DATA	0x4
++#define KVM_XEN_VCPU_ATTR_TYPE_RUNSTATE_ADJUST	0x5
++/* Available with KVM_CAP_XEN_HVM / KVM_XEN_HVM_CONFIG_EVTCHN_SEND */
++#define KVM_XEN_VCPU_ATTR_TYPE_VCPU_ID		0x6
++#define KVM_XEN_VCPU_ATTR_TYPE_TIMER		0x7
++#define KVM_XEN_VCPU_ATTR_TYPE_UPCALL_VECTOR	0x8
++/* Available with KVM_CAP_XEN_HVM / KVM_XEN_HVM_CONFIG_SHARED_INFO_HVA */
++#define KVM_XEN_VCPU_ATTR_TYPE_VCPU_INFO_HVA	0x9
++
++/* Secure Encrypted Virtualization command */
++enum sev_cmd_id {
++	/* Guest initialization commands */
++	KVM_SEV_INIT = 0,
++	KVM_SEV_ES_INIT,
++	/* Guest launch commands */
++	KVM_SEV_LAUNCH_START,
++	KVM_SEV_LAUNCH_UPDATE_DATA,
++	KVM_SEV_LAUNCH_UPDATE_VMSA,
++	KVM_SEV_LAUNCH_SECRET,
++	KVM_SEV_LAUNCH_MEASURE,
++	KVM_SEV_LAUNCH_FINISH,
++	/* Guest migration commands (outgoing) */
++	KVM_SEV_SEND_START,
++	KVM_SEV_SEND_UPDATE_DATA,
++	KVM_SEV_SEND_UPDATE_VMSA,
++	KVM_SEV_SEND_FINISH,
++	/* Guest migration commands (incoming) */
++	KVM_SEV_RECEIVE_START,
++	KVM_SEV_RECEIVE_UPDATE_DATA,
++	KVM_SEV_RECEIVE_UPDATE_VMSA,
++	KVM_SEV_RECEIVE_FINISH,
++	/* Guest status and debug commands */
++	KVM_SEV_GUEST_STATUS,
++	KVM_SEV_DBG_DECRYPT,
++	KVM_SEV_DBG_ENCRYPT,
++	/* Guest certificates commands */
++	KVM_SEV_CERT_EXPORT,
++	/* Attestation report */
++	KVM_SEV_GET_ATTESTATION_REPORT,
++	/* Guest Migration Extension */
++	KVM_SEV_SEND_CANCEL,
++
++	/* Second time is the charm; improved versions of the above ioctls.  */
++	KVM_SEV_INIT2,
++
++	/* SNP-specific commands */
++	KVM_SEV_SNP_LAUNCH_START = 100,
++	KVM_SEV_SNP_LAUNCH_UPDATE,
++	KVM_SEV_SNP_LAUNCH_FINISH,
++
++	KVM_SEV_NR_MAX,
++};
++
++struct kvm_sev_cmd {
++	__u32 id;
++	__u32 pad0;
++	__u64 data;
++	__u32 error;
++	__u32 sev_fd;
++};
++
++struct kvm_sev_init {
++	__u64 vmsa_features;
++	__u32 flags;
++	__u16 ghcb_version;
++	__u16 pad1;
++	__u32 pad2[8];
++};
++
++struct kvm_sev_launch_start {
++	__u32 handle;
++	__u32 policy;
++	__u64 dh_uaddr;
++	__u32 dh_len;
++	__u32 pad0;
++	__u64 session_uaddr;
++	__u32 session_len;
++	__u32 pad1;
++};
++
++struct kvm_sev_launch_update_data {
++	__u64 uaddr;
++	__u32 len;
++	__u32 pad0;
++};
++
++
++struct kvm_sev_launch_secret {
++	__u64 hdr_uaddr;
++	__u32 hdr_len;
++	__u32 pad0;
++	__u64 guest_uaddr;
++	__u32 guest_len;
++	__u32 pad1;
++	__u64 trans_uaddr;
++	__u32 trans_len;
++	__u32 pad2;
++};
++
++struct kvm_sev_launch_measure {
++	__u64 uaddr;
++	__u32 len;
++	__u32 pad0;
++};
++
++struct kvm_sev_guest_status {
++	__u32 handle;
++	__u32 policy;
++	__u32 state;
++};
++
++struct kvm_sev_dbg {
++	__u64 src_uaddr;
++	__u64 dst_uaddr;
++	__u32 len;
++	__u32 pad0;
++};
++
++struct kvm_sev_attestation_report {
++	__u8 mnonce[16];
++	__u64 uaddr;
++	__u32 len;
++	__u32 pad0;
++};
++
++struct kvm_sev_send_start {
++	__u32 policy;
++	__u32 pad0;
++	__u64 pdh_cert_uaddr;
++	__u32 pdh_cert_len;
++	__u32 pad1;
++	__u64 plat_certs_uaddr;
++	__u32 plat_certs_len;
++	__u32 pad2;
++	__u64 amd_certs_uaddr;
++	__u32 amd_certs_len;
++	__u32 pad3;
++	__u64 session_uaddr;
++	__u32 session_len;
++	__u32 pad4;
++};
++
++struct kvm_sev_send_update_data {
++	__u64 hdr_uaddr;
++	__u32 hdr_len;
++	__u32 pad0;
++	__u64 guest_uaddr;
++	__u32 guest_len;
++	__u32 pad1;
++	__u64 trans_uaddr;
++	__u32 trans_len;
++	__u32 pad2;
++};
++
++struct kvm_sev_receive_start {
++	__u32 handle;
++	__u32 policy;
++	__u64 pdh_uaddr;
++	__u32 pdh_len;
++	__u32 pad0;
++	__u64 session_uaddr;
++	__u32 session_len;
++	__u32 pad1;
++};
++
++struct kvm_sev_receive_update_data {
++	__u64 hdr_uaddr;
++	__u32 hdr_len;
++	__u32 pad0;
++	__u64 guest_uaddr;
++	__u32 guest_len;
++	__u32 pad1;
++	__u64 trans_uaddr;
++	__u32 trans_len;
++	__u32 pad2;
++};
++
++struct kvm_sev_snp_launch_start {
++	__u64 policy;
++	__u8 gosvw[16];
++	__u16 flags;
++	__u8 pad0[6];
++	__u64 pad1[4];
++};
++
++/* Kept in sync with firmware values for simplicity. */
++#define KVM_SEV_PAGE_TYPE_INVALID		0x0
++#define KVM_SEV_SNP_PAGE_TYPE_NORMAL		0x1
++#define KVM_SEV_SNP_PAGE_TYPE_ZERO		0x3
++#define KVM_SEV_SNP_PAGE_TYPE_UNMEASURED	0x4
++#define KVM_SEV_SNP_PAGE_TYPE_SECRETS		0x5
++#define KVM_SEV_SNP_PAGE_TYPE_CPUID		0x6
++
++struct kvm_sev_snp_launch_update {
++	__u64 gfn_start;
++	__u64 uaddr;
++	__u64 len;
++	__u8 type;
++	__u8 pad0;
++	__u16 flags;
++	__u32 pad1;
++	__u64 pad2[4];
++};
++
++#define KVM_SEV_SNP_ID_BLOCK_SIZE	96
++#define KVM_SEV_SNP_ID_AUTH_SIZE	4096
++#define KVM_SEV_SNP_FINISH_DATA_SIZE	32
++
++struct kvm_sev_snp_launch_finish {
++	__u64 id_block_uaddr;
++	__u64 id_auth_uaddr;
++	__u8 id_block_en;
++	__u8 auth_key_en;
++	__u8 vcek_disabled;
++	__u8 host_data[KVM_SEV_SNP_FINISH_DATA_SIZE];
++	__u8 pad0[3];
++	__u16 flags;
++	__u64 pad1[4];
++};
++
++#define KVM_X2APIC_API_USE_32BIT_IDS            (1ULL << 0)
++#define KVM_X2APIC_API_DISABLE_BROADCAST_QUIRK  (1ULL << 1)
++
++struct kvm_hyperv_eventfd {
++	__u32 conn_id;
++	__s32 fd;
++	__u32 flags;
++	__u32 padding[3];
++};
++
++#define KVM_HYPERV_CONN_ID_MASK		0x00ffffff
++#define KVM_HYPERV_EVENTFD_DEASSIGN	(1 << 0)
++
+ /*
+  * Masked event layout.
+  * Bits   Description
+@@ -547,10 +944,10 @@ struct kvm_pmu_event_filter {
+ 	((__u64)(!!(exclude)) << 55))
+ 
+ #define KVM_PMU_MASKED_ENTRY_EVENT_SELECT \
+-	(GENMASK_ULL(7, 0) | GENMASK_ULL(35, 32))
+-#define KVM_PMU_MASKED_ENTRY_UMASK_MASK		(GENMASK_ULL(63, 56))
+-#define KVM_PMU_MASKED_ENTRY_UMASK_MATCH	(GENMASK_ULL(15, 8))
+-#define KVM_PMU_MASKED_ENTRY_EXCLUDE		(BIT_ULL(55))
++	(__GENMASK_ULL(7, 0) | __GENMASK_ULL(35, 32))
++#define KVM_PMU_MASKED_ENTRY_UMASK_MASK		(__GENMASK_ULL(63, 56))
++#define KVM_PMU_MASKED_ENTRY_UMASK_MATCH	(__GENMASK_ULL(15, 8))
++#define KVM_PMU_MASKED_ENTRY_EXCLUDE		(_BITULL(55))
+ #define KVM_PMU_MASKED_ENTRY_UMASK_MASK_SHIFT	(56)
+ 
+ /* for KVM_{GET,SET,HAS}_DEVICE_ATTR */
+@@ -558,6 +955,89 @@ struct kvm_pmu_event_filter {
+ #define   KVM_VCPU_TSC_OFFSET 0 /* attribute for the TSC offset */
+ 
+ /* x86-specific KVM_EXIT_HYPERCALL flags. */
+-#define KVM_EXIT_HYPERCALL_LONG_MODE	BIT(0)
++#define KVM_EXIT_HYPERCALL_LONG_MODE	_BITULL(0)
++
++#define KVM_X86_DEFAULT_VM	0
++#define KVM_X86_SW_PROTECTED_VM	1
++#define KVM_X86_SEV_VM		2
++#define KVM_X86_SEV_ES_VM	3
++#define KVM_X86_SNP_VM		4
++#define KVM_X86_TDX_VM		5
++
++/* Trust Domain eXtension sub-ioctl() commands. */
++enum kvm_tdx_cmd_id {
++	KVM_TDX_CAPABILITIES = 0,
++	KVM_TDX_INIT_VM,
++	KVM_TDX_INIT_VCPU,
++	KVM_TDX_INIT_MEM_REGION,
++	KVM_TDX_FINALIZE_VM,
++	KVM_TDX_GET_CPUID,
++
++	KVM_TDX_CMD_NR_MAX,
++};
++
++struct kvm_tdx_cmd {
++	/* enum kvm_tdx_cmd_id */
++	__u32 id;
++	/* flags for sub-commend. If sub-command doesn't use this, set zero. */
++	__u32 flags;
++	/*
++	 * data for each sub-command. An immediate or a pointer to the actual
++	 * data in process virtual address.  If sub-command doesn't use it,
++	 * set zero.
++	 */
++	__u64 data;
++	/*
++	 * Auxiliary error code.  The sub-command may return TDX SEAMCALL
++	 * status code in addition to -Exxx.
++	 */
++	__u64 hw_error;
++};
++
++struct kvm_tdx_capabilities {
++	__u64 supported_attrs;
++	__u64 supported_xfam;
++
++	__u64 kernel_tdvmcallinfo_1_r11;
++	__u64 user_tdvmcallinfo_1_r11;
++	__u64 kernel_tdvmcallinfo_1_r12;
++	__u64 user_tdvmcallinfo_1_r12;
++
++	__u64 reserved[250];
++
++	/* Configurable CPUID bits for userspace */
++	struct kvm_cpuid2 cpuid;
++};
++
++struct kvm_tdx_init_vm {
++	__u64 attributes;
++	__u64 xfam;
++	__u64 mrconfigid[6];	/* sha384 digest */
++	__u64 mrowner[6];	/* sha384 digest */
++	__u64 mrownerconfig[6];	/* sha384 digest */
++
++	/* The total space for TD_PARAMS before the CPUIDs is 256 bytes */
++	__u64 reserved[12];
++
++	/*
++	 * Call KVM_TDX_INIT_VM before vcpu creation, thus before
++	 * KVM_SET_CPUID2.
++	 * This configuration supersedes KVM_SET_CPUID2s for VCPUs because the
++	 * TDX module directly virtualizes those CPUIDs without VMM.  The user
++	 * space VMM, e.g. qemu, should make KVM_SET_CPUID2 consistent with
++	 * those values.  If it doesn't, KVM may have wrong idea of vCPUIDs of
++	 * the guest, and KVM may wrongly emulate CPUIDs or MSRs that the TDX
++	 * module doesn't virtualize.
++	 */
++	struct kvm_cpuid2 cpuid;
++};
++
++#define KVM_TDX_MEASURE_MEMORY_REGION   _BITULL(0)
++
++struct kvm_tdx_init_mem_region {
++	__u64 source_addr;
++	__u64 gpa;
++	__u64 nr_pages;
++};
+ 
+ #endif /* _ASM_X86_KVM_H */
+diff --git a/linux-headers/asm-x86/mman.h b/linux-headers/asm-x86/mman.h
+index 46cdc941f958..ac1e6277212b 100644
+--- a/linux-headers/asm-x86/mman.h
++++ b/linux-headers/asm-x86/mman.h
+@@ -5,9 +5,6 @@
+ #define MAP_32BIT	0x40		/* only give out 32bit addresses */
+ #define MAP_ABOVE4G	0x80		/* only map above 4GB */
+ 
+-/* Flags for map_shadow_stack(2) */
+-#define SHADOW_STACK_SET_TOKEN	(1ULL << 0)	/* Set up a restore token in the shadow stack */
+-
+ #include <asm-generic/mman.h>
+ 
+ #endif /* _ASM_X86_MMAN_H */
+diff --git a/linux-headers/asm-x86/unistd_32.h b/linux-headers/asm-x86/unistd_32.h
+index 329649c377be..8f784a56347d 100644
+--- a/linux-headers/asm-x86/unistd_32.h
++++ b/linux-headers/asm-x86/unistd_32.h
+@@ -447,6 +447,19 @@
+ #define __NR_futex_wake 454
+ #define __NR_futex_wait 455
+ #define __NR_futex_requeue 456
++#define __NR_statmount 457
++#define __NR_listmount 458
++#define __NR_lsm_get_self_attr 459
++#define __NR_lsm_set_self_attr 460
++#define __NR_lsm_list_modules 461
++#define __NR_mseal 462
++#define __NR_setxattrat 463
++#define __NR_getxattrat 464
++#define __NR_listxattrat 465
++#define __NR_removexattrat 466
++#define __NR_open_tree_attr 467
++#define __NR_file_getattr 468
++#define __NR_file_setattr 469
+ 
+ 
+ #endif /* _ASM_UNISTD_32_H */
+diff --git a/linux-headers/asm-x86/unistd_64.h b/linux-headers/asm-x86/unistd_64.h
+index 4583606ce684..26c258d1a609 100644
+--- a/linux-headers/asm-x86/unistd_64.h
++++ b/linux-headers/asm-x86/unistd_64.h
+@@ -336,6 +336,8 @@
+ #define __NR_statx 332
+ #define __NR_io_pgetevents 333
+ #define __NR_rseq 334
++#define __NR_uretprobe 335
++#define __NR_uprobe 336
+ #define __NR_pidfd_send_signal 424
+ #define __NR_io_uring_setup 425
+ #define __NR_io_uring_enter 426
+@@ -369,6 +371,19 @@
+ #define __NR_futex_wake 454
+ #define __NR_futex_wait 455
+ #define __NR_futex_requeue 456
++#define __NR_statmount 457
++#define __NR_listmount 458
++#define __NR_lsm_get_self_attr 459
++#define __NR_lsm_set_self_attr 460
++#define __NR_lsm_list_modules 461
++#define __NR_mseal 462
++#define __NR_setxattrat 463
++#define __NR_getxattrat 464
++#define __NR_listxattrat 465
++#define __NR_removexattrat 466
++#define __NR_open_tree_attr 467
++#define __NR_file_getattr 468
++#define __NR_file_setattr 469
+ 
+ 
+ #endif /* _ASM_UNISTD_64_H */
+diff --git a/linux-headers/asm-x86/unistd_x32.h b/linux-headers/asm-x86/unistd_x32.h
+index 146d74d8e4b0..65c2aed94623 100644
+--- a/linux-headers/asm-x86/unistd_x32.h
++++ b/linux-headers/asm-x86/unistd_x32.h
+@@ -289,6 +289,8 @@
+ #define __NR_statx (__X32_SYSCALL_BIT + 332)
+ #define __NR_io_pgetevents (__X32_SYSCALL_BIT + 333)
+ #define __NR_rseq (__X32_SYSCALL_BIT + 334)
++#define __NR_uretprobe (__X32_SYSCALL_BIT + 335)
++#define __NR_uprobe (__X32_SYSCALL_BIT + 336)
+ #define __NR_pidfd_send_signal (__X32_SYSCALL_BIT + 424)
+ #define __NR_io_uring_setup (__X32_SYSCALL_BIT + 425)
+ #define __NR_io_uring_enter (__X32_SYSCALL_BIT + 426)
+@@ -318,9 +320,23 @@
+ #define __NR_set_mempolicy_home_node (__X32_SYSCALL_BIT + 450)
+ #define __NR_cachestat (__X32_SYSCALL_BIT + 451)
+ #define __NR_fchmodat2 (__X32_SYSCALL_BIT + 452)
++#define __NR_map_shadow_stack (__X32_SYSCALL_BIT + 453)
+ #define __NR_futex_wake (__X32_SYSCALL_BIT + 454)
+ #define __NR_futex_wait (__X32_SYSCALL_BIT + 455)
+ #define __NR_futex_requeue (__X32_SYSCALL_BIT + 456)
++#define __NR_statmount (__X32_SYSCALL_BIT + 457)
++#define __NR_listmount (__X32_SYSCALL_BIT + 458)
++#define __NR_lsm_get_self_attr (__X32_SYSCALL_BIT + 459)
++#define __NR_lsm_set_self_attr (__X32_SYSCALL_BIT + 460)
++#define __NR_lsm_list_modules (__X32_SYSCALL_BIT + 461)
++#define __NR_mseal (__X32_SYSCALL_BIT + 462)
++#define __NR_setxattrat (__X32_SYSCALL_BIT + 463)
++#define __NR_getxattrat (__X32_SYSCALL_BIT + 464)
++#define __NR_listxattrat (__X32_SYSCALL_BIT + 465)
++#define __NR_removexattrat (__X32_SYSCALL_BIT + 466)
++#define __NR_open_tree_attr (__X32_SYSCALL_BIT + 467)
++#define __NR_file_getattr (__X32_SYSCALL_BIT + 468)
++#define __NR_file_setattr (__X32_SYSCALL_BIT + 469)
+ #define __NR_rt_sigaction (__X32_SYSCALL_BIT + 512)
+ #define __NR_rt_sigreturn (__X32_SYSCALL_BIT + 513)
+ #define __NR_ioctl (__X32_SYSCALL_BIT + 514)
+-- 
+2.51.0
+

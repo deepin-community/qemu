@@ -1,0 +1,129 @@
+From 7c061575a7dab5aaae42b87451af1c9d13ae3fcc Mon Sep 17 00:00:00 2001
+From: Bibo Mao <maobibo@loongson.cn>
+Date: Wed, 5 Mar 2025 09:27:59 +0800
+Subject: [PATCH 144/285] hw/loongarch/virt: Add topo properties on CPU object
+
+Add some properties such as socket_id, core_id, thread_id and node_id
+on LoongArch CPU object.
+
+Co-developed-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ target/loongarch/cpu.c | 18 ++++++------------
+ target/loongarch/cpu.h | 12 +++++++-----
+ 2 files changed, 13 insertions(+), 17 deletions(-)
+
+diff --git a/target/loongarch/cpu.c b/target/loongarch/cpu.c
+index 1be43c3c24b4..eaed3bc9b454 100644
+--- a/target/loongarch/cpu.c
++++ b/target/loongarch/cpu.c
+@@ -14,12 +14,13 @@
+ #include "sysemu/tcg.h"
+ #include "sysemu/kvm.h"
+ #include "kvm/kvm_loongarch.h"
++#include "hw/qdev-properties.h"
+ #include "exec/exec-all.h"
+ #include "cpu.h"
+ #include "hw/qdev-properties.h"
+ #include "internals.h"
+ #include "fpu/softfloat-helpers.h"
+-#include "cpu-csr.h"
++#include "csr.h"
+ #include "sysemu/reset.h"
+ #include "vec.h"
+ #ifdef CONFIG_KVM
+@@ -102,18 +103,12 @@ void G_NORETURN do_raise_exception(CPULoongArchState *env,
+ 
+ static void loongarch_cpu_set_pc(CPUState *cs, vaddr value)
+ {
+-    LoongArchCPU *cpu = LOONGARCH_CPU(cs);
+-    CPULoongArchState *env = &cpu->env;
+-
+-    set_pc(env, value);
++    set_pc(cpu_env(cs), value);
+ }
+ 
+ static vaddr loongarch_cpu_get_pc(CPUState *cs)
+ {
+-    LoongArchCPU *cpu = LOONGARCH_CPU(cs);
+-    CPULoongArchState *env = &cpu->env;
+-
+-    return env->pc;
++    return cpu_env(cs)->pc;
+ }
+ 
+ #ifndef CONFIG_USER_ONLY
+@@ -616,6 +611,7 @@ static void loongarch_cpu_reset_hold(Object *obj)
+ 
+ static void loongarch_cpu_disas_set_info(CPUState *s, disassemble_info *info)
+ {
++    info->endian = BFD_ENDIAN_LITTLE;
+     info->print_insn = print_insn_loongarch;
+ }
+ 
+@@ -823,8 +819,7 @@ static void loongarch_cpu_dump_csr(CPUState *cs, FILE *f)
+ 
+ void loongarch_cpu_dump_state(CPUState *cs, FILE *f, int flags)
+ {
+-    LoongArchCPU *cpu = LOONGARCH_CPU(cs);
+-    CPULoongArchState *env = &cpu->env;
++    CPULoongArchState *env = cpu_env(cs);
+     int i;
+ 
+     qemu_fprintf(f, " PC=%016" PRIx64 " ", env->pc);
+@@ -893,7 +888,6 @@ static Property loongarch_cpu_properties[] = {
+     DEFINE_PROP_INT32("core-id", LoongArchCPU, core_id, 0),
+     DEFINE_PROP_INT32("thread-id", LoongArchCPU, thread_id, 0),
+     DEFINE_PROP_INT32("node-id", LoongArchCPU, node_id, CPU_UNSET_NUMA_NODE_ID),
+-
+     DEFINE_PROP_END_OF_LIST()
+ };
+ 
+diff --git a/target/loongarch/cpu.h b/target/loongarch/cpu.h
+index 806ff340aea5..ae8527f346e8 100644
+--- a/target/loongarch/cpu.h
++++ b/target/loongarch/cpu.h
+@@ -311,7 +311,6 @@ typedef struct CPUArchState {
+ 
+     fpr_t fpr[32];
+     bool cf[8];
+-
+     uint32_t fcsr0;
+     lbt_t  lbt;
+ 
+@@ -382,6 +381,9 @@ typedef struct CPUArchState {
+     uint32_t fcsr0_mask;
+     uint64_t lladdr; /* LL virtual address compared against SC */
+     uint64_t llval;
++    uint64_t llval_high; /* For 128-bit atomic SC.Q */
++    uint64_t llbit_scq; /* Potential LL.D+LD.D+SC.Q sequence in effect */
++    uint64_t hw_pte_mask; /* Mask of architecturally-defined (hardware) PTE bits. */
+ #endif
+ #ifndef CONFIG_USER_ONLY
+ #ifdef CONFIG_TCG
+@@ -414,16 +416,16 @@ struct ArchCPU {
+     CPULoongArchState env;
+     QEMUTimer timer;
+     uint32_t  phy_id;
+-    int32_t socket_id;  /* socket-id of this VCPU */
+-    int32_t core_id;    /* core-id of this VCPU */
+-    int32_t thread_id;  /* thread-id of this VCPU */
+-    int32_t node_id;    /* NUMA node this CPU belongs to */
+     OnOffAuto lbt;
+     OnOffAuto pmu;
+     OnOffAuto lsx;
+     OnOffAuto lasx;
+     OnOffAuto kvm_pv_ipi;
+     OnOffAuto kvm_steal_time;
++    int32_t socket_id;  /* socket-id of this CPU */
++    int32_t core_id;    /* core-id of this CPU */
++    int32_t thread_id;  /* thread-id of this CPU */
++    int32_t node_id;    /* NUMA node of this CPU */
+ 
+     /* 'compatible' string for this CPU for Linux device trees */
+     const char *dtb_compatible;
+-- 
+2.51.0
+

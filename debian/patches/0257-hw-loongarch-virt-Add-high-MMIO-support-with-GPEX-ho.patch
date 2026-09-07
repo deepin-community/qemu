@@ -1,0 +1,187 @@
+From 7ed3861f52d872b3d7b9b52cb79f4f8be746ee52 Mon Sep 17 00:00:00 2001
+From: Bibo Mao <maobibo@loongson.cn>
+Date: Fri, 17 Oct 2025 14:45:22 +0800
+Subject: [PATCH 257/285] hw/loongarch/virt: Add high MMIO support with GPEX
+ host
+
+With high MMIO supported, its base address comes from high end of
+physical address space. Also add high MMIO support with GPEX host bridge.
+
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+Reviewed-by: Song Gao <gaosong@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ hw/loongarch/virt-fdt-build.c | 33 +++++++++++----
+ hw/loongarch/virt.c           | 76 ++++++++++++++++++++++++++++++++++-
+ 2 files changed, 100 insertions(+), 9 deletions(-)
+
+diff --git a/hw/loongarch/virt-fdt-build.c b/hw/loongarch/virt-fdt-build.c
+index a8b82a801083..b6c5beea7364 100644
+--- a/hw/loongarch/virt-fdt-build.c
++++ b/hw/loongarch/virt-fdt-build.c
+@@ -366,8 +366,8 @@ static void fdt_add_pcie_node(const LoongArchVirtMachineState *lvms,
+                               uint32_t *pch_msi_phandle)
+ {
+     char *nodename;
+-    hwaddr base_mmio = lvms->gpex.mmio64.base;
+-    hwaddr size_mmio = lvms->gpex.mmio64.size;
++    hwaddr base_mmio, base_mmio_high;
++    hwaddr size_mmio, size_mmio_high;
+     hwaddr base_pio = lvms->gpex.pio.base;
+     hwaddr size_pio = lvms->gpex.pio.size;
+     hwaddr base_pcie = lvms->gpex.ecam.base;
+@@ -388,11 +388,30 @@ static void fdt_add_pcie_node(const LoongArchVirtMachineState *lvms,
+     qemu_fdt_setprop(ms->fdt, nodename, "dma-coherent", NULL, 0);
+     qemu_fdt_setprop_sized_cells(ms->fdt, nodename, "reg",
+                                  2, base_pcie, 2, size_pcie);
+-    qemu_fdt_setprop_sized_cells(ms->fdt, nodename, "ranges",
+-                                 1, FDT_PCI_RANGE_IOPORT, 2, VIRT_PCI_IO_OFFSET,
+-                                 2, base_pio, 2, size_pio,
+-                                 1, FDT_PCI_RANGE_MMIO, 2, base_mmio,
+-                                 2, base_mmio, 2, size_mmio);
++    if (lvms->highmem_mmio) {
++        base_mmio_high = lvms->gpex.mmio64.base;
++        size_mmio_high = lvms->gpex.mmio64.size;
++        base_mmio = lvms->gpex.mmio32.base;
++        size_mmio = lvms->gpex.mmio32.size;
++        qemu_fdt_setprop_sized_cells(ms->fdt, nodename, "ranges",
++                                     1, FDT_PCI_RANGE_IOPORT,
++                                     2, VIRT_PCI_IO_OFFSET,
++                                     2, base_pio, 2, size_pio,
++                                     1, FDT_PCI_RANGE_MMIO, 2, base_mmio,
++                                     2, base_mmio, 2, size_mmio,
++                                     1, FDT_PCI_RANGE_MMIO_64BIT,
++                                     2, base_mmio_high,
++                                     2, base_mmio_high, 2, size_mmio_high);
++    } else {
++        base_mmio = lvms->gpex.mmio64.base;
++        size_mmio = lvms->gpex.mmio64.size;
++        qemu_fdt_setprop_sized_cells(ms->fdt, nodename, "ranges",
++                                     1, FDT_PCI_RANGE_IOPORT,
++                                     2, VIRT_PCI_IO_OFFSET,
++                                     2, base_pio, 2, size_pio,
++                                     1, FDT_PCI_RANGE_MMIO, 2, base_mmio,
++                                     2, base_mmio, 2, size_mmio);
++    }
+     qemu_fdt_setprop_cells(ms->fdt, nodename, "msi-map",
+                            0, *pch_msi_phandle, 0, 0x10000);
+     fdt_add_pcie_irq_map_node(lvms, nodename, pch_pic_phandle);
+diff --git a/hw/loongarch/virt.c b/hw/loongarch/virt.c
+index 1678371be64f..93bd32a30b58 100644
+--- a/hw/loongarch/virt.c
++++ b/hw/loongarch/virt.c
+@@ -71,6 +71,9 @@ static void virt_set_dmsi(Object *obj, Visitor *v, const char *name,
+     }
+ }
+ 
++#define DEFAULT_HIGH_PCIE_MMIO_SIZE_GB 64
++#define DEFAULT_HIGH_PCIE_MMIO_SIZE (DEFAULT_HIGH_PCIE_MMIO_SIZE_GB * GiB)
++
+ static void virt_get_veiointc(Object *obj, Visitor *v, const char *name,
+                               void *opaque, Error **errp)
+ {
+@@ -294,6 +297,54 @@ static DeviceState *create_platform_bus(DeviceState *pch_pic)
+     return dev;
+ }
+ 
++static void virt_set_highmmio(LoongArchVirtMachineState *lvms)
++{
++    LoongArchCPU *cpu = LOONGARCH_CPU(first_cpu);
++    CPULoongArchState *env = &cpu->env;
++    struct GPEXConfig *gpex;
++    int vaddr_bits, phys_bits;
++
++    vaddr_bits = FIELD_EX32(env->cpucfg[1], CPUCFG1, VALEN) + 1;
++    phys_bits  = FIELD_EX32(env->cpucfg[1], CPUCFG1, PALEN) + 1;
++    if (phys_bits <= 32) {
++        return;
++    }
++
++    gpex = &lvms->gpex;
++    if (gpex->mmio64.size == 0) {
++        gpex->mmio64.size = DEFAULT_HIGH_PCIE_MMIO_SIZE;
++    }
++
++    /*
++     * UEFI BIOS uses 1:1 identified mapping PCI high mmio space, and
++     * virtual address space is low end through PGDL page table.
++     *
++     * Max physical address bit cannot exceed vaddr_bits - 1
++     */
++    if (phys_bits > (vaddr_bits - 1)) {
++        phys_bits = vaddr_bits - 1;
++    }
++
++    /*
++     * GPEX base address starts from end of physical address
++     */
++    gpex->mmio64.base = BIT_ULL(phys_bits) - BIT_ULL(phys_bits - 3);
++    if (gpex->mmio64.base + gpex->mmio64.size > BIT_ULL(phys_bits)) {
++        error_report("GPEX region base %" PRIu64 " size %" PRIu64
++                     " exceeds %d physical bits",
++                     gpex->mmio64.base, gpex->mmio64.size,
++                     phys_bits);
++        exit(EXIT_FAILURE);
++    }
++
++    if (lvms->ram_end > gpex->mmio64.base) {
++        error_report("DRAM end address %" PRIu64
++                     " exceeds GPEX region base %" PRIu64,
++                     lvms->ram_end, gpex->mmio64.base);
++        exit(EXIT_FAILURE);
++    }
++}
++
+ static void virt_devices_init(DeviceState *pch_pic,
+                                    LoongArchVirtMachineState *lvms)
+ {
+@@ -310,8 +361,6 @@ static void virt_devices_init(DeviceState *pch_pic,
+     d = SYS_BUS_DEVICE(gpex_dev);
+     sysbus_realize_and_unref(d, &error_fatal);
+     pci_bus = PCI_HOST_BRIDGE(gpex_dev)->bus;
+-    lvms->gpex.mmio64.base = VIRT_PCI_MEM_BASE;
+-    lvms->gpex.mmio64.size = VIRT_PCI_MEM_SIZE;
+     lvms->gpex.pio.base = VIRT_PCI_IO_BASE;
+     lvms->gpex.pio.size = VIRT_PCI_IO_SIZE;
+     lvms->gpex.ecam.base = VIRT_PCI_CFG_BASE;
+@@ -320,6 +369,18 @@ static void virt_devices_init(DeviceState *pch_pic,
+     lvms->gpex.bus = pci_bus;
+     mmio_base = lvms->gpex.mmio64.base;
+     mmio_size = lvms->gpex.mmio64.size;
++    if (lvms->highmem_mmio) {
++        virt_set_highmmio(lvms);
++        lvms->gpex.mmio32.base = VIRT_PCI_MEM_BASE;
++        lvms->gpex.mmio32.size = VIRT_PCI_MEM_SIZE;
++        mmio_base = lvms->gpex.mmio32.base;
++        mmio_size = lvms->gpex.mmio32.size;
++    } else {
++        lvms->gpex.mmio64.base = VIRT_PCI_MEM_BASE;
++        lvms->gpex.mmio64.size = VIRT_PCI_MEM_SIZE;
++        mmio_base = lvms->gpex.mmio64.base;
++        mmio_size = lvms->gpex.mmio64.size;
++    }
+ 
+     /* Map only part size_ecam bytes of ECAM space */
+     ecam_alias = g_new0(MemoryRegion, 1);
+@@ -335,6 +396,17 @@ static void virt_devices_init(DeviceState *pch_pic,
+     memory_region_init_alias(mmio_alias, OBJECT(gpex_dev), "pcie-mmio",
+                              mmio_reg, mmio_base, mmio_size);
+     memory_region_add_subregion(get_system_memory(), mmio_base, mmio_alias);
++    if (lvms->highmem_mmio) {
++        /* Map high MMIO space */
++        mmio_alias = g_new0(MemoryRegion, 1);
++        mmio_base = lvms->gpex.mmio64.base;
++        mmio_size = lvms->gpex.mmio64.size;
++        memory_region_init_alias(mmio_alias, OBJECT(gpex_dev),
++                                 "pcie-mmio-high", mmio_reg,
++                                 mmio_base, mmio_size);
++        memory_region_add_subregion(get_system_memory(), mmio_base,
++                                    mmio_alias);
++    }
+ 
+     /* Map PCI IO port space. */
+     pio_alias = g_new0(MemoryRegion, 1);
+-- 
+2.51.0
+

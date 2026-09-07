@@ -1,0 +1,177 @@
+From ed14804b4c3aa276f6c4baf263cc0eaef20c3988 Mon Sep 17 00:00:00 2001
+From: Li Chen <chenl311@chinatelecom.cn>
+Date: Wed, 28 May 2025 18:53:35 +0800
+Subject: [PATCH 217/285] acpi: Add machine option to disable SPCR table
+
+The ACPI SPCR (Serial Port Console Redirection) table allows firmware
+to specify a preferred serial console device to the operating system.
+On ARM64 systems, Linux by default respects this table: even if the
+kernel command line does not include a hardware serial console (e.g.,
+"console=ttyAMA0"), the kernel still register the serial device
+referenced by SPCR as a printk console.
+
+While this behavior is standard-compliant, it can lead to situations
+where guest console behavior is influenced by platform firmware rather
+than user-specified configuration. To make guest console behavior more
+predictable and under user control, this patch introduces a machine
+option to explicitly disable SPCR table exposure:
+
+    -machine spcr=off
+
+By default, the option is enabled (spcr=on), preserving existing
+behavior. When disabled, QEMU will omit the SPCR table from the guest's
+ACPI namespace, ensuring that only consoles explicitly declared in the
+kernel command line are registered.
+
+Signed-off-by: Li Chen <chenl311@chinatelecom.cn>
+Reviewed-by: Bibo Mao <maobibo@loongson.cn>
+Acked-by: Michael S. Tsirkin <mst@redhat.com>
+Reviewed-by: Gavin Shan <gshan@redhat.com>
+Reviewed-by: Sunil V L <sunilvl@ventanamicro.com>
+Message-Id: <20250528105404.457729-2-me@linux.beauty>
+Reviewed-by: Michael S. Tsirkin <mst@redhat.com>
+Signed-off-by: Michael S. Tsirkin <mst@redhat.com>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ hw/arm/virt-acpi-build.c       |  5 ++++-
+ hw/core/machine.c              | 22 ++++++++++++++++++++++
+ hw/loongarch/virt-acpi-build.c |  4 +++-
+ hw/riscv/virt-acpi-build.c     |  6 +++++-
+ include/hw/boards.h            |  1 +
+ qemu-options.hx                |  5 +++++
+ 6 files changed, 40 insertions(+), 3 deletions(-)
+
+diff --git a/hw/arm/virt-acpi-build.c b/hw/arm/virt-acpi-build.c
+index e66a4c9560cf..dd46e4a08c8f 100644
+--- a/hw/arm/virt-acpi-build.c
++++ b/hw/arm/virt-acpi-build.c
+@@ -959,7 +959,10 @@ void virt_acpi_build(VirtMachineState *vms, AcpiBuildTables *tables)
+     }
+ 
+     acpi_add_table(table_offsets, tables_blob);
+-    spcr_setup(tables_blob, tables->linker, vms);
++
++    if (ms->acpi_spcr_enabled) {
++        spcr_setup(tables_blob, tables->linker, vms);
++    }
+ 
+     acpi_add_table(table_offsets, tables_blob);
+     build_dbg2(tables_blob, tables->linker, vms);
+diff --git a/hw/core/machine.c b/hw/core/machine.c
+index 0c1739814124..8626f79eacf1 100644
+--- a/hw/core/machine.c
++++ b/hw/core/machine.c
+@@ -540,6 +540,20 @@ static void machine_set_nvdimm(Object *obj, bool value, Error **errp)
+     ms->nvdimms_state->is_enabled = value;
+ }
+ 
++static bool machine_get_spcr(Object *obj, Error **errp)
++{
++    MachineState *ms = MACHINE(obj);
++
++    return ms->acpi_spcr_enabled;
++}
++
++static void machine_set_spcr(Object *obj, bool value, Error **errp)
++{
++    MachineState *ms = MACHINE(obj);
++
++    ms->acpi_spcr_enabled = value;
++}
++
+ static bool machine_get_hmat(Object *obj, Error **errp)
+ {
+     MachineState *ms = MACHINE(obj);
+@@ -1137,6 +1151,14 @@ static void machine_initfn(Object *obj)
+                                         "Table (HMAT)");
+     }
+ 
++    /* SPCR */
++    ms->acpi_spcr_enabled = true;
++    object_property_add_bool(obj, "spcr", machine_get_spcr, machine_set_spcr);
++    object_property_set_description(obj, "spcr",
++                                   "Set on/off to enable/disable "
++                                   "ACPI Serial Port Console Redirection "
++                                   "Table (spcr)");
++
+     /* default to mc->default_cpus */
+     ms->smp.cpus = mc->default_cpus;
+     ms->smp.max_cpus = mc->default_cpus;
+diff --git a/hw/loongarch/virt-acpi-build.c b/hw/loongarch/virt-acpi-build.c
+index 755fba109a97..dc487edf4fbb 100644
+--- a/hw/loongarch/virt-acpi-build.c
++++ b/hw/loongarch/virt-acpi-build.c
+@@ -558,7 +558,9 @@ static void acpi_build(AcpiBuildTables *tables, MachineState *machine)
+     acpi_add_table(table_offsets, tables_blob);
+     build_srat(tables_blob, tables->linker, machine);
+     acpi_add_table(table_offsets, tables_blob);
+-    spcr_setup(tables_blob, tables->linker, machine);
++
++    if (machine->acpi_spcr_enabled)
++        spcr_setup(tables_blob, tables->linker, machine);
+ 
+     if (machine->numa_state->num_nodes) {
+         if (machine->numa_state->have_numa_distance) {
+diff --git a/hw/riscv/virt-acpi-build.c b/hw/riscv/virt-acpi-build.c
+index 8553e9571066..f8559455472b 100644
+--- a/hw/riscv/virt-acpi-build.c
++++ b/hw/riscv/virt-acpi-build.c
+@@ -313,6 +313,7 @@ static void virt_acpi_build(RISCVVirtState *s, AcpiBuildTables *tables)
+ {
+     GArray *table_offsets;
+     unsigned dsdt, xsdt;
++    MachineState *ms = MACHINE(s);
+     GArray *tables_blob = tables->table_data;
+ 
+     table_offsets = g_array_new(false, true,
+@@ -334,7 +335,10 @@ static void virt_acpi_build(RISCVVirtState *s, AcpiBuildTables *tables)
+     build_madt(tables_blob, tables->linker, s);
+ 
+     acpi_add_table(table_offsets, tables_blob);
+-    spcr_setup(tables_blob, tables->linker, s);
++
++    if (ms->acpi_spcr_enabled) {
++        spcr_setup(tables_blob, tables->linker, s);
++    }
+ 
+     acpi_add_table(table_offsets, tables_blob);
+     build_rhct(tables_blob, tables->linker, s);
+diff --git a/include/hw/boards.h b/include/hw/boards.h
+index 8ac8cad2a222..a481d9e032ba 100644
+--- a/include/hw/boards.h
++++ b/include/hw/boards.h
+@@ -402,6 +402,7 @@ struct MachineState {
+     CpuTopology smp;
+     struct NVDIMMState *nvdimms_state;
+     struct NumaState *numa_state;
++    bool acpi_spcr_enabled;
+ };
+ 
+ #define DEFINE_MACHINE(namestr, machine_initfn) \
+diff --git a/qemu-options.hx b/qemu-options.hx
+index 1b219f64d700..b3de2a2aacc0 100644
+--- a/qemu-options.hx
++++ b/qemu-options.hx
+@@ -36,6 +36,7 @@ DEF("machine", HAS_ARG, QEMU_OPTION_machine, \
+     "                nvdimm=on|off controls NVDIMM support (default=off)\n"
+     "                memory-encryption=@var{} memory encryption object to use (default=none)\n"
+     "                hmat=on|off controls ACPI HMAT support (default=off)\n"
++    "                spcr=on|off controls ACPI SPCR support (default=on)\n"
+     "                memory-backend='backend-id' specifies explicitly provided backend for main RAM (default=none)\n"
+     "                cxl-fmw.0.targets.0=firsttarget,cxl-fmw.0.targets.1=secondtarget,cxl-fmw.0.size=size[,cxl-fmw.0.interleave-granularity=granularity]\n",
+     QEMU_ARCH_ALL)
+@@ -99,6 +100,10 @@ SRST
+         Enables or disables ACPI Heterogeneous Memory Attribute Table
+         (HMAT) support. The default is off.
+ 
++    ``spcr=on|off``
++        Enables or disables ACPI Serial Port Console Redirection Table
++        (SPCR) support. The default is on.
++
+     ``memory-backend='id'``
+         An alternative to legacy ``-mem-path`` and ``mem-prealloc`` options.
+         Allows to use a memory backend as main RAM.
+-- 
+2.51.0
+

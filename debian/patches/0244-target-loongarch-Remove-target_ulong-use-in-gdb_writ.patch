@@ -1,0 +1,40 @@
+From 6363903c20628c52b939fe6e715f48f8c9d83384 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Philippe=20Mathieu-Daud=C3=A9?= <philmd@linaro.org>
+Date: Wed, 8 Oct 2025 08:15:23 +0200
+Subject: [PATCH 244/285] target/loongarch: Remove target_ulong use in
+ gdb_write_register handler
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+ldq_le_p() returns a uint64_t type, big enough to also hold
+ldl_le_p() return value. If we were building for a 32-bit
+LoongArch target, ldq_le_p() would not fit in target_ulong.
+Better stick to plain uint64_t.
+
+Signed-off-by: Philippe Mathieu-Daudé <philmd@linaro.org>
+Reviewed-by: Richard Henderson <richard.henderson@linaro.org>
+Reviewed-by: Song Gao <gaosong@loongson.cn>
+Message-Id: <20251009201947.34643-4-philmd@linaro.org>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ target/loongarch/gdbstub.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/target/loongarch/gdbstub.c b/target/loongarch/gdbstub.c
+index e3b9599f9880..48f1026b5eab 100644
+--- a/target/loongarch/gdbstub.c
++++ b/target/loongarch/gdbstub.c
+@@ -62,7 +62,7 @@ int loongarch_cpu_gdb_read_register(CPUState *cs, GByteArray *mem_buf, int n)
+ int loongarch_cpu_gdb_write_register(CPUState *cs, uint8_t *mem_buf, int n)
+ {
+     CPULoongArchState *env = cpu_env(cs);
+-    target_ulong tmp;
++    uint64_t tmp;
+     int length = 0;
+ 
+     if (n < 0 || n > 34) {
+-- 
+2.51.0
+

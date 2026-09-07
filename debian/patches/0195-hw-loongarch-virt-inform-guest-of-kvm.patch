@@ -1,0 +1,46 @@
+From 4331337a7253b45e2df53ea8257974633eadcdb2 Mon Sep 17 00:00:00 2001
+From: Qiang Ma <maqianga@uniontech.com>
+Date: Tue, 3 Jun 2025 11:18:13 +0800
+Subject: [PATCH 195/285] hw/loongarch/virt: inform guest of kvm
+
+Commit bab27ea2e3 ("hw/arm/virt: smbios:
+inform guest of kvm") fixes the same issue
+on arm.
+
+without this patch:
+[root@localhost ~]# virt-what
+qemu
+
+with this patch:
+[root@localhost ~]# virt-what
+kvm
+
+Signed-off-by: Qiang Ma <maqianga@uniontech.com>
+Reviewed-by: Bibo Mao <maobibo@loongson.cn>
+Reviewed-by: Song Gao <gaosong@loongson.cn>
+Message-Id: <20250603031813.31794-1-maqianga@uniontech.com>
+Signed-off-by: Song Gao <gaosong@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ hw/loongarch/virt.c | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/hw/loongarch/virt.c b/hw/loongarch/virt.c
+index 32f88864a252..d44021e7ecbb 100644
+--- a/hw/loongarch/virt.c
++++ b/hw/loongarch/virt.c
+@@ -135,6 +135,10 @@ static void virt_build_smbios(LoongArchVirtMachineState *lvms)
+         return;
+     }
+ 
++    if (kvm_enabled()) {
++        product = "KVM Virtual Machine";
++    }
++
+     smbios_set_defaults("QEMU", product, mc->name, false,
+                         true, SMBIOS_ENTRY_POINT_TYPE_64);
+     smbios_get_tables(ms, NULL, 0, &smbios_tables, &smbios_tables_len,
+-- 
+2.51.0
+

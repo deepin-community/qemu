@@ -1,0 +1,96 @@
+From 4477f521fd13deaf25ed5b0c16a297c29c12c073 Mon Sep 17 00:00:00 2001
+From: Bibo Mao <maobibo@loongson.cn>
+Date: Fri, 17 Oct 2025 14:45:18 +0800
+Subject: [PATCH 253/285] hw/loongarch/virt: Add field gpex in
+ LoongArchVirtMachineState
+
+Add field gpex in structure LoongArchVirtMachineState, type of field gpex
+is structure GPEXConfig and it is to record configuration information
+about GPEX host bridge. And remove field pci_bus in structure
+LoongArchVirtMachineState since the information is in field gpex already.
+
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+Reviewed-by: Song Gao <gaosong@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ hw/loongarch/virt-acpi-build.c | 13 +------------
+ hw/loongarch/virt.c            |  9 ++++++++-
+ include/hw/loongarch/virt.h    |  3 ++-
+ 3 files changed, 11 insertions(+), 14 deletions(-)
+
+diff --git a/hw/loongarch/virt-acpi-build.c b/hw/loongarch/virt-acpi-build.c
+index adc960e54871..02021f862903 100644
+--- a/hw/loongarch/virt-acpi-build.c
++++ b/hw/loongarch/virt-acpi-build.c
+@@ -384,18 +384,7 @@ build_la_ged_aml(Aml *dsdt, MachineState *machine)
+ 
+ static void build_pci_device_aml(Aml *scope, LoongArchVirtMachineState *lvms)
+ {
+-    struct GPEXConfig cfg = {
+-        .mmio64.base = VIRT_PCI_MEM_BASE,
+-        .mmio64.size = VIRT_PCI_MEM_SIZE,
+-        .pio.base    = VIRT_PCI_IO_BASE,
+-        .pio.size    = VIRT_PCI_IO_SIZE,
+-        .ecam.base   = VIRT_PCI_CFG_BASE,
+-        .ecam.size   = VIRT_PCI_CFG_SIZE,
+-        .irq         = VIRT_GSI_BASE + VIRT_DEVICE_IRQS,
+-        .bus         = lvms->pci_bus,
+-    };
+-
+-    acpi_dsdt_add_gpex(scope, &cfg);
++    acpi_dsdt_add_gpex(scope, &lvms->gpex);
+ }
+ 
+ static void build_flash_aml(Aml *scope, LoongArchVirtMachineState *lvms)
+diff --git a/hw/loongarch/virt.c b/hw/loongarch/virt.c
+index 671370f23a1b..5dfb90235a0d 100644
+--- a/hw/loongarch/virt.c
++++ b/hw/loongarch/virt.c
+@@ -295,7 +295,14 @@ static void virt_devices_init(DeviceState *pch_pic,
+     d = SYS_BUS_DEVICE(gpex_dev);
+     sysbus_realize_and_unref(d, &error_fatal);
+     pci_bus = PCI_HOST_BRIDGE(gpex_dev)->bus;
+-    lvms->pci_bus = pci_bus;
++    lvms->gpex.mmio64.base = VIRT_PCI_MEM_BASE;
++    lvms->gpex.mmio64.size = VIRT_PCI_MEM_SIZE;
++    lvms->gpex.pio.base = VIRT_PCI_IO_BASE;
++    lvms->gpex.pio.size = VIRT_PCI_IO_SIZE;
++    lvms->gpex.ecam.base = VIRT_PCI_CFG_BASE;
++    lvms->gpex.ecam.size = VIRT_PCI_CFG_SIZE;
++    lvms->gpex.irq = VIRT_GSI_BASE + VIRT_DEVICE_IRQS;
++    lvms->gpex.bus = pci_bus;
+ 
+     /* Map only part size_ecam bytes of ECAM space */
+     ecam_alias = g_new0(MemoryRegion, 1);
+diff --git a/include/hw/loongarch/virt.h b/include/hw/loongarch/virt.h
+index 3b91c637dfca..ee76851ae716 100644
+--- a/include/hw/loongarch/virt.h
++++ b/include/hw/loongarch/virt.h
+@@ -12,6 +12,7 @@
+ #include "qemu/queue.h"
+ #include "hw/block/flash.h"
+ #include "hw/loongarch/boot.h"
++#include "hw/pci-host/gpex.h"
+ 
+ /* IOCSR region */
+ #define VERSION_REG             0x0
+@@ -112,7 +113,6 @@ struct LoongArchVirtMachineState {
+     DeviceState  *acpi_ged;
+     int          fdt_size;
+     DeviceState *platform_bus_dev;
+-    PCIBus       *pci_bus;
+     PFlashCFI01  *flash[2];
+     MemoryRegion system_iocsr;
+     MemoryRegion iocsr_mem;
+@@ -126,6 +126,7 @@ struct LoongArchVirtMachineState {
+     uint64_t misc_status;
+     DeviceState *dintc;
+     hwaddr ram_end;
++    struct GPEXConfig gpex;
+ };
+ 
+ #define TYPE_LOONGARCH_VIRT_MACHINE  MACHINE_TYPE_NAME("virt")
+-- 
+2.51.0
+

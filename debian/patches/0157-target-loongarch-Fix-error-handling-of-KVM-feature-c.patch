@@ -1,0 +1,80 @@
+From 62d9849aa23442ca3913961762eee519bc22f111 Mon Sep 17 00:00:00 2001
+From: Bibo Mao <maobibo@loongson.cn>
+Date: Thu, 20 Mar 2025 11:21:53 +0800
+Subject: [PATCH 157/285] target/loongarch: Fix error handling of KVM feature
+ checks
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+For some paravirt KVM features, if user forces to enable it however
+KVM does not support, qemu should fail to run and exit immediately,
+rather than continue to run. Here set error message and return directly
+in function kvm_arch_init_vcpu().
+
+Fixes: 6edd2a9bec90 (target/loongarch/kvm: Implement LoongArch PMU extension)
+Fixes: 936c3f4d7916 (target/loongarch: Use auto method with LSX feature)
+Fixes: 5e360dabedb1 (target/loongarch: Use auto method with LASX feature)
+Fixes: 620d9bd0022e (target/loongarch: Add paravirt ipi feature detection)
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+Reviewed-by: Markus Armbruster <armbru@redhat.com>
+Reviewed-by: Philippe Mathieu-Daudé <philmd@linaro.org>
+Message-ID: <20250320032158.1762751-2-maobibo@loongson.cn>
+Signed-off-by: Markus Armbruster <armbru@redhat.com>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ target/loongarch/kvm/kvm.c | 8 ++++++--
+ 1 file changed, 6 insertions(+), 2 deletions(-)
+
+diff --git a/target/loongarch/kvm/kvm.c b/target/loongarch/kvm/kvm.c
+index 209e4397486c..3960b2b83dc8 100644
+--- a/target/loongarch/kvm/kvm.c
++++ b/target/loongarch/kvm/kvm.c
+@@ -1099,7 +1099,6 @@ int kvm_arch_init_vcpu(CPUState *cs)
+     Error *local_err = NULL;
+     LoongArchCPU *cpu = LOONGARCH_CPU(cs);
+ 
+-    ret = 0;
+     cpu->vmsentry = qemu_add_vm_change_state_handler(kvm_loongarch_vm_stage_change, cs);
+ 
+     if (!kvm_get_one_reg(cs, KVM_REG_LOONGARCH_DEBUG_INST, &val)) {
+@@ -1109,29 +1108,34 @@ int kvm_arch_init_vcpu(CPUState *cs)
+     ret = kvm_cpu_check_lsx(cs, &local_err);
+     if (ret < 0) {
+         error_report_err(local_err);
++        return ret;
+     }
+ 
+     ret = kvm_cpu_check_lasx(cs, &local_err);
+     if (ret < 0) {
+         error_report_err(local_err);
++        return ret;
+     }
+ 
+     ret = kvm_cpu_check_lbt(cs, &local_err);
+     if (ret < 0) {
+         error_report_err(local_err);
++        return ret;
+     }
+ 
+     ret = kvm_cpu_check_pmu(cs, &local_err);
+     if (ret < 0) {
+         error_report_err(local_err);
++        return ret;
+     }
+ 
+     ret = kvm_cpu_check_pv_features(cs, &local_err);
+     if (ret < 0) {
+         error_report_err(local_err);
++        return ret;
+     }
+ 
+-    return ret;
++    return 0;
+ }
+ 
+ static bool loongarch_get_lbt(Object *obj, Error **errp)
+-- 
+2.51.0
+

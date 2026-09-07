@@ -1,0 +1,52 @@
+From 9e2d889ecf3cb1198367afd6569d8276c5de4443 Mon Sep 17 00:00:00 2001
+From: Bibo Mao <maobibo@loongson.cn>
+Date: Fri, 20 Sep 2024 11:48:10 +0800
+Subject: [PATCH 090/285] hw/intc/loongarch_extioi: Add unrealize interface
+
+For loongarch extioi emulation driver, add unrealize interface and
+remove instance_finalize interface and move the code to unrealize
+interface.
+
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+Reviewed-by: Song Gao <gaosong@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ hw/intc/loongarch_extioi.c | 6 +++---
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/hw/intc/loongarch_extioi.c b/hw/intc/loongarch_extioi.c
+index 6f20d7e6ea83..8203c02cb12a 100644
+--- a/hw/intc/loongarch_extioi.c
++++ b/hw/intc/loongarch_extioi.c
+@@ -411,9 +411,9 @@ static void loongarch_extioi_realize(DeviceState *dev, Error **errp)
+     }
+ }
+ 
+-static void loongarch_extioi_finalize(Object *obj)
++static void loongarch_extioi_unrealize(DeviceState *dev)
+ {
+-    LoongArchExtIOI *s = LOONGARCH_EXTIOI(obj);
++    LoongArchExtIOICommonState *s = LOONGARCH_EXTIOI(dev);
+ 
+     g_free(s->cpu);
+ }
+@@ -498,6 +498,7 @@ static void loongarch_extioi_class_init(ObjectClass *klass, void *data)
+     DeviceClass *dc = DEVICE_CLASS(klass);
+ 
+     dc->realize = loongarch_extioi_realize;
++    dc->unrealize = loongarch_extioi_unrealize;
+     dc->reset   = loongarch_extioi_reset;
+     device_class_set_props(dc, extioi_properties);
+     dc->vmsd = &vmstate_loongarch_extioi;
+@@ -508,7 +509,6 @@ static const TypeInfo loongarch_extioi_info = {
+     .parent        = TYPE_SYS_BUS_DEVICE,
+     .instance_size = sizeof(struct LoongArchExtIOI),
+     .class_init    = loongarch_extioi_class_init,
+-    .instance_finalize = loongarch_extioi_finalize,
+ };
+ 
+ static void loongarch_extioi_register_types(void)
+-- 
+2.51.0
+

@@ -1,0 +1,77 @@
+From 46f8fd1bae14b37534a819d8e70e41b2400cecde Mon Sep 17 00:00:00 2001
+From: Yao Zi <me@ziyao.cc>
+Date: Wed, 14 Jan 2026 15:25:13 +0800
+Subject: [PATCH 262/285] hw/loongarch/virt: Don't abort on access to
+ unimplemented IOCSR
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Since commit f2e61edb2946 ("hw/loongarch/virt: Use MemTxAttrs interface
+for misc ops") which adds a call to g_assert_not_reached() in the path
+of handling unimplemented IOCSRs, QEMU would abort when the guest
+accesses unimplemented IOCSRs.
+
+This is too serious since there's nothing fatal happening in QEMU
+itself, and the guest could probably continue running if we give zero as
+result for these reads, which also matches the behavior observed on
+3A5000M real machine.
+
+Replace the assertion with qemu_log_mask(LOG_UNIMP, ...), it's still
+possible to examine unimplemented IOCSR access through "-d unimp"
+command line arguments.
+
+Fixes: f2e61edb2946 ("hw/loongarch/virt: Use MemTxAttrs interface for misc ops")
+Signed-off-by: Yao Zi <me@ziyao.cc>
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+Reviewed-by: Philippe Mathieu-Daudé <philmd@linaro.org>
+Reviewed-by: Bibo Mao <maobibo@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ hw/loongarch/virt.c | 14 ++++++++++++--
+ 1 file changed, 12 insertions(+), 2 deletions(-)
+
+diff --git a/hw/loongarch/virt.c b/hw/loongarch/virt.c
+index 5922e589eb5a..ed1b051f4c3b 100644
+--- a/hw/loongarch/virt.c
++++ b/hw/loongarch/virt.c
+@@ -45,6 +45,7 @@
+ #include "hw/block/flash.h"
+ #include "hw/virtio/virtio-iommu.h"
+ #include "qemu/error-report.h"
++#include "qemu/log.h"
+ #include "kvm/kvm_loongarch.h"
+ #include "sysemu/kvm.h"
+ 
+@@ -753,8 +754,15 @@ static MemTxResult virt_iocsr_misc_write(void *opaque, hwaddr addr,
+                              EXTIOI_VIRT_BASE + EXTIOI_VIRT_CONFIG,
+                              features, attrs, NULL);
+         break;
++    case VERSION_REG:
++    case FEATURE_REG:
++    case VENDOR_REG:
++    case CPUNAME_REG:
++        break;
+     default:
+-        g_assert_not_reached();
++        qemu_log_mask(LOG_UNIMP, "%s: Unimplemented IOCSR 0x%" HWADDR_PRIx "\n",
++                      __func__, addr);
++        break;
+     }
+ 
+     return MEMTX_OK;
+@@ -812,7 +820,9 @@ static MemTxResult virt_iocsr_misc_read(void *opaque, hwaddr addr,
+         }
+         break;
+     default:
+-        g_assert_not_reached();
++        qemu_log_mask(LOG_UNIMP, "%s: Unimplemented IOCSR 0x%" HWADDR_PRIx "\n",
++                      __func__, addr);
++        break;
+     }
+ 
+     *data = ret;
+-- 
+2.51.0
+

@@ -1,0 +1,71 @@
+From b2d1d97219204f537230ca70a47f69f799d1675f Mon Sep 17 00:00:00 2001
+From: Bibo Mao <maobibo@loongson.cn>
+Date: Mon, 17 Feb 2025 09:55:32 +0800
+Subject: [PATCH 134/285] target/loongarch: Add kvm steal time feature
+ detection
+
+Paravirt steal time feature is OnOffAuto type, feature detection is added
+to check whether it is supported on KVM host.
+
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+Reviewed-by: Bibo Mao <maobibo@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ target/loongarch/cpu.h     |  1 +
+ target/loongarch/kvm/kvm.c | 20 ++++++++++++++++++++
+ 2 files changed, 21 insertions(+)
+
+diff --git a/target/loongarch/cpu.h b/target/loongarch/cpu.h
+index 43c33d29f174..806ff340aea5 100644
+--- a/target/loongarch/cpu.h
++++ b/target/loongarch/cpu.h
+@@ -291,6 +291,7 @@ enum loongarch_features {
+     LOONGARCH_FEATURE_LBT, /* loongson binary translation extension */
+     LOONGARCH_FEATURE_PMU,
+     LOONGARCH_FEATURE_PV_IPI,
++    LOONGARCH_FEATURE_STEALTIME,
+ };
+ 
+ typedef struct  LoongArchBT {
+diff --git a/target/loongarch/kvm/kvm.c b/target/loongarch/kvm/kvm.c
+index a6322bf5c9dc..e6c19d1b78cb 100644
+--- a/target/loongarch/kvm/kvm.c
++++ b/target/loongarch/kvm/kvm.c
+@@ -941,6 +941,12 @@ static bool kvm_feature_supported(CPUState *cs, enum loongarch_features feature)
+         ret = kvm_vm_ioctl(kvm_state, KVM_HAS_DEVICE_ATTR, &attr);
+         return (ret == 0);
+ 
++    case LOONGARCH_FEATURE_STEALTIME:
++        attr.group = KVM_LOONGARCH_VM_FEAT_CTRL;
++        attr.attr = KVM_LOONGARCH_VM_FEAT_PV_STEALTIME;
++        ret = kvm_vm_ioctl(kvm_state, KVM_HAS_DEVICE_ATTR, &attr);
++        return (ret == 0);
++
+     default:
+         return false;
+     }
+@@ -1059,6 +1065,20 @@ static int kvm_cpu_check_pv_features(CPUState *cs, Error **errp)
+         env->pv_features |= BIT(KVM_FEATURE_IPI);
+     }
+ 
++    kvm_supported = kvm_feature_supported(cs, LOONGARCH_FEATURE_STEALTIME);
++    if (cpu->kvm_steal_time == ON_OFF_AUTO_ON) {
++        if (!kvm_supported) {
++            error_setg(errp, "'kvm stealtime' feature not supported by KVM host");
++            return -ENOTSUP;
++        }
++    } else if (cpu->kvm_steal_time != ON_OFF_AUTO_AUTO) {
++        kvm_supported = false;
++    }
++
++    if (kvm_supported) {
++        env->pv_features |= BIT(KVM_FEATURE_STEAL_TIME);
++    }
++
+     return 0;
+ }
+ 
+-- 
+2.51.0
+

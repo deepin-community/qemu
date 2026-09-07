@@ -1,0 +1,119 @@
+From 273e2e700bb91045505ee3808015826932f5cbb0 Mon Sep 17 00:00:00 2001
+From: Jiaxun Yang <jiaxun.yang@flygoat.com>
+Date: Wed, 8 Jan 2025 10:01:07 +0800
+Subject: [PATCH 105/285] hw/loongarch/boot: Support Linux raw boot image
+
+Support booting such image by parsing header as per Linux's
+specification [1].
+
+This enabled booting vmlinux.efi/vmlinuz.efi shipped by
+distros without supplying BIOS.
+
+[1]: https://docs.kernel.org/arch/loongarch/booting.html
+
+Signed-off-by: Jiaxun Yang <jiaxun.yang@flygoat.com>
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+Reviewed-by: Bibo Mao <maobibo@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ hw/loongarch/boot.c | 69 +++++++++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 69 insertions(+)
+
+diff --git a/hw/loongarch/boot.c b/hw/loongarch/boot.c
+index 13f0c37659e3..747fe39626bc 100644
+--- a/hw/loongarch/boot.c
++++ b/hw/loongarch/boot.c
+@@ -15,6 +15,26 @@
+ #include "sysemu/reset.h"
+ #include "sysemu/qtest.h"
+ 
++/*
++ * Linux Image Format
++ * https://docs.kernel.org/arch/loongarch/booting.html
++ */
++#define LINUX_PE_MAGIC  0x818223cd
++#define MZ_MAGIC        0x5a4d /* "MZ" */
++
++struct loongarch_linux_hdr {
++    uint32_t mz_magic;
++    uint32_t res0;
++    uint64_t kernel_entry;
++    uint64_t kernel_size;
++    uint64_t load_offset;
++    uint64_t res1;
++    uint64_t res2;
++    uint64_t res3;
++    uint32_t linux_pe_magic;
++    uint32_t pe_header_offset;
++} QEMU_PACKED;
++
+ struct memmap_entry *memmap_table;
+ unsigned memmap_entries;
+ 
+@@ -213,6 +233,50 @@ static void find_initrd_loadoffset(struct loongarch_boot_info *info,
+     exit(1);
+ }
+ 
++static int64_t load_loongarch_linux_image(const char *filename,
++                                          uint64_t *kernel_entry,
++                                          uint64_t *kernel_low,
++                                          uint64_t *kernel_high)
++{
++    gsize len;
++    ssize_t size;
++    uint8_t *buffer;
++    struct loongarch_linux_hdr *hdr;
++
++    /* Load as raw file otherwise */
++    if (!g_file_get_contents(filename, (char **)&buffer, &len, NULL)) {
++        return -1;
++    }
++    size = len;
++
++    /* Unpack the image if it is a EFI zboot image */
++    if (unpack_efi_zboot_image(&buffer, &size) < 0) {
++        g_free(buffer);
++        return -1;
++    }
++
++    hdr = (struct loongarch_linux_hdr *)buffer;
++
++    if (extract32(le32_to_cpu(hdr->mz_magic), 0, 16) != MZ_MAGIC ||
++        le32_to_cpu(hdr->linux_pe_magic) != LINUX_PE_MAGIC) {
++        g_free(buffer);
++        return -1;
++    }
++
++    /* Early kernel versions may have those fields in virtual address */
++    *kernel_entry = extract64(le64_to_cpu(hdr->kernel_entry),
++                              0, TARGET_PHYS_ADDR_SPACE_BITS);
++    *kernel_low = extract64(le64_to_cpu(hdr->load_offset),
++                            0, TARGET_PHYS_ADDR_SPACE_BITS);
++    *kernel_high = *kernel_low + size;
++
++    rom_add_blob_fixed(filename, buffer, size, *kernel_low);
++
++    g_free(buffer);
++
++    return size;
++}
++
+ static int64_t load_kernel_info(struct loongarch_boot_info *info)
+ {
+     uint64_t kernel_entry, kernel_low, kernel_high;
+@@ -223,6 +287,11 @@ static int64_t load_kernel_info(struct loongarch_boot_info *info)
+                            &kernel_entry, &kernel_low,
+                            &kernel_high, NULL, 0,
+                            EM_LOONGARCH, 1, 0);
++    if (kernel_size < 0) {
++        kernel_size = load_loongarch_linux_image(info->kernel_filename,
++                                                 &kernel_entry, &kernel_low,
++                                                 &kernel_high);
++    }
+ 
+     if (kernel_size < 0) {
+         error_report("could not load kernel '%s': %s",
+-- 
+2.51.0
+

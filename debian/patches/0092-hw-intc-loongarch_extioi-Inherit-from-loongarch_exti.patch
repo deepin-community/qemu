@@ -1,0 +1,230 @@
+From 63b28c85c01543627f24b2b3274b68edcc49af6c Mon Sep 17 00:00:00 2001
+From: Bibo Mao <maobibo@loongson.cn>
+Date: Fri, 13 Dec 2024 15:32:39 +0800
+Subject: [PATCH 092/285] hw/intc/loongarch_extioi: Inherit from
+ loongarch_extioi_common
+
+Set TYPE_LOONGARCH_EXTIOI inherit from TYPE_LOONGARCH_EXTIOI_COMMON
+object, it shares vmsate and property of TYPE_LOONGARCH_EXTIOI_COMMON,
+and has its own realize() function.
+
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+Reviewed-by: Song Gao <gaosong@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ hw/intc/loongarch_extioi.c                | 39 +++++++++++------------
+ hw/intc/loongarch_extioi_common.c         | 39 ++++++++++++++++++++++-
+ hw/intc/meson.build                       |  2 +-
+ include/hw/intc/loongarch_extioi.h        | 18 +++++++++--
+ include/hw/intc/loongarch_extioi_common.h | 12 +++++++
+ 5 files changed, 86 insertions(+), 24 deletions(-)
+
+diff --git a/hw/intc/loongarch_extioi.c b/hw/intc/loongarch_extioi.c
+index 9e33c057a7b5..77d732062f4c 100644
+--- a/hw/intc/loongarch_extioi.c
++++ b/hw/intc/loongarch_extioi.c
+@@ -357,17 +357,15 @@ static const MemoryRegionOps extioi_virt_ops = {
+     .endianness = DEVICE_LITTLE_ENDIAN,
+ };
+ 
+-static int vmstate_extioi_post_load(void *opaque, int version_id);
+-#include "loongarch_extioi_common.c"
+-
+ static void loongarch_extioi_realize(DeviceState *dev, Error **errp)
+ {
+-    LoongArchExtIOI *s = LOONGARCH_EXTIOI(dev);
++    LoongArchExtIOICommonState *s = LOONGARCH_EXTIOI_COMMON(dev);
++    LoongArchExtIOIClass *lec = LOONGARCH_EXTIOI_GET_CLASS(dev);
+     SysBusDevice *sbd = SYS_BUS_DEVICE(dev);
+     Error *local_err = NULL;
+     int i, pin;
+ 
+-    loongarch_extioi_common_realize(dev, &local_err);
++    lec->parent_realize(dev, &local_err);
+     if (local_err) {
+         error_propagate(errp, local_err);
+         return;
+@@ -441,24 +439,25 @@ static int vmstate_extioi_post_load(void *opaque, int version_id)
+ static void loongarch_extioi_class_init(ObjectClass *klass, void *data)
+ {
+     DeviceClass *dc = DEVICE_CLASS(klass);
++    LoongArchExtIOIClass *lec = LOONGARCH_EXTIOI_CLASS(klass);
++    LoongArchExtIOICommonClass *lecc = LOONGARCH_EXTIOI_COMMON_CLASS(klass);
+ 
+-    dc->realize = loongarch_extioi_realize;
+-    dc->unrealize = loongarch_extioi_unrealize;
++    device_class_set_parent_realize(dc, loongarch_extioi_realize,
++                                    &lec->parent_realize);
++    device_class_set_parent_unrealize(dc, loongarch_extioi_unrealize,
++                                      &lec->parent_unrealize);
+     dc->reset   = loongarch_extioi_reset;
+-    device_class_set_props(dc, extioi_properties);
+-    dc->vmsd = &vmstate_loongarch_extioi;
++    lecc->post_load = vmstate_extioi_post_load;
+ }
+ 
+-static const TypeInfo loongarch_extioi_info = {
+-    .name          = TYPE_LOONGARCH_EXTIOI,
+-    .parent        = TYPE_SYS_BUS_DEVICE,
+-    .instance_size = sizeof(struct LoongArchExtIOI),
+-    .class_init    = loongarch_extioi_class_init,
++static const TypeInfo loongarch_extioi_types[] = {
++    {
++        .name          = TYPE_LOONGARCH_EXTIOI,
++        .parent        = TYPE_LOONGARCH_EXTIOI_COMMON,
++        .instance_size = sizeof(LoongArchExtIOIState),
++        .class_size    = sizeof(LoongArchExtIOIClass),
++        .class_init    = loongarch_extioi_class_init,
++    }
+ };
+ 
+-static void loongarch_extioi_register_types(void)
+-{
+-    type_register_static(&loongarch_extioi_info);
+-}
+-
+-type_init(loongarch_extioi_register_types)
++DEFINE_TYPES(loongarch_extioi_types)
+diff --git a/hw/intc/loongarch_extioi_common.c b/hw/intc/loongarch_extioi_common.c
+index ebff20ce9fc6..7b75418ad6d1 100644
+--- a/hw/intc/loongarch_extioi_common.c
++++ b/hw/intc/loongarch_extioi_common.c
+@@ -3,6 +3,12 @@
+  * Loongson extioi interrupt controller emulation
+  * Copyright (C) 2024 Loongson Technology Corporation Limited
+  */
++#include "qemu/osdep.h"
++#include "qemu/module.h"
++#include "qapi/error.h"
++#include "hw/qdev-properties.h"
++#include "hw/intc/loongarch_extioi_common.h"
++#include "migration/vmstate.h"
+ 
+ static void loongarch_extioi_common_realize(DeviceState *dev, Error **errp)
+ {
+@@ -16,7 +22,14 @@ static void loongarch_extioi_common_realize(DeviceState *dev, Error **errp)
+ 
+ static int loongarch_extioi_common_post_load(void *opaque, int version_id)
+ {
+-    return vmstate_extioi_post_load(opaque, version_id);
++    LoongArchExtIOICommonState *s = (LoongArchExtIOICommonState *)opaque;
++    LoongArchExtIOICommonClass *lecc = LOONGARCH_EXTIOI_COMMON_GET_CLASS(s);
++
++    if (lecc->post_load) {
++        return lecc->post_load(s, version_id);
++    }
++
++    return 0;
+ }
+ 
+ static const VMStateDescription vmstate_extioi_core = {
+@@ -60,3 +73,27 @@ static Property extioi_properties[] = {
+                     features, EXTIOI_HAS_VIRT_EXTENSION, 0),
+     DEFINE_PROP_END_OF_LIST(),
+ };
++
++static void loongarch_extioi_common_class_init(ObjectClass *klass, void *data)
++{
++    DeviceClass *dc = DEVICE_CLASS(klass);
++    LoongArchExtIOICommonClass *lecc = LOONGARCH_EXTIOI_COMMON_CLASS(klass);
++
++    device_class_set_parent_realize(dc, loongarch_extioi_common_realize,
++                                    &lecc->parent_realize);
++    device_class_set_props(dc, extioi_properties);
++    dc->vmsd = &vmstate_loongarch_extioi;
++}
++
++static const TypeInfo loongarch_extioi_common_types[] = {
++    {
++        .name               = TYPE_LOONGARCH_EXTIOI_COMMON,
++        .parent             = TYPE_SYS_BUS_DEVICE,
++        .instance_size      = sizeof(LoongArchExtIOICommonState),
++        .class_size         = sizeof(LoongArchExtIOICommonClass),
++        .class_init         = loongarch_extioi_common_class_init,
++        .abstract           = true,
++    }
++};
++
++DEFINE_TYPES(loongarch_extioi_common_types)
+diff --git a/hw/intc/meson.build b/hw/intc/meson.build
+index 5814f4d95cb6..0aae1ae7664f 100644
+--- a/hw/intc/meson.build
++++ b/hw/intc/meson.build
+@@ -75,6 +75,6 @@ specific_ss.add(when: 'CONFIG_LOONGARCH_IPI', if_true: files('loongarch_ipi.c'))
+ specific_ss.add(when: 'CONFIG_LOONGARCH_IPI_KVM', if_true: files('loongarch_ipi_kvm.c'))
+ specific_ss.add(when: 'CONFIG_LOONGARCH_PCH_PIC', if_true: files('loongarch_pch_pic.c', 'loongarch_pic_common.c'))
+ specific_ss.add(when: 'CONFIG_LOONGARCH_PCH_MSI', if_true: files('loongarch_pch_msi.c'))
+-specific_ss.add(when: 'CONFIG_LOONGARCH_EXTIOI', if_true: files('loongarch_extioi.c'))
++specific_ss.add(when: 'CONFIG_LOONGARCH_EXTIOI', if_true: files('loongarch_extioi.c', 'loongarch_extioi_common.c'))
+ specific_ss.add(when: 'CONFIG_LOONGARCH_EXTIOI_KVM', if_true: files('loongarch_extioi_kvm.c'))
+ specific_ss.add(when: 'CONFIG_LOONGARCH_PCH_PIC_KVM', if_true: files('loongarch_pch_pic_kvm.c'))
+diff --git a/include/hw/intc/loongarch_extioi.h b/include/hw/intc/loongarch_extioi.h
+index 0be75520f021..87a802885ff5 100644
+--- a/include/hw/intc/loongarch_extioi.h
++++ b/include/hw/intc/loongarch_extioi.h
+@@ -10,10 +10,24 @@
+ 
+ #include "hw/intc/loongarch_extioi_common.h"
+ 
+-#define LoongArchExtIOI LoongArchExtIOICommonState
+ #define TYPE_LOONGARCH_EXTIOI        "loongarch-extioi"
+ #define TYPE_KVM_LOONGARCH_EXTIOI    "loongarch-kvm-extioi"
+-OBJECT_DECLARE_SIMPLE_TYPE(LoongArchExtIOI, LOONGARCH_EXTIOI)
++OBJECT_DECLARE_TYPE(LoongArchExtIOIState, LoongArchExtIOIClass, LOONGARCH_EXTIOI)
++
++struct LoongArchExtIOIState {
++    LoongArchExtIOICommonState parent_obj;
++};
++
++struct LoongArchExtIOIClass {
++    LoongArchExtIOICommonClass parent_class;
++
++    DeviceRealize parent_realize;
++    DeviceUnrealize parent_unrealize;
++};
++
++#define LoongArchExtIOI         LoongArchExtIOICommonState
++#define LOONGARCH_EXTIOI(obj)   ((LoongArchExtIOICommonState *)obj)
++
+ struct KVMLoongArchExtIOI {
+     SysBusDevice parent_obj;
+     uint32_t num_cpu;
+diff --git a/include/hw/intc/loongarch_extioi_common.h b/include/hw/intc/loongarch_extioi_common.h
+index 8cdd8eeac200..9a6dba56d871 100644
+--- a/include/hw/intc/loongarch_extioi_common.h
++++ b/include/hw/intc/loongarch_extioi_common.h
+@@ -7,6 +7,7 @@
+ #ifndef LOONGARCH_EXTIOI_COMMON_H
+ #define LOONGARCH_EXTIOI_COMMON_H
+ 
++#include "qom/object.h"
+ #include "hw/sysbus.h"
+ #include "hw/loongarch/virt.h"
+ 
+@@ -57,6 +58,10 @@
+ #define EXTIOI_VIRT_COREMAP_END      (0x240)
+ #define EXTIOI_SW_COREMAP_FLAG       (1 << 0)
+ 
++#define TYPE_LOONGARCH_EXTIOI_COMMON "loongarch_extioi_common"
++OBJECT_DECLARE_TYPE(LoongArchExtIOICommonState,
++                    LoongArchExtIOICommonClass, LOONGARCH_EXTIOI_COMMON)
++
+ typedef struct ExtIOICore {
+     uint32_t coreisr[EXTIOI_IRQS_GROUP_COUNT];
+     DECLARE_BITMAP(sw_isr[LS3A_INTC_IP], EXTIOI_IRQS);
+@@ -83,4 +88,11 @@ struct LoongArchExtIOICommonState {
+     MemoryRegion extioi_system_mem;
+     MemoryRegion virt_extend;
+ };
++
++struct LoongArchExtIOICommonClass {
++    SysBusDeviceClass parent_class;
++
++    DeviceRealize parent_realize;
++    int (*post_load)(void *s, int version_id);
++};
+ #endif /* LOONGARCH_EXTIOI_H */
+-- 
+2.51.0
+

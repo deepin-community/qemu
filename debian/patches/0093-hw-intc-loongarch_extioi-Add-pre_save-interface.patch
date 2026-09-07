@@ -1,0 +1,63 @@
+From 2f482a4040a4e516a4076a20da9141de7f97bd94 Mon Sep 17 00:00:00 2001
+From: Bibo Mao <maobibo@loongson.cn>
+Date: Fri, 8 Nov 2024 15:42:05 +0800
+Subject: [PATCH 093/285] hw/intc/loongarch_extioi: Add pre_save interface
+
+Add vmstate pre_save interface, which can be used extioi kvm driver
+in future.
+
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+Reviewed-by: Song Gao <gaosong@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ hw/intc/loongarch_extioi_common.c         | 13 +++++++++++++
+ include/hw/intc/loongarch_extioi_common.h |  1 +
+ 2 files changed, 14 insertions(+)
+
+diff --git a/hw/intc/loongarch_extioi_common.c b/hw/intc/loongarch_extioi_common.c
+index 7b75418ad6d1..5edec8cd55d6 100644
+--- a/hw/intc/loongarch_extioi_common.c
++++ b/hw/intc/loongarch_extioi_common.c
+@@ -20,6 +20,18 @@ static void loongarch_extioi_common_realize(DeviceState *dev, Error **errp)
+     }
+ }
+ 
++static int loongarch_extioi_common_pre_save(void *opaque)
++{
++    LoongArchExtIOICommonState *s = (LoongArchExtIOICommonState *)opaque;
++    LoongArchExtIOICommonClass *lecc = LOONGARCH_EXTIOI_COMMON_GET_CLASS(s);
++
++    if (lecc->pre_save) {
++        return lecc->pre_save(s);
++    }
++
++    return 0;
++}
++
+ static int loongarch_extioi_common_post_load(void *opaque, int version_id)
+ {
+     LoongArchExtIOICommonState *s = (LoongArchExtIOICommonState *)opaque;
+@@ -46,6 +58,7 @@ static const VMStateDescription vmstate_loongarch_extioi = {
+     .name = "loongarch.extioi",
+     .version_id = 3,
+     .minimum_version_id = 3,
++    .pre_save  = loongarch_extioi_common_pre_save,
+     .post_load = loongarch_extioi_common_post_load,
+     .fields = (const VMStateField[]) {
+         VMSTATE_UINT32_ARRAY(bounce, LoongArchExtIOICommonState,
+diff --git a/include/hw/intc/loongarch_extioi_common.h b/include/hw/intc/loongarch_extioi_common.h
+index 9a6dba56d871..e1eb31368e41 100644
+--- a/include/hw/intc/loongarch_extioi_common.h
++++ b/include/hw/intc/loongarch_extioi_common.h
+@@ -93,6 +93,7 @@ struct LoongArchExtIOICommonClass {
+     SysBusDeviceClass parent_class;
+ 
+     DeviceRealize parent_realize;
++    int (*pre_save)(void *s);
+     int (*post_load)(void *s, int version_id);
+ };
+ #endif /* LOONGARCH_EXTIOI_H */
+-- 
+2.51.0
+

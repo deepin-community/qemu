@@ -1,0 +1,140 @@
+From 8ce52358b62f4f5321c9d3b67d77e97d1e13fbea Mon Sep 17 00:00:00 2001
+From: Xianglai Li <lixianglai@loongson.cn>
+Date: Tue, 6 May 2025 16:09:46 +0800
+Subject: [PATCH 191/285] hw/loongarch/boot: Adjust the loading position of the
+ initrd
+
+When only the -kernel parameter is used to load the elf kernel, the initrd
+is loaded in the ram. If the initrd size is too large, the loading fails,
+resulting in a VM startup failure. This patch first loads initrd near
+the kernel.
+
+When the nearby memory space of the kernel is insufficient, it tries to
+load it to the starting position of high memory. If there is still not
+enough, qemu will report an error and ask the user to increase the memory
+space for the virtual machine to boot.
+
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Message-Id: <20250506080946.817092-1-lixianglai@loongson.cn>
+Signed-off-by: Song Gao <gaosong@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ hw/loongarch/boot.c | 88 ++++++++++++++++++++++-----------------------
+ 1 file changed, 43 insertions(+), 45 deletions(-)
+
+diff --git a/hw/loongarch/boot.c b/hw/loongarch/boot.c
+index f05dbeb29bbb..4c0a1d41ef4e 100644
+--- a/hw/loongarch/boot.c
++++ b/hw/loongarch/boot.c
+@@ -191,48 +191,6 @@ static uint64_t cpu_loongarch_virt_to_phys(void *opaque, uint64_t addr)
+     return addr & MAKE_64BIT_MASK(0, TARGET_PHYS_ADDR_SPACE_BITS);
+ }
+ 
+-static void find_initrd_loadoffset(struct loongarch_boot_info *info,
+-                uint64_t kernel_high, ssize_t kernel_size)
+-{
+-    hwaddr base, size, gap, low_end;
+-    ram_addr_t initrd_end, initrd_start;
+-
+-    base = VIRT_LOWMEM_BASE;
+-    gap = VIRT_LOWMEM_SIZE;
+-    initrd_start = ROUND_UP(kernel_high + 4 * kernel_size, 64 * KiB);
+-    initrd_end = initrd_start + initrd_size;
+-
+-    size = info->ram_size;
+-    low_end = base + MIN(size, gap);
+-    if (initrd_end <= low_end) {
+-        initrd_offset = initrd_start;
+-        return ;
+-    }
+-
+-    if (size <= gap) {
+-        error_report("The low memory too small for initial ram disk '%s',"
+-             "You need to expand the memory space",
+-             info->initrd_filename);
+-        exit(1);
+-    }
+-
+-    /*
+-     * Try to load initrd in the high memory
+-     */
+-    size -= gap;
+-    base = VIRT_HIGHMEM_BASE;
+-    initrd_start = ROUND_UP(base, 64 * KiB);
+-    if (initrd_size <= size) {
+-        initrd_offset = initrd_start;
+-        return ;
+-    }
+-
+-    error_report("The high memory too small for initial ram disk '%s',"
+-         "You need to expand the memory space",
+-         info->initrd_filename);
+-    exit(1);
+-}
+-
+ static int64_t load_loongarch_linux_image(const char *filename,
+                                           uint64_t *kernel_entry,
+                                           uint64_t *kernel_low,
+@@ -277,6 +235,45 @@ static int64_t load_loongarch_linux_image(const char *filename,
+     return size;
+ }
+ 
++static ram_addr_t alloc_initrd_memory(struct loongarch_boot_info *info,
++                uint64_t advice_start, ssize_t rd_size)
++{
++    hwaddr base, ram_size, gap, low_end;
++    ram_addr_t initrd_end, initrd_start;
++
++    base = VIRT_LOWMEM_BASE;
++    gap = VIRT_LOWMEM_SIZE;
++    initrd_start = advice_start;
++    initrd_end = initrd_start + rd_size;
++
++    ram_size = info->ram_size;
++    low_end = base + MIN(ram_size, gap);
++    if (initrd_end <= low_end) {
++        return initrd_start;
++    }
++
++    if (ram_size <= gap) {
++        error_report("The low memory too small for initial ram disk '%s',"
++             "You need to expand the ram",
++             info->initrd_filename);
++        exit(1);
++    }
++
++    /*
++     * Try to load initrd in the high memory
++     */
++    ram_size -= gap;
++    initrd_start = VIRT_HIGHMEM_BASE;
++    if (rd_size <= ram_size) {
++        return initrd_start;
++    }
++
++    error_report("The high memory too small for initial ram disk '%s',"
++         "You need to expand the ram",
++         info->initrd_filename);
++    exit(1);
++}
++
+ static int64_t load_kernel_info(struct loongarch_boot_info *info)
+ {
+     uint64_t kernel_entry, kernel_low, kernel_high;
+@@ -304,9 +301,10 @@ static int64_t load_kernel_info(struct loongarch_boot_info *info)
+     if (info->initrd_filename) {
+         initrd_size = get_image_size(info->initrd_filename);
+         if (initrd_size > 0) {
+-            find_initrd_loadoffset(info, kernel_high, kernel_size);
+-            initrd_size = load_image_targphys(info->initrd_filename, initrd_offset,
+-                                              initrd_size);
++            initrd_offset = alloc_initrd_memory(info, initrd_offset,
++                                                initrd_size);
++            initrd_size = load_image_targphys(info->initrd_filename,
++                                              initrd_offset, initrd_size);
+         }
+ 
+         if (initrd_size == (target_ulong)-1) {
+-- 
+2.51.0
+

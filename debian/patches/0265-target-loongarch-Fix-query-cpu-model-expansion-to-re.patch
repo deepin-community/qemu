@@ -1,0 +1,82 @@
+From e52647227dfcac72f5e13812bf5a8cede2759f3f Mon Sep 17 00:00:00 2001
+From: Markus Armbruster <armbru@redhat.com>
+Date: Tue, 5 Mar 2024 15:59:18 +0100
+Subject: [PATCH 265/285] target/loongarch: Fix query-cpu-model-expansion to
+ reject props
+
+query-cpu-model-expansion takes a CpuModelInfo argument.  The
+loongarch version of the command silently ignores the argument's
+member @props.  For instance,
+
+    {"execute": "query-cpu-model-expansion", "arguments": {"type": "static", "model": {"name": "la464", "props": null}}}
+
+and
+
+    {"execute": "query-cpu-model-expansion", "arguments": {"type": "static", "model": {"name": "la464", "props": {"prop": null}}}}
+
+succeed.
+
+Add skeleton code for property processing that recognizes no
+properties.  Now the two commands fail as they should:
+
+    {"error": {"class": "GenericError", "desc": "Invalid parameter type for 'model.props', expected: object"}}
+
+and
+
+    {"error": {"class": "GenericError", "desc": "Parameter 'model.props.prop' is unexpected"}}
+
+Signed-off-by: Markus Armbruster <armbru@redhat.com>
+Message-ID: <20240305145919.2186971-5-armbru@redhat.com>
+[Drop #include now superfluous]
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ target/loongarch/loongarch-qmp-cmds.c | 18 +++++++++++++++++-
+ 1 file changed, 17 insertions(+), 1 deletion(-)
+
+diff --git a/target/loongarch/loongarch-qmp-cmds.c b/target/loongarch/loongarch-qmp-cmds.c
+index 05e8ad34bb1b..447d98846fad 100644
+--- a/target/loongarch/loongarch-qmp-cmds.c
++++ b/target/loongarch/loongarch-qmp-cmds.c
+@@ -10,7 +10,6 @@
+ #include "qapi/error.h"
+ #include "qapi/qapi-commands-machine-target.h"
+ #include "cpu.h"
+-#include "qapi/qmp/qerror.h"
+ #include "qapi/qmp/qdict.h"
+ #include "qapi/qobject-input-visitor.h"
+ #include "qom/qom-qobject.h"
+@@ -49,6 +48,8 @@ CpuModelExpansionInfo *qmp_query_cpu_model_expansion(CpuModelExpansionType type,
+                                                      CpuModelInfo *model,
+                                                      Error **errp)
+ {
++    Visitor *visitor;
++    bool ok;
+     CpuModelExpansionInfo *expansion_info;
+     QDict *qdict_out;
+     ObjectClass *oc;
+@@ -61,6 +62,21 @@ CpuModelExpansionInfo *qmp_query_cpu_model_expansion(CpuModelExpansionType type,
+         return NULL;
+     }
+ 
++    if (model->props) {
++        visitor = qobject_input_visitor_new(model->props);
++        if (!visit_start_struct(visitor, "model.props", NULL, 0, errp)) {
++            visit_free(visitor);
++            return NULL;
++        }
++
++        ok = visit_check_struct(visitor, errp);
++        visit_end_struct(visitor, NULL);
++        visit_free(visitor);
++        if (!ok) {
++            return NULL;
++        }
++    }
++
+     oc = cpu_class_by_name(TYPE_LOONGARCH_CPU, model->name);
+     if (!oc) {
+         error_setg(errp, "The CPU type '%s' is not a recognized LoongArch CPU type",
+-- 
+2.51.0
+

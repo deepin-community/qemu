@@ -1,0 +1,61 @@
+From e3c9909c712bb08bda9bf3c405de46c883acb451 Mon Sep 17 00:00:00 2001
+From: Song Gao <gaosong@loongson.cn>
+Date: Wed, 5 Mar 2025 14:33:10 +0800
+Subject: [PATCH 150/285] target/loongarch: fix 'make check-functional' failed
+
+ some tlb instructions get  the tlb_ps from tlb->misc but the
+ value may has been initialized to 0,just check the tlb_ps skip
+ the function and write a log.
+
+Signed-off-by: Song Gao <gaosong@loongson.cn>
+Reviewed-by: Bibo Mao <maobibo@loongson.cn>
+Message-Id: <20250305063311.830674-2-gaosong@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ target/loongarch/tcg/tlb_helper.c | 12 ++++++++++++
+ 1 file changed, 12 insertions(+)
+
+diff --git a/target/loongarch/tcg/tlb_helper.c b/target/loongarch/tcg/tlb_helper.c
+index eedd1ac37626..adbaf055ddd8 100644
+--- a/target/loongarch/tcg/tlb_helper.c
++++ b/target/loongarch/tcg/tlb_helper.c
+@@ -122,7 +122,11 @@ static void invalidate_tlb_entry(CPULoongArchState *env, int index)
+     uint8_t tlb_v0 = FIELD_EX64(tlb->tlb_entry0, TLBENTRY, V);
+     uint8_t tlb_v1 = FIELD_EX64(tlb->tlb_entry1, TLBENTRY, V);
+     uint64_t tlb_vppn = FIELD_EX64(tlb->tlb_misc, TLB_MISC, VPPN);
++    uint8_t tlb_e = FIELD_EX64(tlb->tlb_misc, TLB_MISC, E);
+ 
++    if (!tlb_e) {
++        return;
++    }
+     if (index >= LOONGARCH_STLB) {
+         tlb_ps = FIELD_EX64(tlb->tlb_misc, TLB_MISC, PS);
+     } else {
+@@ -426,7 +430,11 @@ void helper_invtlb_page_asid(CPULoongArchState *env, target_ulong info,
+         uint16_t tlb_asid = FIELD_EX64(tlb->tlb_misc, TLB_MISC, ASID);
+         uint64_t vpn, tlb_vppn;
+         uint8_t tlb_ps, compare_shift;
++        uint8_t tlb_e = FIELD_EX64(tlb->tlb_misc, TLB_MISC, E);
+ 
++        if (!tlb_e) {
++            continue;
++        }
+         if (i >= LOONGARCH_STLB) {
+             tlb_ps = FIELD_EX64(tlb->tlb_misc, TLB_MISC, PS);
+         } else {
+@@ -455,7 +463,11 @@ void helper_invtlb_page_asid_or_g(CPULoongArchState *env,
+         uint16_t tlb_asid = FIELD_EX64(tlb->tlb_misc, TLB_MISC, ASID);
+         uint64_t vpn, tlb_vppn;
+         uint8_t tlb_ps, compare_shift;
++        uint8_t tlb_e = FIELD_EX64(tlb->tlb_misc, TLB_MISC, E);
+ 
++        if (!tlb_e) {
++            continue;
++        }
+         if (i >= LOONGARCH_STLB) {
+             tlb_ps = FIELD_EX64(tlb->tlb_misc, TLB_MISC, PS);
+         } else {
+-- 
+2.51.0
+

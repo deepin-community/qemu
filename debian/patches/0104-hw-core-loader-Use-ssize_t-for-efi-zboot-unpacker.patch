@@ -1,0 +1,67 @@
+From 3a5b24a74909bc78f224f6b7d24f730dcb864c4f Mon Sep 17 00:00:00 2001
+From: Jiaxun Yang <jiaxun.yang@flygoat.com>
+Date: Thu, 2 Jan 2025 22:47:21 +0000
+Subject: [PATCH 104/285] hw/core/loader: Use ssize_t for efi zboot unpacker
+
+Convert to use sszie_t to represent size internally to avoid
+large image overflowing the size.
+
+Suggested-by: Richard Henderson <richard.henderson@linaro.org>
+Signed-off-by: Jiaxun Yang <jiaxun.yang@flygoat.com>
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+Reviewed-by: Bibo Mao <maobibo@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ hw/arm/boot.c       | 2 +-
+ hw/core/loader.c    | 4 ++--
+ include/hw/loader.h | 2 +-
+ 3 files changed, 4 insertions(+), 4 deletions(-)
+
+diff --git a/hw/arm/boot.c b/hw/arm/boot.c
+index b4fa380c8bf1..a1d57de9a04a 100644
+--- a/hw/arm/boot.c
++++ b/hw/arm/boot.c
+@@ -884,7 +884,7 @@ static uint64_t load_aarch64_image(const char *filename, hwaddr mem_base,
+     hwaddr kernel_load_offset = KERNEL64_LOAD_ADDR;
+     uint64_t kernel_size = 0;
+     uint8_t *buffer;
+-    int size;
++    ssize_t size;
+ 
+     /* On aarch64, it's the bootloader's job to uncompress the kernel. */
+     size = load_image_gzipped_buffer(filename, LOAD_IMAGE_MAX_GUNZIP_BYTES,
+diff --git a/hw/core/loader.c b/hw/core/loader.c
+index 7990147adeb8..dcc0e5735087 100644
+--- a/hw/core/loader.c
++++ b/hw/core/loader.c
+@@ -900,11 +900,11 @@ struct linux_efi_zboot_header {
+  *
+  * If the image is not a Linux EFI zboot image, do nothing and return success.
+  */
+-ssize_t unpack_efi_zboot_image(uint8_t **buffer, int *size)
++ssize_t unpack_efi_zboot_image(uint8_t **buffer, ssize_t *size)
+ {
+     const struct linux_efi_zboot_header *header;
+     uint8_t *data = NULL;
+-    int ploff, plsize;
++    ssize_t ploff, plsize;
+     ssize_t bytes;
+ 
+     /* ignore if this is too small to be a EFI zboot image */
+diff --git a/include/hw/loader.h b/include/hw/loader.h
+index 3a5212b8974e..20370e134387 100644
+--- a/include/hw/loader.h
++++ b/include/hw/loader.h
+@@ -103,7 +103,7 @@ ssize_t load_image_gzipped(const char *filename, hwaddr addr, uint64_t max_sz);
+  * Returns the size of the decompressed payload if decompression was performed
+  * successfully.
+  */
+-ssize_t unpack_efi_zboot_image(uint8_t **buffer, int *size);
++ssize_t unpack_efi_zboot_image(uint8_t **buffer, ssize_t *size);
+ 
+ #define ELF_LOAD_FAILED       -1
+ #define ELF_LOAD_NOT_ELF      -2
+-- 
+2.51.0
+

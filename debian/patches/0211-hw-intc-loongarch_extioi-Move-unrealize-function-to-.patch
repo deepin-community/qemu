@@ -1,0 +1,101 @@
+From fd34c285bbf118b44a9433cadf5a186841c9feb8 Mon Sep 17 00:00:00 2001
+From: Bibo Mao <maobibo@loongson.cn>
+Date: Thu, 10 Jul 2025 16:21:31 +0800
+Subject: [PATCH 211/285] hw/intc/loongarch_extioi: Move unrealize function to
+ common code
+
+Memory about LoongArchExtIOICommonState::cpu is allocated in common
+code, it had better be freed in common code also.
+
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+Reviewed-by: Song Gao <gaosong@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ hw/intc/loongarch_extioi.c                | 9 ---------
+ hw/intc/loongarch_extioi_common.c         | 9 +++++++++
+ include/hw/intc/loongarch_extioi.h        | 1 -
+ include/hw/intc/loongarch_extioi_common.h | 1 +
+ 4 files changed, 10 insertions(+), 10 deletions(-)
+
+diff --git a/hw/intc/loongarch_extioi.c b/hw/intc/loongarch_extioi.c
+index fd104a37e806..1368f9ea4764 100644
+--- a/hw/intc/loongarch_extioi.c
++++ b/hw/intc/loongarch_extioi.c
+@@ -416,13 +416,6 @@ static void loongarch_extioi_realize(DeviceState *dev, Error **errp)
+     }
+ }
+ 
+-static void loongarch_extioi_unrealize(DeviceState *dev)
+-{
+-    LoongArchExtIOICommonState *s = LOONGARCH_EXTIOI_COMMON(dev);
+-
+-    g_free(s->cpu);
+-}
+-
+ static void loongarch_extioi_reset_hold(Object *obj)
+ {
+     LoongArchExtIOIClass *lec = LOONGARCH_EXTIOI_GET_CLASS(obj);
+@@ -475,8 +468,6 @@ static void loongarch_extioi_class_init(ObjectClass *klass, void *data)
+ 
+     device_class_set_parent_realize(dc, loongarch_extioi_realize,
+                                     &lec->parent_realize);
+-    device_class_set_parent_unrealize(dc, loongarch_extioi_unrealize,
+-                                      &lec->parent_unrealize);
+     resettable_class_set_parent_phases(rc, NULL, loongarch_extioi_reset_hold,
+                                        NULL, &lec->parent_phases);
+     lecc->pre_save  = vmstate_extioi_pre_save;
+diff --git a/hw/intc/loongarch_extioi_common.c b/hw/intc/loongarch_extioi_common.c
+index 2ecef4294d19..813010716af0 100644
+--- a/hw/intc/loongarch_extioi_common.c
++++ b/hw/intc/loongarch_extioi_common.c
+@@ -108,6 +108,13 @@ static void loongarch_extioi_common_realize(DeviceState *dev, Error **errp)
+     }
+ }
+ 
++static void loongarch_extioi_common_unrealize(DeviceState *dev)
++{
++    LoongArchExtIOICommonState *s = LOONGARCH_EXTIOI_COMMON(dev);
++
++    g_free(s->cpu);
++}
++
+ static void loongarch_extioi_common_reset_hold(Object *obj)
+ {
+     LoongArchExtIOICommonClass *lecc = LOONGARCH_EXTIOI_COMMON_GET_CLASS(obj);
+@@ -221,6 +228,8 @@ static void loongarch_extioi_common_class_init(ObjectClass *klass, void *data)
+ 
+     device_class_set_parent_realize(dc, loongarch_extioi_common_realize,
+                                     &lecc->parent_realize);
++    device_class_set_parent_unrealize(dc, loongarch_extioi_common_unrealize,
++                                      &lecc->parent_unrealize);
+     resettable_class_set_parent_phases(rc, NULL,
+                                        loongarch_extioi_common_reset_hold,
+                                        NULL, &lecc->parent_phases);
+diff --git a/include/hw/intc/loongarch_extioi.h b/include/hw/intc/loongarch_extioi.h
+index 9be1d736ea6c..4795bdc15f57 100644
+--- a/include/hw/intc/loongarch_extioi.h
++++ b/include/hw/intc/loongarch_extioi.h
+@@ -22,7 +22,6 @@ struct LoongArchExtIOIClass {
+     LoongArchExtIOICommonClass parent_class;
+ 
+     DeviceRealize parent_realize;
+-    DeviceUnrealize parent_unrealize;
+     ResettablePhases parent_phases;
+ };
+ 
+diff --git a/include/hw/intc/loongarch_extioi_common.h b/include/hw/intc/loongarch_extioi_common.h
+index 39a24ebb04e4..77dab16e3944 100644
+--- a/include/hw/intc/loongarch_extioi_common.h
++++ b/include/hw/intc/loongarch_extioi_common.h
+@@ -95,6 +95,7 @@ struct LoongArchExtIOICommonClass {
+     SysBusDeviceClass parent_class;
+ 
+     DeviceRealize parent_realize;
++    DeviceUnrealize parent_unrealize;
+     ResettablePhases parent_phases;
+     int (*pre_save)(void *s);
+     int (*post_load)(void *s, int version_id);
+-- 
+2.51.0
+

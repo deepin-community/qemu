@@ -1,0 +1,96 @@
+From 17dba6f12009f81b74486840020c8563a2281c39 Mon Sep 17 00:00:00 2001
+From: Bibo Mao <maobibo@loongson.cn>
+Date: Wed, 25 Feb 2026 09:41:29 +0800
+Subject: [PATCH 271/285] target/loongarch: Add generic CPU model information
+
+On LoongArch system, CPU model name comes from IOCSR register
+LOONGARCH_IOCSR_VENDOR and LOONGARCH_IOCSR_CPUNAME. Its value
+can be initialized when CPU is created.
+
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+Reviewed-by: Song Gao <gaosong@loongson.cn>
+Signed-off-by: Song Gao <gaosong@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ hw/loongarch/virt.c    | 6 ++++--
+ target/loongarch/cpu.c | 4 ++++
+ target/loongarch/cpu.h | 6 ++++++
+ 3 files changed, 14 insertions(+), 2 deletions(-)
+
+diff --git a/hw/loongarch/virt.c b/hw/loongarch/virt.c
+index ed1b051f4c3b..97e5da0ec5de 100644
+--- a/hw/loongarch/virt.c
++++ b/hw/loongarch/virt.c
+@@ -775,7 +775,9 @@ static MemTxResult virt_iocsr_misc_read(void *opaque, hwaddr addr,
+     LoongArchVirtMachineState *lvms = LOONGARCH_VIRT_MACHINE(opaque);
+     uint64_t ret = 0;
+     int features;
++    CPULoongArchState *env;
+ 
++    env = &LOONGARCH_CPU(first_cpu)->env;
+     switch (addr) {
+     case VERSION_REG:
+         ret = 0x11ULL;
+@@ -790,10 +792,10 @@ static MemTxResult virt_iocsr_misc_read(void *opaque, hwaddr addr,
+         }
+         break;
+     case VENDOR_REG:
+-        ret = 0x6e6f73676e6f6f4cULL; /* "Loongson" */
++        ret = env->vendor_id;
+         break;
+     case CPUNAME_REG:
+-        ret = 0x303030354133ULL;     /* "3A5000" */
++        ret = env->cpu_id;
+         break;
+     case MISC_FUNC_REG:
+         if (kvm_irqchip_in_kernel()) {
+diff --git a/target/loongarch/cpu.c b/target/loongarch/cpu.c
+index f7f0cfc19bf1..74e33ac6aaae 100644
+--- a/target/loongarch/cpu.c
++++ b/target/loongarch/cpu.c
+@@ -556,6 +556,8 @@ static void loongarch_la464_initfn(Object *obj)
+     data = FIELD_DP32(data, CPUCFG0, SERID, PRID_SERIES_LA464);
+     data = FIELD_DP32(data, CPUCFG0, VENID, PRID_VENDOR_LOONGSON);
+     env->cpucfg[0] = data;
++    memccpy((void *)&env->vendor_id, CPU_VENDOR_LOONGSON, 0, 8);
++    memccpy((void *)&env->cpu_id, CPU_MODEL_3A5000, 0, 8);
+ 
+     data = 0;
+     data = FIELD_DP32(data, CPUCFG1, ARCH, 2);
+@@ -682,6 +684,8 @@ static void loongarch_la132_initfn(Object *obj)
+     data = FIELD_DP32(data, CPUCFG0, SERID, PRID_SERIES_LA132);
+     data = FIELD_DP32(data, CPUCFG0, VENID, PRID_VENDOR_LOONGSON);
+     env->cpucfg[0] = data;
++    memccpy((void *)&env->vendor_id, CPU_VENDOR_LOONGSON, 0, 8);
++    memccpy((void *)&env->cpu_id, CPU_MODEL_1C101, 0, 8);
+ 
+     data = 0;
+     data = FIELD_DP32(data, CPUCFG1, ARCH, 1); /* LA32 */
+diff --git a/target/loongarch/cpu.h b/target/loongarch/cpu.h
+index 02d23e51d109..47d50527bef2 100644
+--- a/target/loongarch/cpu.h
++++ b/target/loongarch/cpu.h
+@@ -303,6 +303,10 @@ typedef struct  LoongArchBT {
+     uint32_t ftop;
+ } lbt_t;
+ 
++#define CPU_VENDOR_LOONGSON   "Loongson"
++#define CPU_MODEL_3A5000      "3A5000"
++#define CPU_MODEL_1C101       "1C101"
++
+ typedef struct CPUArchState {
+     uint64_t gpr[32];
+     uint64_t pc;
+@@ -314,6 +318,8 @@ typedef struct CPUArchState {
+ 
+     uint32_t cpucfg[21];
+     uint32_t pv_features;
++    uint64_t vendor_id;
++    uint64_t cpu_id;
+ 
+     /* LoongArch CSRs */
+     uint64_t CSR_CRMD;
+-- 
+2.51.0
+

@@ -1,0 +1,48 @@
+From 77768e07c9a850cab0ea84e3c666ee939d85ffca Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Philippe=20Mathieu-Daud=C3=A9?= <philmd@linaro.org>
+Date: Thu, 18 Jul 2024 15:25:08 +0200
+Subject: [PATCH 052/285] docs: Correct Loongarch -> LoongArch
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Signed-off-by: Philippe Mathieu-Daudé <philmd@linaro.org>
+Reviewed-by: Richard Henderson <richard.henderson@linaro.org>
+Reviewed-by: Jiaxun Yang <jiaxun.yang@flygoat.com>
+Tested-by: Jiaxun Yang <jiaxun.yang@flygoat.com>
+Message-Id: <20240718133312.10324-20-philmd@linaro.org>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ docs/about/emulation.rst | 2 +-
+ hw/rtc/ls7a_rtc.c        | 2 +-
+ 2 files changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/docs/about/emulation.rst b/docs/about/emulation.rst
+index a2eefe3f3fb8..fb95d2f4bc81 100644
+--- a/docs/about/emulation.rst
++++ b/docs/about/emulation.rst
+@@ -42,7 +42,7 @@ depending on the guest architecture.
+     - :ref:`Yes<QEMU-PC-System-emulator>`
+     - Yes
+     - The ubiquitous desktop PC CPU architecture, 32 and 64 bit.
+-  * - Loongarch
++  * - LoongArch
+     - Yes
+     - Yes
+     - A MIPS-like 64bit RISC architecture developed in China
+diff --git a/hw/rtc/ls7a_rtc.c b/hw/rtc/ls7a_rtc.c
+index be9546c8505d..bac4c76297ce 100644
+--- a/hw/rtc/ls7a_rtc.c
++++ b/hw/rtc/ls7a_rtc.c
+@@ -1,6 +1,6 @@
+ /* SPDX-License-Identifier: GPL-2.0-or-later */
+ /*
+- * Loongarch LS7A Real Time Clock emulation
++ * LoongArch LS7A Real Time Clock emulation
+  *
+  * Copyright (C) 2021 Loongson Technology Corporation Limited
+  */
+-- 
+2.51.0
+

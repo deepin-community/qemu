@@ -1,0 +1,98 @@
+From 91bac0203f8b62ce233a8b15b35907876b5f1b10 Mon Sep 17 00:00:00 2001
+From: Bibo Mao <maobibo@loongson.cn>
+Date: Fri, 20 Sep 2024 10:08:56 +0800
+Subject: [PATCH 086/285] include: Move struct LoongArchExtIOI to header file
+ loongarch_extioi_common
+
+Move definiton of structure LoongArchExtIOI from header file loongarch_extioi.h
+to file loongarch_extioi_common.h.
+
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+Reviewed-by: Song Gao <gaosong@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ include/hw/intc/loongarch_extioi.h        | 27 -----------------------
+ include/hw/intc/loongarch_extioi_common.h | 27 +++++++++++++++++++++++
+ 2 files changed, 27 insertions(+), 27 deletions(-)
+
+diff --git a/include/hw/intc/loongarch_extioi.h b/include/hw/intc/loongarch_extioi.h
+index 21fdc1813e14..816e2f3974b4 100644
+--- a/include/hw/intc/loongarch_extioi.h
++++ b/include/hw/intc/loongarch_extioi.h
+@@ -10,36 +10,9 @@
+ 
+ #include "hw/intc/loongarch_extioi_common.h"
+ 
+-typedef struct ExtIOICore {
+-    uint32_t coreisr[EXTIOI_IRQS_GROUP_COUNT];
+-    DECLARE_BITMAP(sw_isr[LS3A_INTC_IP], EXTIOI_IRQS);
+-    qemu_irq parent_irq[LS3A_INTC_IP];
+-} ExtIOICore;
+-
+ #define TYPE_LOONGARCH_EXTIOI        "loongarch-extioi"
+ #define TYPE_KVM_LOONGARCH_EXTIOI    "loongarch-kvm-extioi"
+ OBJECT_DECLARE_SIMPLE_TYPE(LoongArchExtIOI, LOONGARCH_EXTIOI)
+-struct LoongArchExtIOI {
+-    SysBusDevice parent_obj;
+-    uint32_t num_cpu;
+-    uint32_t features;
+-    uint32_t status;
+-    /* hardware state */
+-    uint32_t nodetype[EXTIOI_IRQS_NODETYPE_COUNT / 2];
+-    uint32_t bounce[EXTIOI_IRQS_GROUP_COUNT];
+-    uint32_t isr[EXTIOI_IRQS / 32];
+-    uint32_t enable[EXTIOI_IRQS / 32];
+-    uint32_t ipmap[EXTIOI_IRQS_IPMAP_SIZE / 4];
+-    uint32_t coremap[EXTIOI_IRQS / 4];
+-    uint32_t sw_pending[EXTIOI_IRQS / 32];
+-    uint8_t  sw_ipmap[EXTIOI_IRQS_IPMAP_SIZE];
+-    uint8_t  sw_coremap[EXTIOI_IRQS];
+-    qemu_irq irq[EXTIOI_IRQS];
+-    ExtIOICore *cpu;
+-    MemoryRegion extioi_system_mem;
+-    MemoryRegion virt_extend;
+-};
+-
+ struct KVMLoongArchExtIOI {
+     SysBusDevice parent_obj;
+     uint32_t num_cpu;
+diff --git a/include/hw/intc/loongarch_extioi_common.h b/include/hw/intc/loongarch_extioi_common.h
+index 2c0065d0e7fa..5ac91f9509b4 100644
+--- a/include/hw/intc/loongarch_extioi_common.h
++++ b/include/hw/intc/loongarch_extioi_common.h
+@@ -56,4 +56,31 @@
+ #define EXTIOI_VIRT_COREMAP_START    (0x40)
+ #define EXTIOI_VIRT_COREMAP_END      (0x240)
+ #define EXTIOI_SW_COREMAP_FLAG       (1 << 0)
++
++typedef struct ExtIOICore {
++    uint32_t coreisr[EXTIOI_IRQS_GROUP_COUNT];
++    DECLARE_BITMAP(sw_isr[LS3A_INTC_IP], EXTIOI_IRQS);
++    qemu_irq parent_irq[LS3A_INTC_IP];
++} ExtIOICore;
++
++struct LoongArchExtIOI {
++    SysBusDevice parent_obj;
++    uint32_t num_cpu;
++    uint32_t features;
++    uint32_t status;
++    /* hardware state */
++    uint32_t nodetype[EXTIOI_IRQS_NODETYPE_COUNT / 2];
++    uint32_t bounce[EXTIOI_IRQS_GROUP_COUNT];
++    uint32_t isr[EXTIOI_IRQS / 32];
++    uint32_t enable[EXTIOI_IRQS / 32];
++    uint32_t ipmap[EXTIOI_IRQS_IPMAP_SIZE / 4];
++    uint32_t coremap[EXTIOI_IRQS / 4];
++    uint32_t sw_pending[EXTIOI_IRQS / 32];
++    uint8_t  sw_ipmap[EXTIOI_IRQS_IPMAP_SIZE];
++    uint8_t  sw_coremap[EXTIOI_IRQS];
++    qemu_irq irq[EXTIOI_IRQS];
++    ExtIOICore *cpu;
++    MemoryRegion extioi_system_mem;
++    MemoryRegion virt_extend;
++};
+ #endif /* LOONGARCH_EXTIOI_H */
+-- 
+2.51.0
+

@@ -1,0 +1,30 @@
+From c4c8e0826c587c2ea75fae634f9e047bfd0576a3 Mon Sep 17 00:00:00 2001
+From: Xianglai Li <lixianglai@loongson.cn>
+Date: Wed, 1 Jul 2026 20:20:45 +0800
+Subject: [PATCH 285/285] Fix IPI interrupt loss issue
+
+Due to incorrect CPU CSR_CPUID settings,
+IPI interrupts sent between CPUs may be lost.
+
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ target/loongarch/cpu.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/target/loongarch/cpu.c b/target/loongarch/cpu.c
+index fb5bf7954301..0d5c15d54861 100644
+--- a/target/loongarch/cpu.c
++++ b/target/loongarch/cpu.c
+@@ -906,7 +906,7 @@ static void loongarch_cpu_reset_hold(Object *obj)
+ 
+     env->CSR_ESTAT = 0;
+     env->CSR_RVACFG = FIELD_DP64(env->CSR_RVACFG, CSR_RVACFG, RBITS, 0);
+-    env->CSR_CPUID = cs->cpu_index;
++    env->CSR_CPUID = cpu->phy_id;
+     env->CSR_TCFG = FIELD_DP64(env->CSR_TCFG, CSR_TCFG, EN, 0);
+     env->CSR_LLBCTL = FIELD_DP64(env->CSR_LLBCTL, CSR_LLBCTL, KLO, 0);
+     env->CSR_TLBRERA = FIELD_DP64(env->CSR_TLBRERA, CSR_TLBRERA, ISTLBR, 0);
+-- 
+2.51.0
+

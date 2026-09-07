@@ -1,0 +1,51 @@
+From ce8f05ee145d9e40ae11188860a28ca482675770 Mon Sep 17 00:00:00 2001
+From: Bibo Mao <maobibo@loongson.cn>
+Date: Wed, 19 Feb 2025 15:07:00 +0800
+Subject: [PATCH 127/285] target/loongarch: Correct maximum physical address in
+ KVM mode
+
+On 3A5000 system, the physical address space width for host is 48,
+however 47 bit for KVM VM. For KVM VM, size of physical address space is
+the same with that of virtual user space address.
+
+Here modify physical address space width with 47 bit in KVM mode.
+
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+Reviewed-by: Bibo Mao <maobibo@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ target/loongarch/cpu.c | 10 ++++++++--
+ 1 file changed, 8 insertions(+), 2 deletions(-)
+
+diff --git a/target/loongarch/cpu.c b/target/loongarch/cpu.c
+index 71b4428017c7..e8e3052d44b2 100644
+--- a/target/loongarch/cpu.c
++++ b/target/loongarch/cpu.c
+@@ -384,7 +384,7 @@ static void loongarch_la464_initfn(Object *obj)
+ {
+     LoongArchCPU *cpu = LOONGARCH_CPU(obj);
+     CPULoongArchState *env = &cpu->env;
+-    uint32_t data = 0;
++    uint32_t data = 0, field;
+     int i;
+ 
+     for (i = 0; i < 21; i++) {
+@@ -397,7 +397,13 @@ static void loongarch_la464_initfn(Object *obj)
+     data = FIELD_DP32(data, CPUCFG1, ARCH, 2);
+     data = FIELD_DP32(data, CPUCFG1, PGMMU, 1);
+     data = FIELD_DP32(data, CPUCFG1, IOCSR, 1);
+-    data = FIELD_DP32(data, CPUCFG1, PALEN, 0x2f);
++    if (kvm_enabled()) {
++        /* GPA address width of VM is 47, field value is 47 - 1 */
++        field = 0x2e;
++    } else {
++        field = 0x2f; /* 48 bit - 1 */
++    }
++    data = FIELD_DP32(data, CPUCFG1, PALEN, field);
+     data = FIELD_DP32(data, CPUCFG1, VALEN, 0x2f);
+     data = FIELD_DP32(data, CPUCFG1, UAL, 1);
+     data = FIELD_DP32(data, CPUCFG1, RI, 1);
+-- 
+2.51.0
+

@@ -1,0 +1,56 @@
+From b910bfb07535b19284535e2f1716c7019a065259 Mon Sep 17 00:00:00 2001
+From: Huacai Chen <chenhuacai@kernel.org>
+Date: Tue, 23 Sep 2025 22:35:42 +0800
+Subject: [PATCH 240/285] tests/data/acpi/loongarch64: Update expected DSDT.*
+
+DSDT diffs from "iasl -d":
+
+^@@ -11,7 +11,7 @@
+  *     Signature        "DSDT"
+  *     Length           0x000011FB (4603)
+  *     Revision         0x01 **** 32-bit table (V1), no 64-bit math support
+- *     Checksum         0x5D
++ *     Checksum         0x5B
+  *     OEM ID           "BOCHS "
+  *     OEM Table ID     "BXPC    "
+  *     OEM Revision     0x00000001 (1)
+^@@ -1426,11 +1426,11 @@
+             Name (_CRS, ResourceTemplate ()  // _CRS: Current Resource Settings
+             {
+                 Memory32Fixed (ReadWrite,
+-                    0x100E001F,         // Address Base
++                    0x100E0020,         // Address Base
+                     0x0000000C,         // Address Length
+                     )
+             })
+-            OperationRegion (PRST, SystemMemory, 0x100E001F, 0x0C)
++            OperationRegion (PRST, SystemMemory, 0x100E0020, 0x0C)
+             Field (PRST, ByteAcc, NoLock, WriteAsZeros)
+             {
+                 Offset (0x04),
+
+Signed-off-by: Huacai Chen <chenhuacai@kernel.org>
+Acked-by: Michael S. Tsirkin <mst@redhat.com>
+Message-ID: <20250923143542.2391576-4-chenhuacai@kernel.org>
+Signed-off-by: Song Gao <gaosong@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ tests/qtest/bios-tables-test-allowed-diff.h | 4 ----
+ 1 file changed, 4 deletions(-)
+
+diff --git a/tests/qtest/bios-tables-test-allowed-diff.h b/tests/qtest/bios-tables-test-allowed-diff.h
+index eff675baf46c..5fb3598c1199 100644
+--- a/tests/qtest/bios-tables-test-allowed-diff.h
++++ b/tests/qtest/bios-tables-test-allowed-diff.h
+@@ -1,7 +1,3 @@
+ /* List of comma-separated changed AML files to ignore */
+-"tests/data/acpi/loongarch64/virt/DSDT",
+-"tests/data/acpi/loongarch64/virt/DSDT.memhp",
+-"tests/data/acpi/loongarch64/virt/DSDT.numamem",
+-"tests/data/acpi/loongarch64/virt/DSDT.topology",
+ "tests/data/acpi/riscv64/virt/SPCR",
+ "tests/data/acpi/q35/DSDT.cxl",
+-- 
+2.51.0
+

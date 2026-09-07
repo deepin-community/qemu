@@ -1,0 +1,109 @@
+From b7d306c5d0d4c9b58d0f86b80fe5b83967f31dac Mon Sep 17 00:00:00 2001
+From: Bibo Mao <maobibo@loongson.cn>
+Date: Wed, 25 Feb 2026 09:41:31 +0800
+Subject: [PATCH 273/285] target/loongarch: Add some CPUCFG bits with host CPU
+ model
+
+Some CPUCFG capability bits depend on KVM host hypervsior and they
+are detected on QEMU. However some CPUCFG bits are irrelative with
+hypervsior, here these bits are checked from host machine and set
+for VM with host CPU model.
+
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+Reviewed-by: Song Gao <gaosong@loongson.cn>
+Signed-off-by: Song Gao <gaosong@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ target/loongarch/cpu.c | 36 +++++++++++++++++++++++++++++++++++-
+ target/loongarch/cpu.h | 13 +++++++++++++
+ 2 files changed, 48 insertions(+), 1 deletion(-)
+
+diff --git a/target/loongarch/cpu.c b/target/loongarch/cpu.c
+index 7ff081825b36..a17d9feb7fbb 100644
+--- a/target/loongarch/cpu.c
++++ b/target/loongarch/cpu.c
+@@ -802,7 +802,7 @@ static uint32_t get_host_cpucfg(int number)
+ 
+ static void loongarch_host_initfn(Object *obj)
+ {
+-    uint32_t data;
++    uint32_t data, cpucfg, field;
+     uint64_t cpuid;
+     LoongArchCPU *cpu = LOONGARCH_CPU(obj);
+ 
+@@ -812,6 +812,40 @@ static void loongarch_host_initfn(Object *obj)
+         cpu->env.cpucfg[0] = data;
+     }
+ 
++   /*
++    * There is no exception in KVM hypervisor when these intructions are
++    * executed if HW support, KVM hypervisor cannot control this.
++    *
++    * Set cpucfg bits which cannot be controlled by KVM hypervisor.
++    */
++    data = get_host_cpucfg(2);
++    cpucfg = cpu->env.cpucfg[2];
++    field = FIELD_EX32(data, CPUCFG2, FRECIPE);
++    cpucfg = FIELD_DP32(cpucfg, CPUCFG2, FRECIPE, field);
++    field = FIELD_EX32(data, CPUCFG2, DIV32);
++    cpucfg = FIELD_DP32(cpucfg, CPUCFG2, DIV32, field);
++    field = FIELD_EX32(data, CPUCFG2, LAM_BH);
++    cpucfg = FIELD_DP32(cpucfg, CPUCFG2, LAM_BH, field);
++    field = FIELD_EX32(data, CPUCFG2, LAMCAS);
++    cpucfg = FIELD_DP32(cpucfg, CPUCFG2, LAMCAS, field);
++    field = FIELD_EX32(data, CPUCFG2, LLACQ_SCREL);
++    cpucfg = FIELD_DP32(cpucfg, CPUCFG2, LLACQ_SCREL, field);
++    field = FIELD_EX32(data, CPUCFG2, SCQ);
++    cpucfg = FIELD_DP32(cpucfg, CPUCFG2, SCQ, field);
++    cpu->env.cpucfg[2] = cpucfg;
++
++    data = get_host_cpucfg(3);
++    cpucfg = cpu->env.cpucfg[3];
++    field = FIELD_EX32(data, CPUCFG3, DBAR_HINTS);
++    cpucfg = FIELD_DP32(cpucfg, CPUCFG3, DBAR_HINTS, field);
++    field = FIELD_EX32(data, CPUCFG3, ALDORDER_STA);
++    cpucfg = FIELD_DP32(cpucfg, CPUCFG3, ALDORDER_STA, field);
++    field = FIELD_EX32(data, CPUCFG3, ASTORDER_STA);
++    cpucfg = FIELD_DP32(cpucfg, CPUCFG3, ASTORDER_STA, field);
++    field = FIELD_EX32(data, CPUCFG3, SLDORDER_STA);
++    cpucfg = FIELD_DP32(cpucfg, CPUCFG3, SLDORDER_STA, field);
++    cpu->env.cpucfg[3] = cpucfg;
++
+     cpuid = get_host_cpu_model();
+     if (cpuid) {
+         cpu->env.cpu_id = cpuid;
+diff --git a/target/loongarch/cpu.h b/target/loongarch/cpu.h
+index 47d50527bef2..85e0df7aa1c2 100644
+--- a/target/loongarch/cpu.h
++++ b/target/loongarch/cpu.h
+@@ -147,6 +147,12 @@ FIELD(CPUCFG2, LBT_ALL, 18, 3)
+ FIELD(CPUCFG2, LSPW, 21, 1)
+ FIELD(CPUCFG2, LAM, 22, 1)
+ FIELD(CPUCFG2, HPTW, 24, 1)
++FIELD(CPUCFG2, FRECIPE, 25, 1)
++FIELD(CPUCFG2, DIV32, 26, 1)
++FIELD(CPUCFG2, LAM_BH, 27, 1)
++FIELD(CPUCFG2, LAMCAS, 28, 1)
++FIELD(CPUCFG2, LLACQ_SCREL, 29, 1)
++FIELD(CPUCFG2, SCQ, 30, 1)
+ 
+ /* cpucfg[3] bits */
+ FIELD(CPUCFG3, CCDMA, 0, 1)
+@@ -161,6 +167,13 @@ FIELD(CPUCFG3, SPW_LVL, 8, 3)
+ FIELD(CPUCFG3, SPW_HP_HF, 11, 1)
+ FIELD(CPUCFG3, RVA, 12, 1)
+ FIELD(CPUCFG3, RVAMAX, 13, 4)
++FIELD(CPUCFG3, DBAR_HINTS, 17, 1)
++FIELD(CPUCFG3, ALDORDER_CAP, 18, 1)
++FIELD(CPUCFG3, ASTORDER_CAP, 19, 1)
++FIELD(CPUCFG3, ALDORDER_STA, 20, 1)
++FIELD(CPUCFG3, ASTORDER_STA, 21, 1)
++FIELD(CPUCFG3, SLDORDER_CAP, 22, 1)
++FIELD(CPUCFG3, SLDORDER_STA, 23, 1)
+ 
+ /* cpucfg[4] bits */
+ FIELD(CPUCFG4, CC_FREQ, 0, 32)
+-- 
+2.51.0
+

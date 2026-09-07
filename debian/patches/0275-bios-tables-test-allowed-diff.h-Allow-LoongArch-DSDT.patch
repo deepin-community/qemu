@@ -1,0 +1,27 @@
+From f88e0dd2872f68306f15004ea452f2ecae7e5e88 Mon Sep 17 00:00:00 2001
+From: Xianglai Li <lixianglai@loongson.cn>
+Date: Thu, 26 Mar 2026 16:45:40 +0800
+Subject: [PATCH 275/285] bios-tables-test-allowed-diff.h: Allow LoongArch
+ DSDT.*
+
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ tests/qtest/bios-tables-test-allowed-diff.h | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/tests/qtest/bios-tables-test-allowed-diff.h b/tests/qtest/bios-tables-test-allowed-diff.h
+index 5fb3598c1199..eff675baf46c 100644
+--- a/tests/qtest/bios-tables-test-allowed-diff.h
++++ b/tests/qtest/bios-tables-test-allowed-diff.h
+@@ -1,3 +1,7 @@
+ /* List of comma-separated changed AML files to ignore */
++"tests/data/acpi/loongarch64/virt/DSDT",
++"tests/data/acpi/loongarch64/virt/DSDT.memhp",
++"tests/data/acpi/loongarch64/virt/DSDT.numamem",
++"tests/data/acpi/loongarch64/virt/DSDT.topology",
+ "tests/data/acpi/riscv64/virt/SPCR",
+ "tests/data/acpi/q35/DSDT.cxl",
+-- 
+2.51.0
+

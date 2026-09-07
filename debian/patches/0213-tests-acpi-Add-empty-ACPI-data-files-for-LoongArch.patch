@@ -1,0 +1,77 @@
+From 20c7a833723dd5a5e522cd00f0814871849f4b26 Mon Sep 17 00:00:00 2001
+From: Bibo Mao <maobibo@loongson.cn>
+Date: Thu, 12 Jun 2025 17:03:17 +0800
+Subject: [PATCH 213/285] tests/acpi: Add empty ACPI data files for LoongArch
+
+Add empty acpi table for LoongArch virt machine, it is only empty
+file and there is no data in these files.
+
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+Message-Id: <20250612090321.3416594-2-maobibo@loongson.cn>
+Reviewed-by: Michael S. Tsirkin <mst@redhat.com>
+Signed-off-by: Michael S. Tsirkin <mst@redhat.com>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ tests/data/acpi/loongarch64/virt/APIC       | 0
+ tests/data/acpi/loongarch64/virt/DSDT       | 0
+ tests/data/acpi/loongarch64/virt/FACP       | 0
+ tests/data/acpi/loongarch64/virt/MCFG       | 0
+ tests/data/acpi/loongarch64/virt/PPTT       | 0
+ tests/data/acpi/loongarch64/virt/SLIT       | 0
+ tests/data/acpi/loongarch64/virt/SPCR       | 0
+ tests/data/acpi/loongarch64/virt/SRAT       | 0
+ tests/qtest/bios-tables-test-allowed-diff.h | 8 ++++++++
+ 9 files changed, 8 insertions(+)
+ create mode 100644 tests/data/acpi/loongarch64/virt/APIC
+ create mode 100644 tests/data/acpi/loongarch64/virt/DSDT
+ create mode 100644 tests/data/acpi/loongarch64/virt/FACP
+ create mode 100644 tests/data/acpi/loongarch64/virt/MCFG
+ create mode 100644 tests/data/acpi/loongarch64/virt/PPTT
+ create mode 100644 tests/data/acpi/loongarch64/virt/SLIT
+ create mode 100644 tests/data/acpi/loongarch64/virt/SPCR
+ create mode 100644 tests/data/acpi/loongarch64/virt/SRAT
+
+diff --git a/tests/data/acpi/loongarch64/virt/APIC b/tests/data/acpi/loongarch64/virt/APIC
+new file mode 100644
+index 000000000000..e69de29bb2d1
+diff --git a/tests/data/acpi/loongarch64/virt/DSDT b/tests/data/acpi/loongarch64/virt/DSDT
+new file mode 100644
+index 000000000000..e69de29bb2d1
+diff --git a/tests/data/acpi/loongarch64/virt/FACP b/tests/data/acpi/loongarch64/virt/FACP
+new file mode 100644
+index 000000000000..e69de29bb2d1
+diff --git a/tests/data/acpi/loongarch64/virt/MCFG b/tests/data/acpi/loongarch64/virt/MCFG
+new file mode 100644
+index 000000000000..e69de29bb2d1
+diff --git a/tests/data/acpi/loongarch64/virt/PPTT b/tests/data/acpi/loongarch64/virt/PPTT
+new file mode 100644
+index 000000000000..e69de29bb2d1
+diff --git a/tests/data/acpi/loongarch64/virt/SLIT b/tests/data/acpi/loongarch64/virt/SLIT
+new file mode 100644
+index 000000000000..e69de29bb2d1
+diff --git a/tests/data/acpi/loongarch64/virt/SPCR b/tests/data/acpi/loongarch64/virt/SPCR
+new file mode 100644
+index 000000000000..e69de29bb2d1
+diff --git a/tests/data/acpi/loongarch64/virt/SRAT b/tests/data/acpi/loongarch64/virt/SRAT
+new file mode 100644
+index 000000000000..e69de29bb2d1
+diff --git a/tests/qtest/bios-tables-test-allowed-diff.h b/tests/qtest/bios-tables-test-allowed-diff.h
+index 5fb3598c1199..0625a8c20b54 100644
+--- a/tests/qtest/bios-tables-test-allowed-diff.h
++++ b/tests/qtest/bios-tables-test-allowed-diff.h
+@@ -1,3 +1,11 @@
+ /* List of comma-separated changed AML files to ignore */
++"tests/data/acpi/loongarch64/virt/APIC",
++"tests/data/acpi/loongarch64/virt/DSDT",
++"tests/data/acpi/loongarch64/virt/FACP",
++"tests/data/acpi/loongarch64/virt/MCFG",
++"tests/data/acpi/loongarch64/virt/PPTT",
++"tests/data/acpi/loongarch64/virt/SLIT",
++"tests/data/acpi/loongarch64/virt/SPCR",
++"tests/data/acpi/loongarch64/virt/SRAT",
+ "tests/data/acpi/riscv64/virt/SPCR",
+ "tests/data/acpi/q35/DSDT.cxl",
+-- 
+2.51.0
+

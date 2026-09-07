@@ -1,0 +1,44 @@
+From dd8fe94ef3313c625a375102bd4adc40e7fe30af Mon Sep 17 00:00:00 2001
+From: Bibo Mao <maobibo@loongson.cn>
+Date: Wed, 5 Feb 2025 11:36:12 +0800
+Subject: [PATCH 123/285] hw/loongarch/virt: Set iocsr address space when CPU
+ is created
+
+There is only one iocsr address space for the whole virt-machine
+board. When CPU is created, the one of percpu points to that of
+the board.
+
+Here set iocsr address space when CPU is created rather than IPI
+creation stage.
+
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+Reviewed-by: Bibo Mao <maobibo@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ hw/loongarch/virt.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/hw/loongarch/virt.c b/hw/loongarch/virt.c
+index f7c7b5bc7ba4..1f256c25f7a4 100644
+--- a/hw/loongarch/virt.c
++++ b/hw/loongarch/virt.c
+@@ -412,7 +412,6 @@ static void virt_irq_init(LoongArchVirtMachineState *lvms)
+         cpudev = DEVICE(cpu_state);
+         lacpu = LOONGARCH_CPU(cpu_state);
+         env = &(lacpu->env);
+-        env->address_space_iocsr = &lvms->as_iocsr;
+         env->ipistate = ipi;
+     }
+ 
+@@ -727,6 +726,7 @@ static void virt_init(MachineState *machine)
+         lacpu = LOONGARCH_CPU(cpuobj);
+ 
+         lacpu->phy_id = machine->possible_cpus->cpus[i].arch_id;
++        lacpu->env.address_space_iocsr = &lvms->as_iocsr;
+         object_property_set_int(cpuobj, "socket-id",
+                                 machine->possible_cpus->cpus[i].props.socket_id,
+                                 NULL);
+-- 
+2.51.0
+

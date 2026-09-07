@@ -1,0 +1,51 @@
+From 6624160545f5fc29b12b7a401a3143283d7bc73d Mon Sep 17 00:00:00 2001
+From: Richard Henderson <richard.henderson@linaro.org>
+Date: Wed, 14 Feb 2024 20:56:52 -1000
+Subject: [PATCH 039/285] util/bufferiszero: Introduce biz_accel_fn typedef
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Reviewed-by: Philippe Mathieu-Daudé <philmd@linaro.org>
+Signed-off-by: Richard Henderson <richard.henderson@linaro.org>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ util/bufferiszero.c | 7 ++++---
+ 1 file changed, 4 insertions(+), 3 deletions(-)
+
+diff --git a/util/bufferiszero.c b/util/bufferiszero.c
+index c9a7ded01661..f9af7841bade 100644
+--- a/util/bufferiszero.c
++++ b/util/bufferiszero.c
+@@ -26,7 +26,8 @@
+ #include "qemu/bswap.h"
+ #include "host/cpuinfo.h"
+ 
+-static bool (*buffer_is_zero_accel)(const void *, size_t);
++typedef bool (*biz_accel_fn)(const void *, size_t);
++static biz_accel_fn buffer_is_zero_accel;
+ 
+ static bool buffer_is_zero_int_lt256(const void *buf, size_t len)
+ {
+@@ -184,7 +185,7 @@ select_accel_cpuinfo(unsigned info)
+     /* Array is sorted in order of algorithm preference. */
+     static const struct {
+         unsigned bit;
+-        bool (*fn)(const void *, size_t);
++        biz_accel_fn fn;
+     } all[] = {
+ #ifdef CONFIG_AVX2_OPT
+         { CPUINFO_AVX2,    buffer_zero_avx2 },
+@@ -231,7 +232,7 @@ bool test_buffer_is_zero_next_accel(void)
+ #define INIT_ACCEL buffer_is_zero_int_ge256
+ #endif
+ 
+-static bool (*buffer_is_zero_accel)(const void *, size_t) = INIT_ACCEL;
++static biz_accel_fn buffer_is_zero_accel = INIT_ACCEL;
+ 
+ bool buffer_is_zero_ool(const void *buf, size_t len)
+ {
+-- 
+2.51.0
+
