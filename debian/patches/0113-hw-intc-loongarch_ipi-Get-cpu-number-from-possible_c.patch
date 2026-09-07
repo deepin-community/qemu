@@ -1,0 +1,99 @@
+From 2b6a3dccfca51b6e47b49d7920b5be05534df759 Mon Sep 17 00:00:00 2001
+From: Bibo Mao <maobibo@loongson.cn>
+Date: Tue, 7 Jan 2025 11:08:16 +0800
+Subject: [PATCH 113/285] hw/intc/loongarch_ipi: Get cpu number from
+ possible_cpu_arch_ids
+
+Supported CPU number can be acquired from function
+possible_cpu_arch_ids(), cpu-num property is not necessary and can
+be removed.
+
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+Reviewed-by: Bibo Mao <maobibo@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ hw/intc/loongarch_ipi.c               | 19 ++++++++-----------
+ hw/loongarch/virt.c                   |  1 -
+ include/hw/intc/loongson_ipi_common.h |  2 ++
+ 3 files changed, 10 insertions(+), 12 deletions(-)
+
+diff --git a/hw/intc/loongarch_ipi.c b/hw/intc/loongarch_ipi.c
+index c06e132fbd4e..41d9625dcbb2 100644
+--- a/hw/intc/loongarch_ipi.c
++++ b/hw/intc/loongarch_ipi.c
+@@ -55,6 +55,9 @@ static void loongarch_ipi_realize(DeviceState *dev, Error **errp)
+ {
+     LoongsonIPICommonState *lics = LOONGSON_IPI_COMMON(dev);
+     LoongarchIPIClass *lic = LOONGARCH_IPI_GET_CLASS(dev);
++    MachineState *machine = MACHINE(qdev_get_machine());
++    MachineClass *mc = MACHINE_GET_CLASS(machine);
++    const CPUArchIdList *id_list;
+     Error *local_err = NULL;
+     int i;
+ 
+@@ -64,23 +67,18 @@ static void loongarch_ipi_realize(DeviceState *dev, Error **errp)
+         return;
+     }
+ 
+-    if (lics->num_cpu == 0) {
+-        error_setg(errp, "num-cpu must be at least 1");
+-        return;
+-    }
+-
++    assert(mc->possible_cpu_arch_ids);
++    id_list = mc->possible_cpu_arch_ids(machine);
++    lics->num_cpu = id_list->len;
+     lics->cpu = g_new0(IPICore, lics->num_cpu);
+     for (i = 0; i < lics->num_cpu; i++) {
++        lics->cpu[i].arch_id = id_list->cpus[i].arch_id;
++        lics->cpu[i].cpu = CPU(id_list->cpus[i].cpu);
+         lics->cpu[i].ipi = lics;
+         qdev_init_gpio_out(dev, &lics->cpu[i].irq, 1);
+     }
+ }
+ 
+-static Property loongson_ipi_properties[] = {
+-    DEFINE_PROP_UINT32("num-cpu", LoongsonIPICommonState, num_cpu, 1),
+-    DEFINE_PROP_END_OF_LIST(),
+-};
+-
+ static void loongarch_ipi_class_init(ObjectClass *klass, void *data)
+ {
+     LoongsonIPICommonClass *licc = LOONGSON_IPI_COMMON_CLASS(klass);
+@@ -89,7 +87,6 @@ static void loongarch_ipi_class_init(ObjectClass *klass, void *data)
+ 
+     device_class_set_parent_realize(dc, loongarch_ipi_realize,
+                                     &lic->parent_realize);
+-    device_class_set_props(dc, loongarch_ipi_properties);
+     licc->get_iocsr_as = get_iocsr_as;
+     licc->cpu_by_arch_id = loongarch_cpu_by_arch_id;
+ }
+diff --git a/hw/loongarch/virt.c b/hw/loongarch/virt.c
+index 21fb239acacc..0028df09c7aa 100644
+--- a/hw/loongarch/virt.c
++++ b/hw/loongarch/virt.c
+@@ -919,7 +919,6 @@ static void virt_irq_init(LoongArchVirtMachineState *lvms)
+         sysbus_realize_and_unref(SYS_BUS_DEVICE(ipi), &error_fatal);
+     } else {
+         ipi = qdev_new(TYPE_LOONGARCH_IPI);
+-        qdev_prop_set_uint32(ipi, "num-cpu", ms->smp.max_cpus);
+         sysbus_realize_and_unref(SYS_BUS_DEVICE(ipi), &error_fatal);
+ 
+         /* IPI iocsr memory region */
+diff --git a/include/hw/intc/loongson_ipi_common.h b/include/hw/intc/loongson_ipi_common.h
+index df9d9c5168cf..4192f3d548ee 100644
+--- a/include/hw/intc/loongson_ipi_common.h
++++ b/include/hw/intc/loongson_ipi_common.h
+@@ -27,6 +27,8 @@ typedef struct IPICore {
+     /* 64bit buf divide into 2 32-bit buf */
+     uint32_t buf[IPI_MBX_NUM * 2];
+     qemu_irq irq;
++    uint64_t arch_id;
++    CPUState *cpu;
+ } IPICore;
+ 
+ struct LoongsonIPICommonState {
+-- 
+2.51.0
+

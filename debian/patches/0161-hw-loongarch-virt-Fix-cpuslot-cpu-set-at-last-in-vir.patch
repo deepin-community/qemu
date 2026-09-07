@@ -1,0 +1,47 @@
+From 76cfc6a41d36e04b39def2b8836817d18174eec6 Mon Sep 17 00:00:00 2001
+From: Bibo Mao <maobibo@loongson.cn>
+Date: Mon, 24 Mar 2025 11:01:44 +0800
+Subject: [PATCH 161/285] hw/loongarch/virt: Fix cpuslot::cpu set at last in
+ virt_cpu_plug()
+
+In function virt_cpu_plug(), Object cpuslot::cpu is set at last
+only when there is no any error, otherwise it is problematic that
+cpuslot::cpu is set in advance however it returns because of error.
+
+Fixes: ab9935d2991e (hw/loongarch/virt: Implement cpu plug interface)
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+Reviewed-by: Markus Armbruster <armbru@redhat.com>
+Message-Id: <20250324030145.3037408-2-maobibo@loongson.cn>
+Signed-off-by: Song Gao <gaosong@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ hw/loongarch/virt.c | 5 +++--
+ 1 file changed, 3 insertions(+), 2 deletions(-)
+
+diff --git a/hw/loongarch/virt.c b/hw/loongarch/virt.c
+index cfccb60bc13b..08e21bf10c6e 100644
+--- a/hw/loongarch/virt.c
++++ b/hw/loongarch/virt.c
+@@ -997,8 +997,6 @@ static void virt_cpu_plug(HotplugHandler *hotplug_dev,
+     LoongArchVirtMachineState *lvms = LOONGARCH_VIRT_MACHINE(hotplug_dev);
+     Error *err = NULL;
+ 
+-    cpu_slot = virt_find_cpu_slot(MACHINE(lvms), cpu->phy_id);
+-    cpu_slot->cpu = CPU(dev);
+     if (lvms->ipi) {
+         hotplug_handler_plug(HOTPLUG_HANDLER(lvms->ipi), dev, &err);
+         if (err) {
+@@ -1021,6 +1019,9 @@ static void virt_cpu_plug(HotplugHandler *hotplug_dev,
+             error_propagate(errp, err);
+         }
+     }
++
++    cpu_slot = virt_find_cpu_slot(MACHINE(lvms), cpu->phy_id);
++    cpu_slot->cpu = OBJECT(dev);
+ }
+ 
+ static bool memhp_type_supported(DeviceState *dev)
+-- 
+2.51.0
+

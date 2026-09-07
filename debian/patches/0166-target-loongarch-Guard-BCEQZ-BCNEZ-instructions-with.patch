@@ -1,0 +1,41 @@
+From 8a5a40f127e1a189689f7eecc3fd9af7b7f8f272 Mon Sep 17 00:00:00 2001
+From: WANG Rui <wangrui@loongson.cn>
+Date: Fri, 18 Apr 2025 16:21:02 +0800
+Subject: [PATCH 166/285] target/loongarch: Guard BCEQZ/BCNEZ instructions with
+ FP feature
+
+The BCEQZ and BCNEZ instructions depend on access to condition codes
+from floating-point comparisons. Previously, these instructions were
+unconditionally enabled for 64-bit targets.
+
+This patch updates their translation to be gated under the `FP` feature
+flag instead, ensuring they are only available when the floating-point
+unit is present.
+
+This improves correctness for CPUs lacking floating-point support.
+
+Signed-off-by: WANG Rui <wangrui@loongson.cn>
+Reviewed-by: Bibo Mao <maobibo@loongson.cn>
+Message-Id: <20250418082103.447780-3-wangrui@loongson.cn>
+Signed-off-by: Song Gao <gaosong@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ target/loongarch/tcg/insn_trans/trans_branch.c.inc | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/target/loongarch/tcg/insn_trans/trans_branch.c.inc b/target/loongarch/tcg/insn_trans/trans_branch.c.inc
+index 221e5159dba0..f94c1f37ab1a 100644
+--- a/target/loongarch/tcg/insn_trans/trans_branch.c.inc
++++ b/target/loongarch/tcg/insn_trans/trans_branch.c.inc
+@@ -80,5 +80,5 @@ TRANS(bltu, ALL, gen_rr_bc, TCG_COND_LTU)
+ TRANS(bgeu, ALL, gen_rr_bc, TCG_COND_GEU)
+ TRANS(beqz, ALL, gen_rz_bc, TCG_COND_EQ)
+ TRANS(bnez, ALL, gen_rz_bc, TCG_COND_NE)
+-TRANS(bceqz, 64, gen_cz_bc, TCG_COND_EQ)
+-TRANS(bcnez, 64, gen_cz_bc, TCG_COND_NE)
++TRANS(bceqz, FP, gen_cz_bc, TCG_COND_EQ)
++TRANS(bcnez, FP, gen_cz_bc, TCG_COND_NE)
+-- 
+2.51.0
+

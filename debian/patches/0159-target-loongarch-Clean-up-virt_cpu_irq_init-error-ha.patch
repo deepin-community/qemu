@@ -1,0 +1,61 @@
+From 28ba8037cecb07d25d4f8227aa0373663c71e9a9 Mon Sep 17 00:00:00 2001
+From: Bibo Mao <maobibo@loongson.cn>
+Date: Thu, 20 Mar 2025 11:21:58 +0800
+Subject: [PATCH 159/285] target/loongarch: Clean up virt_cpu_irq_init() error
+ handling
+
+The Error ** argument must be NULL, &error_abort, &error_fatal, or a
+pointer to a variable containing NULL. Passing an argument of the
+latter kind twice without clearing it in between is wrong: if the
+first call sets an error, it no longer points to NULL for the second
+call.
+
+virt_cpu_irq_init() is wrong that way: it passes &err to
+hotplug_handler_plug() twice.  If both calls failed, this could trip
+error_setv()'s assertion.  Moreover, if just one fails, the Error
+object leaks. Fortunately, these calls can't actually fail.
+
+Messed up in commit 50ebc3fc47f7 (hw/intc/loongarch_ipi: Notify ipi
+object when cpu is plugged) and commit 087a23a87c57
+(hw/intc/loongarch_extioi: Use cpu plug notification).
+
+Clean this up by passing &error_abort instead.
+
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+Acked-by: Markus Armbruster <armbru@redhat.com>
+Message-ID: <20250320032158.1762751-7-maobibo@loongson.cn>
+Signed-off-by: Markus Armbruster <armbru@redhat.com>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ hw/loongarch/virt.c | 7 ++++---
+ 1 file changed, 4 insertions(+), 3 deletions(-)
+
+diff --git a/hw/loongarch/virt.c b/hw/loongarch/virt.c
+index 9d1034678e5b..cfccb60bc13b 100644
+--- a/hw/loongarch/virt.c
++++ b/hw/loongarch/virt.c
+@@ -328,7 +328,6 @@ static void virt_cpu_irq_init(LoongArchVirtMachineState *lvms)
+     MachineClass *mc = MACHINE_GET_CLASS(ms);
+     const CPUArchIdList *possible_cpus;
+     CPUState *cs;
+-    Error *err = NULL;
+ 
+     /* cpu nodes */
+     possible_cpus = mc->possible_cpu_arch_ids(ms);
+@@ -338,8 +337,10 @@ static void virt_cpu_irq_init(LoongArchVirtMachineState *lvms)
+             continue;
+         }
+ 
+-        hotplug_handler_plug(HOTPLUG_HANDLER(lvms->ipi), DEVICE(cs), &err);
+-        hotplug_handler_plug(HOTPLUG_HANDLER(lvms->extioi), DEVICE(cs), &err);
++        hotplug_handler_plug(HOTPLUG_HANDLER(lvms->ipi), DEVICE(cs),
++                             &error_abort);
++        hotplug_handler_plug(HOTPLUG_HANDLER(lvms->extioi), DEVICE(cs),
++                             &error_abort);
+     }
+ }
+ 
+-- 
+2.51.0
+

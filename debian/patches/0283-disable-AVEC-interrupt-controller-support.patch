@@ -1,0 +1,43 @@
+From bb7704de1fa8d4be6e2e1a28d40a32c584b2a37a Mon Sep 17 00:00:00 2001
+From: Xianglai Li <lixianglai@loongson.cn>
+Date: Tue, 26 May 2026 19:18:08 +0800
+Subject: [PATCH 283/285] disable AVEC interrupt controller support
+
+disable AVEC interrupt controller support
+
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ hw/loongarch/virt.c    | 2 +-
+ target/loongarch/cpu.c | 2 +-
+ 2 files changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/hw/loongarch/virt.c b/hw/loongarch/virt.c
+index 11bf1366be8e..b299633ca8d7 100644
+--- a/hw/loongarch/virt.c
++++ b/hw/loongarch/virt.c
+@@ -1090,7 +1090,7 @@ static void virt_initfn(Object *obj)
+         lvms->veiointc = ON_OFF_AUTO_OFF;
+     }
+ 
+-    lvms->dmsi = ON_OFF_AUTO_AUTO;
++    lvms->dmsi = ON_OFF_AUTO_OFF;
+     lvms->acpi = ON_OFF_AUTO_AUTO;
+     lvms->oem_id = g_strndup(ACPI_BUILD_APPNAME6, 6);
+     lvms->oem_table_id = g_strndup(ACPI_BUILD_APPNAME8, 8);
+diff --git a/target/loongarch/cpu.c b/target/loongarch/cpu.c
+index 1c1f54bb3131..fb5bf7954301 100644
+--- a/target/loongarch/cpu.c
++++ b/target/loongarch/cpu.c
+@@ -714,7 +714,7 @@ static void loongarch_max_initfn(Object *obj)
+     if (tcg_enabled()) {
+     	cpu->ptw = ON_OFF_AUTO_OFF;
+         cpu->env.cpucfg[1] = FIELD_DP32(cpu->env.cpucfg[1], CPUCFG1, MSG_INT, 1);
+-        cpu->msgint = ON_OFF_AUTO_AUTO;
++        cpu->msgint = ON_OFF_AUTO_OFF;
+ 
+         uint32_t data = cpu->env.cpucfg[2];
+         data = FIELD_DP32(data, CPUCFG2, HPTW, 0);
+-- 
+2.51.0
+

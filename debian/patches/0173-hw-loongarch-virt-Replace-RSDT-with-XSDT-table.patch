@@ -1,0 +1,58 @@
+From 71b48a59672d2bb21753381bd0944dfa4e156625 Mon Sep 17 00:00:00 2001
+From: Bibo Mao <maobibo@loongson.cn>
+Date: Fri, 28 Feb 2025 09:44:12 +0800
+Subject: [PATCH 173/285] hw/loongarch/virt: Replace RSDT with XSDT table
+
+XSDT table is introduced in ACPI Specification 5.0, it supports 64-bit
+address in the table. There is LoongArch system support from ACPI
+Specification 6.4 and later, XSDT is supported by LoongArch system.
+
+Here replace RSDT with XSDT table.
+
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+Reviewed-by: Song Gao <gaosong@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ hw/loongarch/virt-acpi-build.c | 12 ++++++------
+ 1 file changed, 6 insertions(+), 6 deletions(-)
+
+diff --git a/hw/loongarch/virt-acpi-build.c b/hw/loongarch/virt-acpi-build.c
+index b3561ceaecd9..ccdbcc94bb3b 100644
+--- a/hw/loongarch/virt-acpi-build.c
++++ b/hw/loongarch/virt-acpi-build.c
+@@ -515,7 +515,7 @@ static void acpi_build(AcpiBuildTables *tables, MachineState *machine)
+     LoongArchVirtMachineState *lvms = LOONGARCH_VIRT_MACHINE(machine);
+     GArray *table_offsets;
+     AcpiFadtData fadt_data;
+-    unsigned facs, rsdt, dsdt;
++    unsigned facs, xsdt, dsdt;
+     uint8_t *u;
+     GArray *tables_blob = tables->table_data;
+ 
+@@ -601,17 +601,17 @@ static void acpi_build(AcpiBuildTables *tables, MachineState *machine)
+     }
+ 
+     /* RSDT is pointed to by RSDP */
+-    rsdt = tables_blob->len;
+-    build_rsdt(tables_blob, tables->linker, table_offsets,
++    xsdt = tables_blob->len;
++    build_xsdt(tables_blob, tables->linker, table_offsets,
+                lvms->oem_id, lvms->oem_table_id);
+ 
+     /* RSDP is in FSEG memory, so allocate it separately */
+     {
+         AcpiRsdpData rsdp_data = {
+-            .revision = 0,
++            .revision = 2,
+             .oem_id = lvms->oem_id,
+-            .xsdt_tbl_offset = NULL,
+-            .rsdt_tbl_offset = &rsdt,
++            .xsdt_tbl_offset = &xsdt,
++            .rsdt_tbl_offset = NULL,
+         };
+         build_rsdp(tables->rsdp, tables->linker, &rsdp_data);
+     }
+-- 
+2.51.0
+

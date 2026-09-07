@@ -1,0 +1,42 @@
+From 41eaf899f963ac6f94cc957a365752862a1a12d7 Mon Sep 17 00:00:00 2001
+From: Bibo Mao <maobibo@loongson.cn>
+Date: Sat, 8 Feb 2025 15:06:53 +0800
+Subject: [PATCH 120/285] hw/loongarch/virt: Rename filename acpi-build with
+ virt-acpi-build
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+File acpi-build.c is relative with virt machine type, rename it with
+virt-acpi-build.c
+
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+Reviewed-by: Philippe Mathieu-Daudé <philmd@linaro.org>
+Tested-by: Philippe Mathieu-Daudé <philmd@linaro.org>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ hw/loongarch/meson.build                         | 2 +-
+ hw/loongarch/{acpi-build.c => virt-acpi-build.c} | 0
+ 2 files changed, 1 insertion(+), 1 deletion(-)
+ rename hw/loongarch/{acpi-build.c => virt-acpi-build.c} (100%)
+
+diff --git a/hw/loongarch/meson.build b/hw/loongarch/meson.build
+index 6262d13b4b0c..f1837ba62820 100644
+--- a/hw/loongarch/meson.build
++++ b/hw/loongarch/meson.build
+@@ -4,6 +4,6 @@ loongarch_ss.add(files(
+ ))
+ common_ss.add(when: 'CONFIG_LOONGARCH_VIRT', if_true: files('fw_cfg.c'))
+ loongarch_ss.add(when: 'CONFIG_LOONGARCH_VIRT', if_true: [files('virt.c'), fdt])
+-loongarch_ss.add(when: 'CONFIG_ACPI', if_true: files('acpi-build.c'))
++loongarch_ss.add(when: 'CONFIG_ACPI', if_true: files('virt-acpi-build.c'))
+ 
+ hw_arch += {'loongarch': loongarch_ss}
+diff --git a/hw/loongarch/acpi-build.c b/hw/loongarch/virt-acpi-build.c
+similarity index 100%
+rename from hw/loongarch/acpi-build.c
+rename to hw/loongarch/virt-acpi-build.c
+-- 
+2.51.0
+

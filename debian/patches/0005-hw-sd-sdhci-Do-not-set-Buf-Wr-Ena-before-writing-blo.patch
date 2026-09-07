@@ -1,0 +1,66 @@
+From 477805bf87ebb46f255bf83460600d9814b3b9f1 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Philippe=20Mathieu-Daud=C3=A9?= <philmd@linaro.org>
+Date: Mon, 7 Nov 2022 23:12:35 +0100
+Subject: [PATCH 005/285] hw/sd/sdhci: Do not set Buf Wr Ena before writing
+ block (CVE-2022-3872)
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+When sdhci_write_block_to_card() is called to transfer data from
+the FIFO to the SD bus, the data is already present in the buffer
+and we have to consume it directly.
+
+See the description of the 'Buffer Write Enable' bit from the
+'Present State' register (prnsts::SDHC_SPACE_AVAILABLE) in Table
+2.14 from the SDHCI spec v2:
+
+  Buffer Write Enable
+
+  This status is used for non-DMA write transfers.
+
+  The Host Controller can implement multiple buffers to transfer
+  data efficiently. This read only flag indicates if space is
+  available for write data. If this bit is 1, data can be written
+  to the buffer. A change of this bit from 1 to 0 occurs when all
+  the block data is written to the buffer. A change of this bit
+  from 0 to 1 occurs when top of block data can be written to the
+  buffer and generates the Buffer Write Ready interrupt.
+
+In our case, we do not want to overwrite the buffer, so we want
+this bit to be 0, then set it to 1 once the data is written onto
+the bus.
+
+This is probably a copy/paste error from commit d7dfca0807
+("hw/sdhci: introduce standard SD host controller").
+
+Reproducer:
+https://lore.kernel.org/qemu-devel/CAA8xKjXrmS0fkr28AKvNNpyAtM0y0B+5FichpsrhD+mUgnuyKg@mail.gmail.com/
+
+Fixes: CVE-2022-3872
+Reported-by: RivenDell <XRivenDell@outlook.com>
+Reported-by: Siqi Chen <coc.cyqh@gmail.com>
+Reported-by: ningqiang <ningqiang1@huawei.com>
+Signed-off-by: Philippe Mathieu-Daudé <philmd@linaro.org>
+Tested-by: Mauro Matteo Cascella <mcascell@redhat.com>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ hw/sd/sdhci.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/hw/sd/sdhci.c b/hw/sd/sdhci.c
+index 40473b0db099..9d4eec33c2bb 100644
+--- a/hw/sd/sdhci.c
++++ b/hw/sd/sdhci.c
+@@ -956,7 +956,7 @@ static void sdhci_data_transfer(void *opaque)
+             sdhci_read_block_from_card(s);
+         } else {
+             s->prnsts |= SDHC_DOING_WRITE | SDHC_DAT_LINE_ACTIVE |
+-                    SDHC_SPACE_AVAILABLE | SDHC_DATA_INHIBIT;
++                                           SDHC_DATA_INHIBIT;
+             sdhci_write_block_to_card(s);
+         }
+     }
+-- 
+2.51.0
+

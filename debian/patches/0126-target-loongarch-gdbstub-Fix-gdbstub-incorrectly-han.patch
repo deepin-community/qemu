@@ -1,0 +1,58 @@
+From b78163820eea236d39edd868df1817422bc73bbb Mon Sep 17 00:00:00 2001
+From: Bibo Mao <maobibo@loongson.cn>
+Date: Tue, 18 Feb 2025 11:20:27 +0800
+Subject: [PATCH 126/285] target/loongarch/gdbstub: Fix gdbstub incorrectly
+ handling some registers
+
+Write operation with R32 (orig_a0) and R34 (CSR_BADV) is discarded on
+gdbstub implementation for LoongArch system. And return value should
+be register size rather than 0, since it is used to calculate offset of
+next register such as R33 (PC) in function handle_write_all_regs().
+
+Cc: qemu-stable@nongnu.org
+Fixes: ca61e75071c6 ("target/loongarch: Add gdb support.")
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+Reviewed-by: Bibo Mao <maobibo@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ target/loongarch/gdbstub.c | 11 ++++++-----
+ 1 file changed, 6 insertions(+), 5 deletions(-)
+
+diff --git a/target/loongarch/gdbstub.c b/target/loongarch/gdbstub.c
+index c41ca00ebcf8..e3b9599f9880 100644
+--- a/target/loongarch/gdbstub.c
++++ b/target/loongarch/gdbstub.c
+@@ -63,23 +63,24 @@ int loongarch_cpu_gdb_write_register(CPUState *cs, uint8_t *mem_buf, int n)
+ {
+     CPULoongArchState *env = cpu_env(cs);
+     target_ulong tmp;
+-    int read_length;
+     int length = 0;
+ 
++    if (n < 0 || n > 34) {
++        return 0;
++    }
++
+     if (is_la64(env)) {
+         tmp = ldq_le_p(mem_buf);
+-        read_length = 8;
++        length = 8;
+     } else {
+         tmp = ldl_le_p(mem_buf);
+-        read_length = 4;
++        length = 4;
+     }
+ 
+     if (0 <= n && n < 32) {
+         env->gpr[n] = tmp;
+-        length = read_length;
+     } else if (n == 33) {
+         set_pc(env, tmp);
+-        length = read_length;
+     }
+     return length;
+ }
+-- 
+2.51.0
+

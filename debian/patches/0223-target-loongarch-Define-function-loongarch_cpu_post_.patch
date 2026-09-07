@@ -1,0 +1,261 @@
+From 463b763e1e9919f0c1f27392db540dc06ece6a29 Mon Sep 17 00:00:00 2001
+From: Bibo Mao <maobibo@loongson.cn>
+Date: Tue, 8 Jul 2025 15:35:12 +0800
+Subject: [PATCH 223/285] target/loongarch: Define function
+ loongarch_cpu_post_init as static
+
+Function loongarch_cpu_post_init() is implemented and used in the
+same file target/loongarch/cpu.c, it can be defined as static function.
+
+This patch moves implementation about function loongarch_cpu_post_init()
+before it is referenced. And it is only code movement, no function
+change.
+
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+Reviewed-by: Richard Henderson <richard.henderson@linaro.org>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ target/loongarch/cpu.c | 207 +++++++++++++++++++++++------------------
+ target/loongarch/cpu.h |   2 -
+ 2 files changed, 117 insertions(+), 92 deletions(-)
+
+diff --git a/target/loongarch/cpu.c b/target/loongarch/cpu.c
+index 71bed779d377..6554fa63035c 100644
+--- a/target/loongarch/cpu.c
++++ b/target/loongarch/cpu.c
+@@ -375,6 +375,123 @@ static bool loongarch_cpu_has_work(CPUState *cs)
+ #endif
+ }
+ 
++static void loongarch_la464_init_csr(Object *obj)
++{
++#ifndef CONFIG_USER_ONLY
++    static bool initialized;
++    LoongArchCPU *cpu = LOONGARCH_CPU(obj);
++    CPULoongArchState *env = &cpu->env;
++    int i, num;
++
++    if (!initialized) {
++        initialized = true;
++        num = FIELD_EX64(env->CSR_PRCFG1, CSR_PRCFG1, SAVE_NUM);
++        for (i = num; i < 16; i++) {
++            set_csr_flag(LOONGARCH_CSR_SAVE(i), CSRFL_UNUSED);
++        }
++        set_csr_flag(LOONGARCH_CSR_IMPCTL1, CSRFL_UNUSED);
++        set_csr_flag(LOONGARCH_CSR_IMPCTL2, CSRFL_UNUSED);
++        set_csr_flag(LOONGARCH_CSR_MERRCTL, CSRFL_UNUSED);
++        set_csr_flag(LOONGARCH_CSR_MERRINFO1, CSRFL_UNUSED);
++        set_csr_flag(LOONGARCH_CSR_MERRINFO2, CSRFL_UNUSED);
++        set_csr_flag(LOONGARCH_CSR_MERRENTRY, CSRFL_UNUSED);
++        set_csr_flag(LOONGARCH_CSR_MERRERA, CSRFL_UNUSED);
++        set_csr_flag(LOONGARCH_CSR_MERRSAVE, CSRFL_UNUSED);
++        set_csr_flag(LOONGARCH_CSR_CTAG, CSRFL_UNUSED);
++    }
++#endif
++}
++
++static bool loongarch_get_lsx(Object *obj, Error **errp)
++{
++    return LOONGARCH_CPU(obj)->lsx != ON_OFF_AUTO_OFF;
++}
++
++static void loongarch_set_lsx(Object *obj, bool value, Error **errp)
++{
++    LoongArchCPU *cpu = LOONGARCH_CPU(obj);
++    uint32_t val;
++
++    cpu->lsx = value ? ON_OFF_AUTO_ON : ON_OFF_AUTO_OFF;
++    if (cpu->lsx == ON_OFF_AUTO_OFF) {
++        cpu->lasx = ON_OFF_AUTO_OFF;
++        if (cpu->lasx == ON_OFF_AUTO_ON) {
++            error_setg(errp, "Failed to disable LSX since LASX is enabled");
++            return;
++        }
++    }
++
++    if (kvm_enabled()) {
++        /* kvm feature detection in function kvm_arch_init_vcpu */
++        return;
++    }
++
++    /* LSX feature detection in TCG mode */
++    val = cpu->env.cpucfg[2];
++    if (cpu->lsx == ON_OFF_AUTO_ON) {
++        if (FIELD_EX32(val, CPUCFG2, LSX) == 0) {
++            error_setg(errp, "Failed to enable LSX in TCG mode");
++            return;
++        }
++    } else {
++        cpu->env.cpucfg[2] = FIELD_DP32(val, CPUCFG2, LASX, 0);
++        val = cpu->env.cpucfg[2];
++    }
++
++    cpu->env.cpucfg[2] = FIELD_DP32(val, CPUCFG2, LSX, value);
++}
++
++static bool loongarch_get_lasx(Object *obj, Error **errp)
++{
++    return LOONGARCH_CPU(obj)->lasx != ON_OFF_AUTO_OFF;
++}
++
++static void loongarch_set_lasx(Object *obj, bool value, Error **errp)
++{
++    LoongArchCPU *cpu = LOONGARCH_CPU(obj);
++    uint32_t val;
++
++    cpu->lasx = value ? ON_OFF_AUTO_ON : ON_OFF_AUTO_OFF;
++    if ((cpu->lsx == ON_OFF_AUTO_OFF) && (cpu->lasx == ON_OFF_AUTO_ON)) {
++        error_setg(errp, "Failed to enable LASX since lSX is disabled");
++        return;
++    }
++
++    if (kvm_enabled()) {
++        /* kvm feature detection in function kvm_arch_init_vcpu */
++        return;
++    }
++
++    /* LASX feature detection in TCG mode */
++    val = cpu->env.cpucfg[2];
++    if (cpu->lasx == ON_OFF_AUTO_ON) {
++        if (FIELD_EX32(val, CPUCFG2, LASX) == 0) {
++            error_setg(errp, "Failed to enable LASX in TCG mode");
++            return;
++        }
++    }
++
++    cpu->env.cpucfg[2] = FIELD_DP32(val, CPUCFG2, LASX, value);
++}
++
++static void loongarch_cpu_post_init(Object *obj)
++{
++    LoongArchCPU *cpu = LOONGARCH_CPU(obj);
++
++    cpu->lbt = ON_OFF_AUTO_OFF;
++    cpu->pmu = ON_OFF_AUTO_OFF;
++    cpu->lsx = ON_OFF_AUTO_AUTO;
++    cpu->lasx = ON_OFF_AUTO_AUTO;
++    object_property_add_bool(obj, "lsx", loongarch_get_lsx,
++                             loongarch_set_lsx);
++    object_property_add_bool(obj, "lasx", loongarch_get_lasx,
++                             loongarch_set_lasx);
++    /* lbt is enabled only in kvm mode, not supported in tcg mode */
++    if (kvm_enabled()) {
++        kvm_loongarch_cpu_post_init(cpu);
++    }
++}
++
+ static void loongarch_la464_initfn(Object *obj)
+ {
+     LoongArchCPU *cpu = LOONGARCH_CPU(obj);
+@@ -651,96 +768,6 @@ static void loongarch_cpu_unrealizefn(DeviceState *dev)
+     lacc->parent_unrealize(dev);
+ }
+ 
+-static bool loongarch_get_lsx(Object *obj, Error **errp)
+-{
+-    return LOONGARCH_CPU(obj)->lsx != ON_OFF_AUTO_OFF;
+-}
+-
+-static void loongarch_set_lsx(Object *obj, bool value, Error **errp)
+-{
+-    LoongArchCPU *cpu = LOONGARCH_CPU(obj);
+-    uint32_t val;
+-
+-    cpu->lsx = value ? ON_OFF_AUTO_ON : ON_OFF_AUTO_OFF;
+-    if (cpu->lsx == ON_OFF_AUTO_OFF) {
+-        cpu->lasx = ON_OFF_AUTO_OFF;
+-        if (cpu->lasx == ON_OFF_AUTO_ON) {
+-            error_setg(errp, "Failed to disable LSX since LASX is enabled");
+-            return;
+-        }
+-    }
+-
+-    if (kvm_enabled()) {
+-        /* kvm feature detection in function kvm_arch_init_vcpu */
+-        return;
+-    }
+-
+-    /* LSX feature detection in TCG mode */
+-    val = cpu->env.cpucfg[2];
+-    if (cpu->lsx == ON_OFF_AUTO_ON) {
+-        if (FIELD_EX32(val, CPUCFG2, LSX) == 0) {
+-            error_setg(errp, "Failed to enable LSX in TCG mode");
+-            return;
+-        }
+-    } else {
+-        cpu->env.cpucfg[2] = FIELD_DP32(val, CPUCFG2, LASX, 0);
+-        val = cpu->env.cpucfg[2];
+-    }
+-
+-    cpu->env.cpucfg[2] = FIELD_DP32(val, CPUCFG2, LSX, value);
+-}
+-
+-static bool loongarch_get_lasx(Object *obj, Error **errp)
+-{
+-    return LOONGARCH_CPU(obj)->lasx != ON_OFF_AUTO_OFF;
+-}
+-
+-static void loongarch_set_lasx(Object *obj, bool value, Error **errp)
+-{
+-    LoongArchCPU *cpu = LOONGARCH_CPU(obj);
+-    uint32_t val;
+-
+-    cpu->lasx = value ? ON_OFF_AUTO_ON : ON_OFF_AUTO_OFF;
+-    if ((cpu->lsx == ON_OFF_AUTO_OFF) && (cpu->lasx == ON_OFF_AUTO_ON)) {
+-        error_setg(errp, "Failed to enable LASX since lSX is disabled");
+-        return;
+-    }
+-
+-    if (kvm_enabled()) {
+-        /* kvm feature detection in function kvm_arch_init_vcpu */
+-        return;
+-    }
+-
+-    /* LASX feature detection in TCG mode */
+-    val = cpu->env.cpucfg[2];
+-    if (cpu->lasx == ON_OFF_AUTO_ON) {
+-        if (FIELD_EX32(val, CPUCFG2, LASX) == 0) {
+-            error_setg(errp, "Failed to enable LASX in TCG mode");
+-            return;
+-        }
+-    }
+-
+-    cpu->env.cpucfg[2] = FIELD_DP32(val, CPUCFG2, LASX, value);
+-}
+-
+-void loongarch_cpu_post_init(Object *obj)
+-{
+-    LoongArchCPU *cpu = LOONGARCH_CPU(obj);
+-
+-    cpu->lbt = ON_OFF_AUTO_OFF;
+-    cpu->pmu = ON_OFF_AUTO_OFF;
+-    cpu->lsx = ON_OFF_AUTO_AUTO;
+-    cpu->lasx = ON_OFF_AUTO_AUTO;
+-    object_property_add_bool(obj, "lsx", loongarch_get_lsx,
+-                             loongarch_set_lsx);
+-    object_property_add_bool(obj, "lasx", loongarch_get_lasx,
+-                             loongarch_set_lasx);
+-    /* lbt is enabled only in kvm mode, not supported in tcg mode */
+-    if (kvm_enabled()) {
+-        kvm_loongarch_cpu_post_init(cpu);
+-    }
+-}
+-
+ static void loongarch_cpu_init(Object *obj)
+ {
+ #ifndef CONFIG_USER_ONLY
+diff --git a/target/loongarch/cpu.h b/target/loongarch/cpu.h
+index 66d3877a8a62..0101ce33f3a5 100644
+--- a/target/loongarch/cpu.h
++++ b/target/loongarch/cpu.h
+@@ -527,6 +527,4 @@ void loongarch_cpu_list(void);
+ 
+ #define CPU_RESOLVING_TYPE TYPE_LOONGARCH_CPU
+ 
+-void loongarch_cpu_post_init(Object *obj);
+-
+ #endif /* LOONGARCH_CPU_H */
+-- 
+2.51.0
+

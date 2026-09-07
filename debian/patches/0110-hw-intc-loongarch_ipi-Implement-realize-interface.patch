@@ -1,0 +1,79 @@
+From 6d1d31363206bcf3c834c833ebdcb30ebbc94dd1 Mon Sep 17 00:00:00 2001
+From: Bibo Mao <maobibo@loongson.cn>
+Date: Tue, 7 Jan 2025 11:08:13 +0800
+Subject: [PATCH 110/285] hw/intc/loongarch_ipi: Implement realize interface
+
+Add realize interface for loongarch ipi device.
+
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+Reviewed-by: Bibo Mao <maobibo@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ hw/intc/loongarch_ipi.c         | 19 +++++++++++++++++++
+ include/hw/intc/loongarch_ipi.h |  1 +
+ 2 files changed, 20 insertions(+)
+
+diff --git a/hw/intc/loongarch_ipi.c b/hw/intc/loongarch_ipi.c
+index 2ae1a42c46b5..4e2f9acddfb3 100644
+--- a/hw/intc/loongarch_ipi.c
++++ b/hw/intc/loongarch_ipi.c
+@@ -7,6 +7,7 @@
+ 
+ #include "qemu/osdep.h"
+ #include "hw/boards.h"
++#include "qapi/error.h"
+ #include "hw/intc/loongarch_ipi.h"
+ #include "target/loongarch/cpu.h"
+ 
+@@ -49,10 +50,26 @@ static CPUState *loongarch_cpu_by_arch_id(int64_t arch_id)
+     return NULL;
+ }
+ 
++static void loongarch_ipi_realize(DeviceState *dev, Error **errp)
++{
++    LoongarchIPIClass *lic = LOONGARCH_IPI_GET_CLASS(dev);
++    Error *local_err = NULL;
++
++    lic->parent_realize(dev, &local_err);
++    if (local_err) {
++        error_propagate(errp, local_err);
++        return;
++    }
++}
++
+ static void loongarch_ipi_class_init(ObjectClass *klass, void *data)
+ {
+     LoongsonIPICommonClass *licc = LOONGSON_IPI_COMMON_CLASS(klass);
++    LoongarchIPIClass *lic = LOONGARCH_IPI_CLASS(klass);
++    DeviceClass *dc = DEVICE_CLASS(klass);
+ 
++    device_class_set_parent_realize(dc, loongarch_ipi_realize,
++                                    &lic->parent_realize);
+     licc->get_iocsr_as = get_iocsr_as;
+     licc->cpu_by_arch_id = loongarch_cpu_by_arch_id;
+ }
+@@ -61,6 +78,8 @@ static const TypeInfo loongarch_ipi_types[] = {
+     {
+         .name               = TYPE_LOONGARCH_IPI,
+         .parent             = TYPE_LOONGSON_IPI_COMMON,
++        .instance_size      = sizeof(LoongarchIPIState),
++        .class_size         = sizeof(LoongarchIPIClass),
+         .class_init         = loongarch_ipi_class_init,
+     }
+ };
+diff --git a/include/hw/intc/loongarch_ipi.h b/include/hw/intc/loongarch_ipi.h
+index 276b3040a37a..923bf21ecb34 100644
+--- a/include/hw/intc/loongarch_ipi.h
++++ b/include/hw/intc/loongarch_ipi.h
+@@ -20,6 +20,7 @@ struct LoongarchIPIState {
+ 
+ struct LoongarchIPIClass {
+     LoongsonIPICommonClass parent_class;
++    DeviceRealize parent_realize;
+ };
+ 
+ #endif
+-- 
+2.51.0
+

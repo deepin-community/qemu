@@ -1,0 +1,38 @@
+From 9dde2d337bbf69c819c6b4708f8b831d4aceb01d Mon Sep 17 00:00:00 2001
+From: Bibo Mao <maobibo@loongson.cn>
+Date: Wed, 18 Jun 2025 10:51:34 +0800
+Subject: [PATCH 212/285] target/loongarch: Fix CSR STLBPS register write
+ emulation
+
+Function helper_csrwr_stlbps() is emulation with CSR STLBPS register
+write operation. However there is only parameter checking action, and
+no register updating action. Here update value of CSR_STLBPS when
+parameter passes to check.
+
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+Reviewed-by: Song Gao <gaosong@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ target/loongarch/tcg/csr_helper.c | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/target/loongarch/tcg/csr_helper.c b/target/loongarch/tcg/csr_helper.c
+index 4e185ffc5b73..8dd7271d0d49 100644
+--- a/target/loongarch/tcg/csr_helper.c
++++ b/target/loongarch/tcg/csr_helper.c
+@@ -28,7 +28,11 @@ target_ulong helper_csrwr_stlbps(CPULoongArchState *env, target_ulong val)
+     if (!check_ps(env, tlb_ps)) {
+         qemu_log_mask(LOG_GUEST_ERROR,
+                       "Attempted set ps %d\n", tlb_ps);
++    } else {
++        /* Only update PS field, reserved bit keeps zero */
++        env->CSR_STLBPS = FIELD_DP64(old_v, CSR_STLBPS, PS, tlb_ps);
+     }
++
+     return old_v;
+ }
+ 
+-- 
+2.51.0
+

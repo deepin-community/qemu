@@ -1,0 +1,36 @@
+From 68100fb8090282b6e2ea4fddd24860506a93ffc0 Mon Sep 17 00:00:00 2001
+From: Bibo Mao <maobibo@loongson.cn>
+Date: Thu, 12 Jun 2025 17:03:21 +0800
+Subject: [PATCH 216/285] tests/acpi: Remove stale allowed tables
+
+Remove stale allowed tables for LoongArch virt machine.
+
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+Message-Id: <20250612090321.3416594-6-maobibo@loongson.cn>
+Reviewed-by: Michael S. Tsirkin <mst@redhat.com>
+Signed-off-by: Michael S. Tsirkin <mst@redhat.com>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ tests/qtest/bios-tables-test-allowed-diff.h | 8 --------
+ 1 file changed, 8 deletions(-)
+
+diff --git a/tests/qtest/bios-tables-test-allowed-diff.h b/tests/qtest/bios-tables-test-allowed-diff.h
+index 0625a8c20b54..5fb3598c1199 100644
+--- a/tests/qtest/bios-tables-test-allowed-diff.h
++++ b/tests/qtest/bios-tables-test-allowed-diff.h
+@@ -1,11 +1,3 @@
+ /* List of comma-separated changed AML files to ignore */
+-"tests/data/acpi/loongarch64/virt/APIC",
+-"tests/data/acpi/loongarch64/virt/DSDT",
+-"tests/data/acpi/loongarch64/virt/FACP",
+-"tests/data/acpi/loongarch64/virt/MCFG",
+-"tests/data/acpi/loongarch64/virt/PPTT",
+-"tests/data/acpi/loongarch64/virt/SLIT",
+-"tests/data/acpi/loongarch64/virt/SPCR",
+-"tests/data/acpi/loongarch64/virt/SRAT",
+ "tests/data/acpi/riscv64/virt/SPCR",
+ "tests/data/acpi/q35/DSDT.cxl",
+-- 
+2.51.0
+

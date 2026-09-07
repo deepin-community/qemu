@@ -1,0 +1,29 @@
+From 5bed182513af7d5542009c7c33c163497dfa483a Mon Sep 17 00:00:00 2001
+From: Xianglai Li <lixianglai@loongson.cn>
+Date: Mon, 25 May 2026 15:44:00 +0800
+Subject: [PATCH 282/285] target/loongarch/cpu: Fix the issue of CPU reset
+
+Fix the issue of CPU reset.
+
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ target/loongarch/cpu.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/target/loongarch/cpu.c b/target/loongarch/cpu.c
+index a17d9feb7fbb..1c1f54bb3131 100644
+--- a/target/loongarch/cpu.c
++++ b/target/loongarch/cpu.c
+@@ -904,7 +904,7 @@ static void loongarch_cpu_reset_hold(Object *obj)
+     env->CSR_ECFG = FIELD_DP64(env->CSR_ECFG, CSR_ECFG, VS, 0);
+     env->CSR_ECFG = FIELD_DP64(env->CSR_ECFG, CSR_ECFG, LIE, 0);
+ 
+-    env->CSR_ESTAT = env->CSR_ESTAT & (~MAKE_64BIT_MASK(0, 2));
++    env->CSR_ESTAT = 0;
+     env->CSR_RVACFG = FIELD_DP64(env->CSR_RVACFG, CSR_RVACFG, RBITS, 0);
+     env->CSR_CPUID = cs->cpu_index;
+     env->CSR_TCFG = FIELD_DP64(env->CSR_TCFG, CSR_TCFG, EN, 0);
+-- 
+2.51.0
+

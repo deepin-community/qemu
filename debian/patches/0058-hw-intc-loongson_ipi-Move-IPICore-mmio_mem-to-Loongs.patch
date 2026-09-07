@@ -1,0 +1,84 @@
+From 5f6f4cf073585a7a37291b6d941fb0e846c0eff5 Mon Sep 17 00:00:00 2001
+From: Bibo Mao <maobibo@loongson.cn>
+Date: Mon, 15 Jul 2024 16:58:55 +0200
+Subject: [PATCH 058/285] hw/intc/loongson_ipi: Move IPICore::mmio_mem to
+ LoongsonIPIState
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+It is easier to manage one array of MMIO MR rather
+than one per vCPU.
+
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+[PMD: Extracted from bigger commit, added commit description]
+Co-Developed-by: Philippe Mathieu-Daudé <philmd@linaro.org>
+Signed-off-by: Philippe Mathieu-Daudé <philmd@linaro.org>
+Reviewed-by: Bibo Mao <maobibo@loongson.cn>
+Tested-by: Bibo Mao <maobibo@loongson.cn>
+Acked-by: Song Gao <gaosong@loongson.cn>
+Reviewed-by: Richard Henderson <richard.henderson@linaro.org>
+Reviewed-by: Jiaxun Yang <jiaxun.yang@flygoat.com>
+Tested-by: Jiaxun Yang <jiaxun.yang@flygoat.com>
+Message-Id: <20240805180622.21001-6-philmd@linaro.org>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ hw/intc/loongson_ipi.c         | 10 +++++++---
+ include/hw/intc/loongson_ipi.h |  2 +-
+ 2 files changed, 8 insertions(+), 4 deletions(-)
+
+diff --git a/hw/intc/loongson_ipi.c b/hw/intc/loongson_ipi.c
+index 7d15c28e94aa..03878b896f65 100644
+--- a/hw/intc/loongson_ipi.c
++++ b/hw/intc/loongson_ipi.c
+@@ -320,12 +320,12 @@ static void loongson_ipi_realize(DeviceState *dev, Error **errp)
+         return;
+     }
+ 
++    s->ipi_mmio_mem = g_new0(MemoryRegion, s->num_cpu);
+     for (unsigned i = 0; i < s->num_cpu; i++) {
+-        s->cpu[i].ipi_mmio_mem = g_new0(MemoryRegion, 1);
+         g_autofree char *name = g_strdup_printf("loongson_ipi_cpu%d_mmio", i);
+-        memory_region_init_io(s->cpu[i].ipi_mmio_mem, OBJECT(dev),
++        memory_region_init_io(&s->ipi_mmio_mem[i], OBJECT(dev),
+                               &loongson_ipi_core_ops, &s->cpu[i], name, 0x48);
+-        sysbus_init_mmio(sbd, s->cpu[i].ipi_mmio_mem);
++        sysbus_init_mmio(sbd, &s->ipi_mmio_mem[i]);
+     }
+ }
+ 
+@@ -338,6 +338,10 @@ static void loongson_ipi_common_unrealize(DeviceState *dev)
+ 
+ static void loongson_ipi_unrealize(DeviceState *dev)
+ {
++    LoongsonIPIState *s = LOONGSON_IPI(dev);
++
++    g_free(s->ipi_mmio_mem);
++
+     loongson_ipi_common_unrealize(dev);
+ }
+ 
+diff --git a/include/hw/intc/loongson_ipi.h b/include/hw/intc/loongson_ipi.h
+index 70e00dc1a774..5a52dfbf4d47 100644
+--- a/include/hw/intc/loongson_ipi.h
++++ b/include/hw/intc/loongson_ipi.h
+@@ -19,7 +19,6 @@ OBJECT_DECLARE_TYPE(LoongsonIPIState, LoongsonIPIClass, LOONGSON_IPI)
+ 
+ typedef struct IPICore {
+     LoongsonIPIState *ipi;
+-    MemoryRegion *ipi_mmio_mem;
+     uint32_t status;
+     uint32_t en;
+     uint32_t set;
+@@ -39,6 +38,7 @@ struct LoongsonIPIClass {
+ struct LoongsonIPIState {
+     LoongsonIPICommonState parent_obj;
+ 
++    MemoryRegion *ipi_mmio_mem;
+     MemoryRegion ipi_iocsr_mem;
+     MemoryRegion ipi64_iocsr_mem;
+     uint32_t num_cpu;
+-- 
+2.51.0
+

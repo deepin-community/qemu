@@ -1,0 +1,57 @@
+From 26a8c57361bc21096aab290840a192b3031ff4b8 Mon Sep 17 00:00:00 2001
+From: Xianglai Li <lixianglai@loongson.cn>
+Date: Wed, 14 Jan 2026 15:20:15 +0800
+Subject: [PATCH 260/285] hw/loongarch/virt: Modify the interrupt trigger type
+ in fdt table
+
+In the loongarch virt fdt file, the interrupt trigger type directly
+uses magic numbers. Now, refer to the definitions in the linux kernel and
+use macro definitions.
+
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+Reviewed-by: Bibo Mao <maobibo@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ hw/loongarch/virt-fdt-build.c | 11 +++++++++--
+ 1 file changed, 9 insertions(+), 2 deletions(-)
+
+diff --git a/hw/loongarch/virt-fdt-build.c b/hw/loongarch/virt-fdt-build.c
+index b6c5beea7364..5ffef96e94a9 100644
+--- a/hw/loongarch/virt-fdt-build.c
++++ b/hw/loongarch/virt-fdt-build.c
+@@ -16,6 +16,11 @@
+ #include "sysemu/reset.h"
+ #include "target/loongarch/cpu.h"
+ 
++#define FDT_IRQ_TYPE_EDGE_RISING  1
++#define FDT_IRQ_TYPE_EDGE_FALLING 2
++#define FDT_IRQ_TYPE_LEVEL_HIGH   4
++#define FDT_IRQ_TYPE_LEVEL_LOW    8
++
+ static void create_fdt(LoongArchVirtMachineState *lvms)
+ {
+     MachineState *ms = MACHINE(lvms);
+@@ -434,7 +439,8 @@ static void fdt_add_uart_node(LoongArchVirtMachineState *lvms,
+     if (chosen) {
+         qemu_fdt_setprop_string(ms->fdt, "/chosen", "stdout-path", nodename);
+     }
+-    qemu_fdt_setprop_cells(ms->fdt, nodename, "interrupts", irq, 0x4);
++    qemu_fdt_setprop_cells(ms->fdt, nodename, "interrupts", irq,
++                           FDT_IRQ_TYPE_LEVEL_HIGH);
+     qemu_fdt_setprop_cell(ms->fdt, nodename, "interrupt-parent",
+                           *pch_pic_phandle);
+     g_free(nodename);
+@@ -454,7 +460,8 @@ static void fdt_add_rtc_node(LoongArchVirtMachineState *lvms,
+                             "loongson,ls7a-rtc");
+     qemu_fdt_setprop_sized_cells(ms->fdt, nodename, "reg", 2, base, 2, size);
+     qemu_fdt_setprop_cells(ms->fdt, nodename, "interrupts",
+-                           VIRT_RTC_IRQ - VIRT_GSI_BASE , 0x4);
++                           VIRT_RTC_IRQ - VIRT_GSI_BASE ,
++                           FDT_IRQ_TYPE_LEVEL_HIGH);
+     qemu_fdt_setprop_cell(ms->fdt, nodename, "interrupt-parent",
+                           *pch_pic_phandle);
+     g_free(nodename);
+-- 
+2.51.0
+

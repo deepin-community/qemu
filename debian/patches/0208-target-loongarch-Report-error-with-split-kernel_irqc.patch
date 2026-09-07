@@ -1,0 +1,40 @@
+From b58955a8dd04220188f6d5c9827f6b95583c1176 Mon Sep 17 00:00:00 2001
+From: Bibo Mao <maobibo@loongson.cn>
+Date: Fri, 6 Jun 2025 14:34:31 +0800
+Subject: [PATCH 208/285] target/loongarch: Report error with split
+ kernel_irqchip option
+
+Option kernel_irqchip=split is not supported on LoongArch virt machine,
+report error and exit if detect split kernel_irqchip option.
+
+Reviewed-by: Song Gao <gaosong@loongson.cn>
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+Message-ID: <20250606063431.2557468-1-maobibo@loongson.cn>
+Signed-off-by: Song Gao <gaosong@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ target/loongarch/kvm/kvm.c | 7 ++++++-
+ 1 file changed, 6 insertions(+), 1 deletion(-)
+
+diff --git a/target/loongarch/kvm/kvm.c b/target/loongarch/kvm/kvm.c
+index e3b0a41a894f..a1b2ee6b70d4 100644
+--- a/target/loongarch/kvm/kvm.c
++++ b/target/loongarch/kvm/kvm.c
+@@ -1250,7 +1250,12 @@ int kvm_arch_init(MachineState *ms, KVMState *s)
+ 
+ int kvm_arch_irqchip_create(KVMState *s)
+ {
+-    return 0;
++    if (kvm_kernel_irqchip_split()) {
++        error_report("kernel_irqchip=split is not supported on LoongArch");
++        exit(1);
++    }
++
++    return kvm_check_extension(s, KVM_CAP_DEVICE_CTRL);
+ }
+ 
+ void kvm_arch_pre_run(CPUState *cs, struct kvm_run *run)
+-- 
+2.51.0
+

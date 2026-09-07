@@ -1,0 +1,37 @@
+From db7f78e6032b9bbd698bf1e81dc11d8205e2c719 Mon Sep 17 00:00:00 2001
+From: Bibo Mao <maobibo@loongson.cn>
+Date: Thu, 5 Jun 2025 17:28:48 +0800
+Subject: [PATCH 194/285] hw/intc/loongarch_extioi: Fix typo issue about
+ register EXTIOI_COREISR_END
+
+Interrupt controller extioi supports 256 vectors, register EXTIOI_COREISR
+records pending interrupt status with bitmap method. Size of EXTIOI_COREISR
+is 256 / 8 = 0x20 bytes, EXTIOI_COREISR_END should be EXTIOI_COREISR_START
++ 0x20 rather than 0xB20.
+
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+Reviewed-by: Song Gao <gaosong@loongson.cn>
+Message-Id: <20250605092848.1550985-1-maobibo@loongson.cn>
+Signed-off-by: Song Gao <gaosong@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ include/hw/intc/loongarch_extioi_common.h | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/include/hw/intc/loongarch_extioi_common.h b/include/hw/intc/loongarch_extioi_common.h
+index 5faf67659b9f..39a24ebb04e4 100644
+--- a/include/hw/intc/loongarch_extioi_common.h
++++ b/include/hw/intc/loongarch_extioi_common.h
+@@ -35,7 +35,7 @@
+ #define EXTIOI_ISR_START             (0x700 - APIC_OFFSET)
+ #define EXTIOI_ISR_END               (0x720 - APIC_OFFSET)
+ #define EXTIOI_COREISR_START         (0x800 - APIC_OFFSET)
+-#define EXTIOI_COREISR_END           (0xB20 - APIC_OFFSET)
++#define EXTIOI_COREISR_END           (0x820 - APIC_OFFSET)
+ #define EXTIOI_COREMAP_START         (0xC00 - APIC_OFFSET)
+ #define EXTIOI_COREMAP_END           (0xD00 - APIC_OFFSET)
+ #define EXTIOI_SIZE                  0x800
+-- 
+2.51.0
+

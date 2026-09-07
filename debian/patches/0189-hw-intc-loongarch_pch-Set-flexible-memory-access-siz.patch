@@ -1,0 +1,49 @@
+From 422538c78f2b919a1d06665687b025a82bdee52f Mon Sep 17 00:00:00 2001
+From: Bibo Mao <maobibo@loongson.cn>
+Date: Wed, 7 May 2025 10:37:53 +0800
+Subject: [PATCH 189/285] hw/intc/loongarch_pch: Set flexible memory access
+ size with iomem region
+
+The original iomem region only supports 4 bytes access size, set it ok
+with 1/2/4/8 bytes. Also unaligned memory access is not supported.
+
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+Reviewed-by: Song Gao <gaosong@loongson.cn>
+Message-Id: <20250507023754.1877445-4-maobibo@loongson.cn>
+Signed-off-by: Song Gao <gaosong@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ hw/intc/loongarch_pch_pic.c | 13 ++++++++++---
+ 1 file changed, 10 insertions(+), 3 deletions(-)
+
+diff --git a/hw/intc/loongarch_pch_pic.c b/hw/intc/loongarch_pch_pic.c
+index 8911c98437b4..ce592b3cec4f 100644
+--- a/hw/intc/loongarch_pch_pic.c
++++ b/hw/intc/loongarch_pch_pic.c
+@@ -271,12 +271,19 @@ static const MemoryRegionOps loongarch_pch_pic_ops = {
+     .read = loongarch_pch_pic_read,
+     .write = loongarch_pch_pic_write,
+     .valid = {
+-        .min_access_size = 4,
++        .min_access_size = 1,
+         .max_access_size = 8,
++        /*
++         * PCH PIC device would not work correctly if the guest was doing
++         * unaligned access. This might not be a limitation on the real
++         * device but in practice there is no reason for a guest to access
++         * this device unaligned.
++         */
++        .unaligned = false,
+     },
+     .impl = {
+-        .min_access_size = 4,
+-        .max_access_size = 4,
++        .min_access_size = 1,
++        .max_access_size = 8,
+     },
+     .endianness = DEVICE_LITTLE_ENDIAN,
+ };
+-- 
+2.51.0
+

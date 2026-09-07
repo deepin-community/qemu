@@ -1,0 +1,289 @@
+From 4c7070939c130fd948de4d0e997d76fef61334a0 Mon Sep 17 00:00:00 2001
+From: Bibo Mao <maobibo@loongson.cn>
+Date: Thu, 16 Jan 2025 19:21:31 +0800
+Subject: [PATCH 119/285] target/loongarch: Dump all generic CSR registers
+
+CSR registers is import system control registers, it had better
+dump all CSR registers when VM is running in system mode.
+
+Here is dump output example of CSR registers:
+ CSR000: CRMD   b4               PRMD   4                EUEN   0                MISC   0
+ CSR004: ECFG   71c1c            ESTAT  0                ERA    9000000002c31300 BADV   12022c0e0
+ CSR008: BADI   2b0000
+ CSR012: EENTRY 90000000046b0000
+ CSR016: TLBIDX ffffffff8e000228 TLBEHI 120228000        TLBELO0 400000016f19001f TLBELO1 400000016f1a401f
+ CSR024: ASID   a0004            PGDL   90000001016f0000 PGDH   9000000004680000 PGD    0
+ CSR028: PWCL   5e56e            PWCH   2e4              STLBPS e                RVACFG 0
+ CSR032: CPUID  0                PRCFG1 72f8             PRCFG2 3ffff000         PRCFG3 8073f2
+ CSR048: SAVE0  0                SAVE1  af9c             SAVE2  12010d6a8        SAVE3  8300000
+ CSR052: SAVE4  0                SAVE5  0                SAVE6  0                SAVE7  0
+ CSR064: TID    0                TCFG   8f0ca15          TVAL   4cefd8b          CNTC   fffffffffe688aaa
+ CSR068: TICLR  0
+ CSR096: LLBCTL 1
+ CSR136: TLBRENTRY 46ba000       TLBRBADV ffff8000130d81e2 TLBRERA 9000000003585cb8 TLBRSAVE ffff8000130d81e0
+ CSR140: TLBRELO0 1fe00043       TLBRELO1 40             TLBREHI ffff8000130d800e TLBRPRMD 0
+ CSR384: DMW0   8000000000000001 DMW1   9000000000000011 DMW2   0                DMW3   0
+
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ target/loongarch/cpu.c       |  66 +++++++++++++-----
+ target/loongarch/csr.c       | 129 +++++++++++++++++++++++++++++++++++
+ target/loongarch/csr.h       |   3 +
+ target/loongarch/meson.build |   1 +
+ 4 files changed, 183 insertions(+), 16 deletions(-)
+ create mode 100644 target/loongarch/csr.c
+
+diff --git a/target/loongarch/cpu.c b/target/loongarch/cpu.c
+index 76e530d356b8..71b4428017c7 100644
+--- a/target/loongarch/cpu.c
++++ b/target/loongarch/cpu.c
+@@ -802,6 +802,54 @@ static ObjectClass *loongarch_cpu_class_by_name(const char *cpu_model)
+     return NULL;
+ }
+ 
++static void loongarch_cpu_dump_csr(CPUState *cs, FILE *f)
++{
++#ifndef CONFIG_USER_ONLY
++    CPULoongArchState *env = cpu_env(cs);
++    CSRInfo *csr_info;
++    int64_t *addr;
++    int i, j, len, col = 0;
++
++    qemu_fprintf(f, "\n");
++
++    /* Dump all generic CSR register */
++    for (i = 0; i < LOONGARCH_CSR_DBG; i++) {
++        csr_info = get_csr(i);
++        if (!csr_info || (csr_info->flags & CSRFL_UNUSED)) {
++            if (i == (col + 3)) {
++                qemu_fprintf(f, "\n");
++            }
++
++            continue;
++        }
++
++        if ((i >  (col + 3)) || (i == col)) {
++            col = i & ~3;
++            qemu_fprintf(f, " CSR%03d:", col);
++        }
++
++        addr = (void *)env + csr_info->offset;
++        qemu_fprintf(f, " %s ", csr_info->name);
++        len = strlen(csr_info->name);
++        for (; len < 6; len++) {
++            qemu_fprintf(f, " ");
++        }
++
++        qemu_fprintf(f, "%" PRIx64, *addr);
++        j = find_last_bit((void *)addr, BITS_PER_LONG) & (BITS_PER_LONG - 1);
++        len += j / 4 + 1;
++        for (; len < 22; len++) {
++                qemu_fprintf(f, " ");
++        }
++
++        if (i == (col + 3)) {
++            qemu_fprintf(f, "\n");
++        }
++    }
++    qemu_fprintf(f, "\n");
++#endif
++}
++
+ void loongarch_cpu_dump_state(CPUState *cs, FILE *f, int flags)
+ {
+     LoongArchCPU *cpu = LOONGARCH_CPU(cs);
+@@ -822,22 +870,8 @@ void loongarch_cpu_dump_state(CPUState *cs, FILE *f, int flags)
+         }
+     }
+ 
+-    qemu_fprintf(f, "CRMD=%016" PRIx64 "\n", env->CSR_CRMD);
+-    qemu_fprintf(f, "PRMD=%016" PRIx64 "\n", env->CSR_PRMD);
+-    qemu_fprintf(f, "EUEN=%016" PRIx64 "\n", env->CSR_EUEN);
+-    qemu_fprintf(f, "ESTAT=%016" PRIx64 "\n", env->CSR_ESTAT);
+-    qemu_fprintf(f, "ERA=%016" PRIx64 "\n", env->CSR_ERA);
+-    qemu_fprintf(f, "BADV=%016" PRIx64 "\n", env->CSR_BADV);
+-    qemu_fprintf(f, "BADI=%016" PRIx64 "\n", env->CSR_BADI);
+-    qemu_fprintf(f, "EENTRY=%016" PRIx64 "\n", env->CSR_EENTRY);
+-    qemu_fprintf(f, "PRCFG1=%016" PRIx64 ", PRCFG2=%016" PRIx64 ","
+-                 " PRCFG3=%016" PRIx64 "\n",
+-                 env->CSR_PRCFG1, env->CSR_PRCFG2, env->CSR_PRCFG3);
+-    qemu_fprintf(f, "TLBRENTRY=%016" PRIx64 "\n", env->CSR_TLBRENTRY);
+-    qemu_fprintf(f, "TLBRBADV=%016" PRIx64 "\n", env->CSR_TLBRBADV);
+-    qemu_fprintf(f, "TLBRERA=%016" PRIx64 "\n", env->CSR_TLBRERA);
+-    qemu_fprintf(f, "TCFG=%016" PRIx64 "\n", env->CSR_TCFG);
+-    qemu_fprintf(f, "TVAL=%016" PRIx64 "\n", env->CSR_TVAL);
++    /* csr */
++    loongarch_cpu_dump_csr(cs, f);
+ 
+     /* fpr */
+     if (flags & CPU_DUMP_FPU) {
+diff --git a/target/loongarch/csr.c b/target/loongarch/csr.c
+new file mode 100644
+index 000000000000..7ea0a3045066
+--- /dev/null
++++ b/target/loongarch/csr.c
+@@ -0,0 +1,129 @@
++/* SPDX-License-Identifier: GPL-2.0-or-later */
++/*
++ * Copyright (c) 2025 Loongson Technology Corporation Limited
++ */
++#include <stddef.h>
++#include "qemu/osdep.h"
++#include "cpu.h"
++#include "csr.h"
++
++#define CSR_OFF_FUNCS(NAME, FL, RD, WR)                    \
++    [LOONGARCH_CSR_##NAME] = {                             \
++        .name   = (stringify(NAME)),                       \
++        .offset = offsetof(CPULoongArchState, CSR_##NAME), \
++        .flags = FL, .readfn = RD, .writefn = WR           \
++    }
++
++#define CSR_OFF_ARRAY(NAME, N)                                \
++    [LOONGARCH_CSR_##NAME(N)] = {                             \
++        .name   = (stringify(NAME##N)),                       \
++        .offset = offsetof(CPULoongArchState, CSR_##NAME[N]), \
++        .flags = 0, .readfn = NULL, .writefn = NULL           \
++    }
++
++#define CSR_OFF_FLAGS(NAME, FL)   CSR_OFF_FUNCS(NAME, FL, NULL, NULL)
++#define CSR_OFF(NAME)             CSR_OFF_FLAGS(NAME, 0)
++
++static CSRInfo csr_info[] = {
++    CSR_OFF_FLAGS(CRMD, CSRFL_EXITTB),
++    CSR_OFF(PRMD),
++    CSR_OFF_FLAGS(EUEN, CSRFL_EXITTB),
++    CSR_OFF_FLAGS(MISC, CSRFL_READONLY),
++    CSR_OFF(ECFG),
++    CSR_OFF_FLAGS(ESTAT, CSRFL_EXITTB),
++    CSR_OFF(ERA),
++    CSR_OFF(BADV),
++    CSR_OFF_FLAGS(BADI, CSRFL_READONLY),
++    CSR_OFF(EENTRY),
++    CSR_OFF(TLBIDX),
++    CSR_OFF(TLBEHI),
++    CSR_OFF(TLBELO0),
++    CSR_OFF(TLBELO1),
++    CSR_OFF_FLAGS(ASID, CSRFL_EXITTB),
++    CSR_OFF(PGDL),
++    CSR_OFF(PGDH),
++    CSR_OFF_FLAGS(PGD, CSRFL_READONLY),
++    CSR_OFF(PWCL),
++    CSR_OFF(PWCH),
++    CSR_OFF(STLBPS),
++    CSR_OFF(RVACFG),
++    CSR_OFF_FLAGS(CPUID, CSRFL_READONLY),
++    CSR_OFF_FLAGS(PRCFG1, CSRFL_READONLY),
++    CSR_OFF_FLAGS(PRCFG2, CSRFL_READONLY),
++    CSR_OFF_FLAGS(PRCFG3, CSRFL_READONLY),
++    CSR_OFF_ARRAY(SAVE, 0),
++    CSR_OFF_ARRAY(SAVE, 1),
++    CSR_OFF_ARRAY(SAVE, 2),
++    CSR_OFF_ARRAY(SAVE, 3),
++    CSR_OFF_ARRAY(SAVE, 4),
++    CSR_OFF_ARRAY(SAVE, 5),
++    CSR_OFF_ARRAY(SAVE, 6),
++    CSR_OFF_ARRAY(SAVE, 7),
++    CSR_OFF_ARRAY(SAVE, 8),
++    CSR_OFF_ARRAY(SAVE, 9),
++    CSR_OFF_ARRAY(SAVE, 10),
++    CSR_OFF_ARRAY(SAVE, 11),
++    CSR_OFF_ARRAY(SAVE, 12),
++    CSR_OFF_ARRAY(SAVE, 13),
++    CSR_OFF_ARRAY(SAVE, 14),
++    CSR_OFF_ARRAY(SAVE, 15),
++    CSR_OFF(TID),
++    CSR_OFF_FLAGS(TCFG, CSRFL_IO),
++    CSR_OFF_FLAGS(TVAL, CSRFL_READONLY | CSRFL_IO),
++    CSR_OFF(CNTC),
++    CSR_OFF_FLAGS(TICLR, CSRFL_IO),
++    CSR_OFF(LLBCTL),
++    CSR_OFF(IMPCTL1),
++    CSR_OFF(IMPCTL2),
++    CSR_OFF(TLBRENTRY),
++    CSR_OFF(TLBRBADV),
++    CSR_OFF(TLBRERA),
++    CSR_OFF(TLBRSAVE),
++    CSR_OFF(TLBRELO0),
++    CSR_OFF(TLBRELO1),
++    CSR_OFF(TLBREHI),
++    CSR_OFF(TLBRPRMD),
++    CSR_OFF(MERRCTL),
++    CSR_OFF(MERRINFO1),
++    CSR_OFF(MERRINFO2),
++    CSR_OFF(MERRENTRY),
++    CSR_OFF(MERRERA),
++    CSR_OFF(MERRSAVE),
++    CSR_OFF(CTAG),
++    CSR_OFF_ARRAY(DMW, 0),
++    CSR_OFF_ARRAY(DMW, 1),
++    CSR_OFF_ARRAY(DMW, 2),
++    CSR_OFF_ARRAY(DMW, 3),
++    CSR_OFF(DBG),
++    CSR_OFF(DERA),
++    CSR_OFF(DSAVE),
++};
++
++CSRInfo *get_csr(unsigned int csr_num)
++{
++    CSRInfo *csr;
++
++    if (csr_num >= ARRAY_SIZE(csr_info)) {
++        return NULL;
++    }
++
++    csr = &csr_info[csr_num];
++    if (csr->offset == 0) {
++        return NULL;
++    }
++
++    return csr;
++}
++
++bool set_csr_flag(unsigned int csr_num, int flag)
++{
++    CSRInfo *csr;
++
++    csr = get_csr(csr_num);
++    if (!csr) {
++        return false;
++    }
++
++    csr->flags |= flag;
++    return true;
++}
+diff --git a/target/loongarch/csr.h b/target/loongarch/csr.h
+index 20d4bf5dc785..1eb2e510b42a 100644
+--- a/target/loongarch/csr.h
++++ b/target/loongarch/csr.h
+@@ -16,10 +16,13 @@ enum {
+ };
+ 
+ typedef struct {
++    const char *name;
+     int offset;
+     int flags;
+     GenCSRFunc readfn;
+     GenCSRFunc writefn;
+ } CSRInfo;
+ 
++CSRInfo *get_csr(unsigned int csr_num);
++bool set_csr_flag(unsigned int csr_num, int flag);
+ #endif /* TARGET_LOONGARCH_CSR_H */
+diff --git a/target/loongarch/meson.build b/target/loongarch/meson.build
+index 7817318287d0..20bd3e2f0a3c 100644
+--- a/target/loongarch/meson.build
++++ b/target/loongarch/meson.build
+@@ -10,6 +10,7 @@ loongarch_system_ss = ss.source_set()
+ loongarch_system_ss.add(files(
+   'arch_dump.c',
+   'cpu_helper.c',
++  'csr.c',
+   'loongarch-qmp-cmds.c',
+   'machine.c',
+ ))
+-- 
+2.51.0
+

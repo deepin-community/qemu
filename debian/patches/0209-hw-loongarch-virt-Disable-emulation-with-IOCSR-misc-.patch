@@ -1,0 +1,49 @@
+From d92d7e66553b46f193d7ffaab9acca3b17d424eb Mon Sep 17 00:00:00 2001
+From: Bibo Mao <maobibo@loongson.cn>
+Date: Fri, 6 Jun 2025 14:35:23 +0800
+Subject: [PATCH 209/285] hw/loongarch/virt: Disable emulation with IOCSR misc
+ register
+
+Register IOCSR MISC_FUNC_REG is to enable features about EXTIOI
+irqchip. If EXTIOI is emulated in kernel, MISC_FUNC_REG register
+should be emulated in kernel also.
+
+Reviewed-by: Song Gao <gaosong@loongson.cn>
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+Message-ID: <20250606063523.2557513-1-maobibo@loongson.cn>
+Signed-off-by: Song Gao <gaosong@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ hw/loongarch/virt.c | 8 ++++++++
+ 1 file changed, 8 insertions(+)
+
+diff --git a/hw/loongarch/virt.c b/hw/loongarch/virt.c
+index 5bedc6836458..d9a216e6f2cd 100644
+--- a/hw/loongarch/virt.c
++++ b/hw/loongarch/virt.c
+@@ -532,6 +532,10 @@ static MemTxResult virt_iocsr_misc_write(void *opaque, hwaddr addr,
+ 
+     switch (addr) {
+     case MISC_FUNC_REG:
++        if (kvm_irqchip_in_kernel()) {
++            return MEMTX_OK;
++        }
++
+         if (!virt_is_veiointc_enabled(lvms)) {
+             return MEMTX_OK;
+         }
+@@ -582,6 +586,10 @@ static MemTxResult virt_iocsr_misc_read(void *opaque, hwaddr addr,
+         ret = 0x303030354133ULL;     /* "3A5000" */
+         break;
+     case MISC_FUNC_REG:
++        if (kvm_irqchip_in_kernel()) {
++            return MEMTX_OK;
++        }
++
+         if (!virt_is_veiointc_enabled(lvms)) {
+             ret |= BIT_ULL(IOCSRM_EXTIOI_EN);
+             break;
+-- 
+2.51.0
+

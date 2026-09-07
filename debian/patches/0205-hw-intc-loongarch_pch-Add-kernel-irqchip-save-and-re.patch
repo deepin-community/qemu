@@ -1,0 +1,150 @@
+From 40ca3b962eedf7a6ca8eb9a35c37809fc752f6df Mon Sep 17 00:00:00 2001
+From: Bibo Mao <maobibo@loongson.cn>
+Date: Fri, 6 Jun 2025 14:30:28 +0800
+Subject: [PATCH 205/285] hw/intc/loongarch_pch: Add kernel irqchip save and
+ restore function
+
+Add save and store funtction if kvm_irqchip_in_kernel() return true,
+it is to get and set PCH PCI irqchip state from KVM kernel.
+
+Reviewed-by: Song Gao <gaosong@loongson.cn>
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+Message-ID: <20250606063033.2557365-9-maobibo@loongson.cn>
+Signed-off-by: Song Gao <gaosong@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ hw/intc/loongarch_pch_pic.c            | 22 ++++++++++++
+ hw/intc/loongarch_pic_kvm.c            | 47 ++++++++++++++++++++++++++
+ include/hw/intc/loongarch_pch_pic.h    |  2 ++
+ include/hw/intc/loongarch_pic_common.h |  1 +
+ 4 files changed, 72 insertions(+)
+
+diff --git a/hw/intc/loongarch_pch_pic.c b/hw/intc/loongarch_pch_pic.c
+index 1c3a000008de..c22dce2bae37 100644
+--- a/hw/intc/loongarch_pch_pic.c
++++ b/hw/intc/loongarch_pch_pic.c
+@@ -296,16 +296,38 @@ static void loongarch_pic_realize(DeviceState *dev, Error **errp)
+     }
+ }
+ 
++static int loongarch_pic_pre_save(LoongArchPICCommonState *opaque)
++{
++    if (kvm_irqchip_in_kernel()) {
++        return kvm_pic_get(opaque);
++    }
++
++    return 0;
++}
++
++static int loongarch_pic_post_load(LoongArchPICCommonState *opaque,
++                                   int version_id)
++{
++    if (kvm_irqchip_in_kernel()) {
++        return kvm_pic_put(opaque, version_id);
++    }
++
++    return 0;
++}
++
+ static void loongarch_pic_class_init(ObjectClass *klass, void *data)
+ {
+     DeviceClass *dc = DEVICE_CLASS(klass);
+     LoongarchPICClass *lpc = LOONGARCH_PIC_CLASS(klass);
++    LoongArchPICCommonClass *lpcc = LOONGARCH_PIC_COMMON_CLASS(klass);
+     ResettableClass *rc = RESETTABLE_CLASS(klass);
+ 
+     resettable_class_set_parent_phases(rc, NULL, loongarch_pic_reset_hold,
+                                        NULL, &lpc->parent_phases);
+     device_class_set_parent_realize(dc, loongarch_pic_realize,
+                                     &lpc->parent_realize);
++    lpcc->pre_save = loongarch_pic_pre_save;
++    lpcc->post_load = loongarch_pic_post_load;
+ }
+ 
+ static const TypeInfo loongarch_pic_types[] = {
+diff --git a/hw/intc/loongarch_pic_kvm.c b/hw/intc/loongarch_pic_kvm.c
+index 2f977e916e6a..3c387f6efed3 100644
+--- a/hw/intc/loongarch_pic_kvm.c
++++ b/hw/intc/loongarch_pic_kvm.c
+@@ -13,6 +13,53 @@
+ #include "hw/pci-host/ls7a.h"
+ #include "sysemu/kvm.h"
+ 
++static void kvm_pch_pic_access_reg(int fd, uint64_t addr, void *val, bool write)
++{
++    kvm_device_access(fd, KVM_DEV_LOONGARCH_PCH_PIC_GRP_REGS,
++                      addr, val, write, &error_abort);
++}
++
++static void kvm_pch_pic_access(void *opaque, bool write)
++{
++    LoongArchPICCommonState *s = LOONGARCH_PIC_COMMON(opaque);
++    LoongarchPICState *lps = LOONGARCH_PIC(opaque);
++    int fd = lps->dev_fd;
++    int addr, offset;
++
++    kvm_pch_pic_access_reg(fd, PCH_PIC_INT_MASK, &s->int_mask, write);
++    kvm_pch_pic_access_reg(fd, PCH_PIC_HTMSI_EN, &s->htmsi_en, write);
++    kvm_pch_pic_access_reg(fd, PCH_PIC_INT_EDGE, &s->intedge, write);
++    kvm_pch_pic_access_reg(fd, PCH_PIC_AUTO_CTRL0, &s->auto_crtl0, write);
++    kvm_pch_pic_access_reg(fd, PCH_PIC_AUTO_CTRL1, &s->auto_crtl1, write);
++
++    for (addr = PCH_PIC_ROUTE_ENTRY;
++        addr < PCH_PIC_ROUTE_ENTRY_END; addr++) {
++        offset = addr - PCH_PIC_ROUTE_ENTRY;
++        kvm_pch_pic_access_reg(fd, addr, &s->route_entry[offset], write);
++    }
++
++    for (addr = PCH_PIC_HTMSI_VEC; addr < PCH_PIC_HTMSI_VEC_END; addr++) {
++        offset = addr - PCH_PIC_HTMSI_VEC;
++        kvm_pch_pic_access_reg(fd, addr, &s->htmsi_vector[offset], write);
++    }
++
++    kvm_pch_pic_access_reg(fd, PCH_PIC_INT_REQUEST, &s->intirr, write);
++    kvm_pch_pic_access_reg(fd, PCH_PIC_INT_STATUS, &s->intisr, write);
++    kvm_pch_pic_access_reg(fd, PCH_PIC_INT_POL, &s->int_polarity, write);
++}
++
++int kvm_pic_get(void *opaque)
++{
++    kvm_pch_pic_access(opaque, false);
++    return 0;
++}
++
++int kvm_pic_put(void *opaque, int version_id)
++{
++    kvm_pch_pic_access(opaque, true);
++    return 0;
++}
++
+ void kvm_pic_realize(DeviceState *dev, Error **errp)
+ {
+     LoongarchPICState *lps = LOONGARCH_PIC(dev);
+diff --git a/include/hw/intc/loongarch_pch_pic.h b/include/hw/intc/loongarch_pch_pic.h
+index 4b52f1165f2e..a46b6f8985db 100644
+--- a/include/hw/intc/loongarch_pch_pic.h
++++ b/include/hw/intc/loongarch_pch_pic.h
+@@ -27,5 +27,7 @@ struct LoongarchPICClass {
+ };
+ 
+ void kvm_pic_realize(DeviceState *dev, Error **errp);
++int kvm_pic_get(void *opaque);
++int kvm_pic_put(void *opaque, int version_id);
+ 
+ #endif /* HW_LOONGARCH_PCH_PIC_H */
+diff --git a/include/hw/intc/loongarch_pic_common.h b/include/hw/intc/loongarch_pic_common.h
+index 9349a055d0a6..f774c975d405 100644
+--- a/include/hw/intc/loongarch_pic_common.h
++++ b/include/hw/intc/loongarch_pic_common.h
+@@ -23,6 +23,7 @@
+ #define PCH_PIC_ROUTE_ENTRY_END         0x13f
+ #define PCH_PIC_HTMSI_VEC               0x200
+ #define PCH_PIC_HTMSI_VEC_END           0x23f
++#define PCH_PIC_INT_REQUEST             0x380
+ #define PCH_PIC_INT_STATUS              0x3a0
+ #define PCH_PIC_INT_POL                 0x3e0
+ 
+-- 
+2.51.0
+

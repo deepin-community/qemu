@@ -1,0 +1,118 @@
+From a71b2bb4130f6f8de3ac389fbd4ef88d32e26cc0 Mon Sep 17 00:00:00 2001
+From: Bibo Mao <maobibo@loongson.cn>
+Date: Fri, 17 Oct 2025 14:45:20 +0800
+Subject: [PATCH 255/285] hw/loongarch/virt: Get PCI info from gpex config info
+
+PCIE host bridge configuration information such as MMIO/Conf/IO base
+and size can come from gpex config info.
+
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+Reviewed-by: Song Gao <gaosong@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ hw/loongarch/virt-acpi-build.c |  4 ++--
+ hw/loongarch/virt-fdt-build.c  | 14 +++++++-------
+ hw/loongarch/virt.c            | 16 +++++++++-------
+ 3 files changed, 18 insertions(+), 16 deletions(-)
+
+diff --git a/hw/loongarch/virt-acpi-build.c b/hw/loongarch/virt-acpi-build.c
+index 02021f862903..5ffae3a9cd10 100644
+--- a/hw/loongarch/virt-acpi-build.c
++++ b/hw/loongarch/virt-acpi-build.c
+@@ -566,8 +566,8 @@ static void acpi_build(AcpiBuildTables *tables, MachineState *machine)
+     acpi_add_table(table_offsets, tables_blob);
+     {
+         AcpiMcfgInfo mcfg = {
+-           .base = VIRT_PCI_CFG_BASE,
+-           .size = VIRT_PCI_CFG_SIZE,
++           .base = lvms->gpex.ecam.base,
++           .size = lvms->gpex.ecam.size,
+         };
+         build_mcfg(tables_blob, tables->linker, &mcfg, lvms->oem_id,
+                    lvms->oem_table_id);
+diff --git a/hw/loongarch/virt-fdt-build.c b/hw/loongarch/virt-fdt-build.c
+index a699656dd4a1..a8b82a801083 100644
+--- a/hw/loongarch/virt-fdt-build.c
++++ b/hw/loongarch/virt-fdt-build.c
+@@ -366,12 +366,12 @@ static void fdt_add_pcie_node(const LoongArchVirtMachineState *lvms,
+                               uint32_t *pch_msi_phandle)
+ {
+     char *nodename;
+-    hwaddr base_mmio = VIRT_PCI_MEM_BASE;
+-    hwaddr size_mmio = VIRT_PCI_MEM_SIZE;
+-    hwaddr base_pio = VIRT_PCI_IO_BASE;
+-    hwaddr size_pio = VIRT_PCI_IO_SIZE;
+-    hwaddr base_pcie = VIRT_PCI_CFG_BASE;
+-    hwaddr size_pcie = VIRT_PCI_CFG_SIZE;
++    hwaddr base_mmio = lvms->gpex.mmio64.base;
++    hwaddr size_mmio = lvms->gpex.mmio64.size;
++    hwaddr base_pio = lvms->gpex.pio.base;
++    hwaddr size_pio = lvms->gpex.pio.size;
++    hwaddr base_pcie = lvms->gpex.ecam.base;
++    hwaddr size_pcie = lvms->gpex.ecam.size;
+     hwaddr base = base_pcie;
+     const MachineState *ms = MACHINE(lvms);
+ 
+@@ -384,7 +384,7 @@ static void fdt_add_pcie_node(const LoongArchVirtMachineState *lvms,
+     qemu_fdt_setprop_cell(ms->fdt, nodename, "#size-cells", 2);
+     qemu_fdt_setprop_cell(ms->fdt, nodename, "linux,pci-domain", 0);
+     qemu_fdt_setprop_cells(ms->fdt, nodename, "bus-range", 0,
+-                           PCIE_MMCFG_BUS(VIRT_PCI_CFG_SIZE - 1));
++                           PCIE_MMCFG_BUS(size_pcie - 1));
+     qemu_fdt_setprop(ms->fdt, nodename, "dma-coherent", NULL, 0);
+     qemu_fdt_setprop_sized_cells(ms->fdt, nodename, "reg",
+                                  2, base_pcie, 2, size_pcie);
+diff --git a/hw/loongarch/virt.c b/hw/loongarch/virt.c
+index 9916538f62af..52ba039cae85 100644
+--- a/hw/loongarch/virt.c
++++ b/hw/loongarch/virt.c
+@@ -289,6 +289,7 @@ static void virt_devices_init(DeviceState *pch_pic,
+     PCIBus *pci_bus;
+     MemoryRegion *ecam_alias, *ecam_reg, *pio_alias, *pio_reg;
+     MemoryRegion *mmio_alias, *mmio_reg;
++    hwaddr mmio_base, mmio_size;
+     int i, irq;
+ 
+     gpex_dev = qdev_new(TYPE_GPEX_HOST);
+@@ -303,29 +304,30 @@ static void virt_devices_init(DeviceState *pch_pic,
+     lvms->gpex.ecam.size = VIRT_PCI_CFG_SIZE;
+     lvms->gpex.irq = VIRT_GSI_BASE + VIRT_DEVICE_IRQS;
+     lvms->gpex.bus = pci_bus;
++    mmio_base = lvms->gpex.mmio64.base;
++    mmio_size = lvms->gpex.mmio64.size;
+ 
+     /* Map only part size_ecam bytes of ECAM space */
+     ecam_alias = g_new0(MemoryRegion, 1);
+     ecam_reg = sysbus_mmio_get_region(d, 0);
+     memory_region_init_alias(ecam_alias, OBJECT(gpex_dev), "pcie-ecam",
+-                             ecam_reg, 0, VIRT_PCI_CFG_SIZE);
+-    memory_region_add_subregion(get_system_memory(), VIRT_PCI_CFG_BASE,
++                             ecam_reg, 0, lvms->gpex.ecam.size);
++    memory_region_add_subregion(get_system_memory(), lvms->gpex.ecam.base,
+                                 ecam_alias);
+ 
+     /* Map PCI mem space */
+     mmio_alias = g_new0(MemoryRegion, 1);
+     mmio_reg = sysbus_mmio_get_region(d, 1);
+     memory_region_init_alias(mmio_alias, OBJECT(gpex_dev), "pcie-mmio",
+-                             mmio_reg, VIRT_PCI_MEM_BASE, VIRT_PCI_MEM_SIZE);
+-    memory_region_add_subregion(get_system_memory(), VIRT_PCI_MEM_BASE,
+-                                mmio_alias);
++                             mmio_reg, mmio_base, mmio_size);
++    memory_region_add_subregion(get_system_memory(), mmio_base, mmio_alias);
+ 
+     /* Map PCI IO port space. */
+     pio_alias = g_new0(MemoryRegion, 1);
+     pio_reg = sysbus_mmio_get_region(d, 2);
+     memory_region_init_alias(pio_alias, OBJECT(gpex_dev), "pcie-io", pio_reg,
+-                             VIRT_PCI_IO_OFFSET, VIRT_PCI_IO_SIZE);
+-    memory_region_add_subregion(get_system_memory(), VIRT_PCI_IO_BASE,
++                             VIRT_PCI_IO_OFFSET, lvms->gpex.pio.size);
++    memory_region_add_subregion(get_system_memory(), lvms->gpex.pio.base,
+                                 pio_alias);
+ 
+     for (i = 0; i < PCI_NUM_PINS; i++) {
+-- 
+2.51.0
+

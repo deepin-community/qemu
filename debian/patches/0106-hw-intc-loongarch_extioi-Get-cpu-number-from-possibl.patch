@@ -1,0 +1,83 @@
+From 880d9cd924f6f210cdd2b7476d1458cb1a9c09ac Mon Sep 17 00:00:00 2001
+From: Bibo Mao <maobibo@loongson.cn>
+Date: Mon, 6 Jan 2025 15:36:25 +0800
+Subject: [PATCH 106/285] hw/intc/loongarch_extioi: Get cpu number from
+ possible_cpu_arch_ids
+
+Supported CPU number can be acquired from function
+possible_cpu_arch_ids(), cpu-num property is not necessary.
+
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+Reviewed-by: Bibo Mao <maobibo@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ hw/intc/loongarch_extioi.c                |  6 ------
+ hw/intc/loongarch_extioi_common.c         | 17 +++++++++++++++--
+ include/hw/intc/loongarch_extioi_common.h |  2 ++
+ 3 files changed, 17 insertions(+), 8 deletions(-)
+
+diff --git a/hw/intc/loongarch_extioi.c b/hw/intc/loongarch_extioi.c
+index e59abb165bb6..0877082bc3c7 100644
+--- a/hw/intc/loongarch_extioi.c
++++ b/hw/intc/loongarch_extioi.c
+@@ -386,12 +386,6 @@ static void loongarch_extioi_realize(DeviceState *dev, Error **errp)
+         s->status |= BIT(EXTIOI_ENABLE);
+     }
+ 
+-    s->cpu = g_new0(ExtIOICore, s->num_cpu);
+-    if (s->cpu == NULL) {
+-        error_setg(errp, "Memory allocation for ExtIOICore faile");
+-        return;
+-    }
+-
+     for (i = 0; i < s->num_cpu; i++) {
+         for (pin = 0; pin < LS3A_INTC_IP; pin++) {
+             qdev_init_gpio_out(dev, &s->cpu[i].parent_irq[pin], 1);
+diff --git a/hw/intc/loongarch_extioi_common.c b/hw/intc/loongarch_extioi_common.c
+index 5edec8cd55d6..dabf3b8d2605 100644
+--- a/hw/intc/loongarch_extioi_common.c
++++ b/hw/intc/loongarch_extioi_common.c
+@@ -13,11 +13,24 @@
+ static void loongarch_extioi_common_realize(DeviceState *dev, Error **errp)
+ {
+     LoongArchExtIOICommonState *s = (LoongArchExtIOICommonState *)dev;
++    MachineState *machine = MACHINE(qdev_get_machine());
++    MachineClass *mc = MACHINE_GET_CLASS(machine);
++    const CPUArchIdList *id_list;
++    int i;
+ 
+-    if (s->num_cpu == 0) {
+-        error_setg(errp, "num-cpu must be at least 1");
++    assert(mc->possible_cpu_arch_ids);
++    id_list = mc->possible_cpu_arch_ids(machine);
++    s->num_cpu = id_list->len;
++    s->cpu = g_new0(ExtIOICore, s->num_cpu);
++    if (s->cpu == NULL) {
++        error_setg(errp, "Memory allocation for ExtIOICore faile");
+         return;
+     }
++
++    for (i = 0; i < s->num_cpu; i++) {
++        s->cpu[i].arch_id = id_list->cpus[i].arch_id;
++        s->cpu[i].cpu = CPU(id_list->cpus[i].cpu);
++    }
+ }
+ 
+ static int loongarch_extioi_common_pre_save(void *opaque)
+diff --git a/include/hw/intc/loongarch_extioi_common.h b/include/hw/intc/loongarch_extioi_common.h
+index e1eb31368e41..17b739687a47 100644
+--- a/include/hw/intc/loongarch_extioi_common.h
++++ b/include/hw/intc/loongarch_extioi_common.h
+@@ -66,6 +66,8 @@ typedef struct ExtIOICore {
+     uint32_t coreisr[EXTIOI_IRQS_GROUP_COUNT];
+     DECLARE_BITMAP(sw_isr[LS3A_INTC_IP], EXTIOI_IRQS);
+     qemu_irq parent_irq[LS3A_INTC_IP];
++    uint64_t arch_id;
++    CPUState *cpu;
+ } ExtIOICore;
+ 
+ struct LoongArchExtIOICommonState {
+-- 
+2.51.0
+

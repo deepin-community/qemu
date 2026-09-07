@@ -1,0 +1,83 @@
+From fdeed16d6322fcffda0ab433efa521ad30a179a5 Mon Sep 17 00:00:00 2001
+From: Song Gao <gaosong@loongson.cn>
+Date: Tue, 16 Sep 2025 20:21:05 +0800
+Subject: [PATCH 233/285] hw/loongarch: Implement dintc realize and unrealize
+
+Implement th DINTC realize and unrealize.
+
+Signed-off-by: Song Gao <gaosong@loongson.cn>
+Reviewed-by: Bibo Mao <maobibo@loongson.cn>
+Message-ID: <20250916122109.749813-8-gaosong@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ hw/intc/loongarch_dintc.c | 23 ++++++++++++++++++++++-
+ target/loongarch/cpu.h    |  3 ++-
+ 2 files changed, 24 insertions(+), 2 deletions(-)
+
+diff --git a/hw/intc/loongarch_dintc.c b/hw/intc/loongarch_dintc.c
+index 656d329ba784..a96d84bf76dc 100644
+--- a/hw/intc/loongarch_dintc.c
++++ b/hw/intc/loongarch_dintc.c
+@@ -38,7 +38,12 @@ static const MemoryRegionOps loongarch_dintc_ops = {
+ 
+ static void loongarch_dintc_realize(DeviceState *dev, Error **errp)
+ {
++    LoongArchDINTCState *s = LOONGARCH_DINTC(dev);
+     LoongArchDINTCClass *lac = LOONGARCH_DINTC_GET_CLASS(dev);
++    MachineState *machine = MACHINE(qdev_get_machine());
++    MachineClass *mc = MACHINE_GET_CLASS(machine);
++    const CPUArchIdList  *id_list;
++    int i;
+ 
+     Error *local_err = NULL;
+     lac->parent_realize(dev, &local_err);
+@@ -47,12 +52,28 @@ static void loongarch_dintc_realize(DeviceState *dev, Error **errp)
+         return;
+     }
+ 
++    assert(mc->possible_cpu_arch_ids);
++    id_list = mc->possible_cpu_arch_ids(machine);
++    s->num_cpu = id_list->len;
++    s->cpu = g_new(DINTCCore, s->num_cpu);
++    if (s->cpu == NULL) {
++        error_setg(errp, "Memory allocation for DINTCCore fail");
++        return;
++    }
++
++    for (i = 0; i < s->num_cpu; i++) {
++        s->cpu[i].arch_id = id_list->cpus[i].arch_id;
++        s->cpu[i].cpu = CPU(id_list->cpus[i].cpu);
++        qdev_init_gpio_out(dev, &s->cpu[i].parent_irq, 1);
++    }
++
+     return;
+ }
+ 
+ static void loongarch_dintc_unrealize(DeviceState *dev)
+ {
+-    return;
++    LoongArchDINTCState *s = LOONGARCH_DINTC(dev);
++    g_free(s->cpu);
+ }
+ 
+ static void loongarch_dintc_init(Object *obj)
+diff --git a/target/loongarch/cpu.h b/target/loongarch/cpu.h
+index 9415b3bb6c39..772412045476 100644
+--- a/target/loongarch/cpu.h
++++ b/target/loongarch/cpu.h
+@@ -218,9 +218,10 @@ FIELD(CSR_CRMD, WE, 9, 1)
+ extern const char * const regnames[32];
+ extern const char * const fregnames[32];
+ 
+-#define N_IRQS      13
++#define N_IRQS      15
+ #define IRQ_TIMER   11
+ #define IRQ_IPI     12
++#define INT_DMSI    14
+ 
+ #define LOONGARCH_STLB         2048 /* 2048 STLB */
+ #define LOONGARCH_MTLB         64   /* 64 MTLB */
+-- 
+2.51.0
+

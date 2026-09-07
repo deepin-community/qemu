@@ -1,0 +1,37 @@
+From 9c0e6fc99e89cc8cf31ea2b153c1c76459a52bc0 Mon Sep 17 00:00:00 2001
+From: Bibo Mao <maobibo@loongson.cn>
+Date: Mon, 19 Jan 2026 18:07:00 +0800
+Subject: [PATCH 266/285] target/loongarch: Add missing vCPU features with QMP
+ method
+
+Feature msgint and ptw is missing with QMP method, such as:
+  query-cpu-model-expansion type=static model={"name":"max"}
+
+Here add missing features in cpu_model_advertised_features array.
+
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+Reviewed-by: Song Gao <gaosong@loongson.cn>
+Signed-off-by: Song Gao <gaosong@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ target/loongarch/loongarch-qmp-cmds.c | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/target/loongarch/loongarch-qmp-cmds.c b/target/loongarch/loongarch-qmp-cmds.c
+index 447d98846fad..e41f3010a34a 100644
+--- a/target/loongarch/loongarch-qmp-cmds.c
++++ b/target/loongarch/loongarch-qmp-cmds.c
+@@ -41,7 +41,8 @@ CpuDefinitionInfoList *qmp_query_cpu_definitions(Error **errp)
+ }
+ 
+ static const char *cpu_model_advertised_features[] = {
+-    "lsx", "lasx", "lbt", "pmu", "kvm-pv-ipi", "kvm-steal-time", NULL
++    "lsx", "lasx", "lbt", "pmu", "kvm-pv-ipi", "kvm-steal-time", "msgint",
++    "ptw", NULL
+ };
+ 
+ CpuModelExpansionInfo *qmp_query_cpu_model_expansion(CpuModelExpansionType type,
+-- 
+2.51.0
+

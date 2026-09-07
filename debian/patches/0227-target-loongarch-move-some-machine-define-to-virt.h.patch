@@ -1,0 +1,82 @@
+From 1e857e8510cb5f6864b03100d572b63d8cb07f6d Mon Sep 17 00:00:00 2001
+From: Song Gao <gaosong@loongson.cn>
+Date: Tue, 16 Sep 2025 20:20:59 +0800
+Subject: [PATCH 227/285] target/loongarch: move some machine define to virt.h
+
+move some machine define to virt.h
+
+Signed-off-by: Song Gao <gaosong@loongson.cn>
+Reviewed-by: Bibo Mao <maobibo@loongson.cn>
+Message-ID: <20250916122109.749813-2-gaosong@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ include/hw/loongarch/virt.h | 19 +++++++++++++++++++
+ target/loongarch/cpu.h      | 21 ---------------------
+ 2 files changed, 19 insertions(+), 21 deletions(-)
+
+diff --git a/include/hw/loongarch/virt.h b/include/hw/loongarch/virt.h
+index 95802b544c5b..296a1cc0a0ee 100644
+--- a/include/hw/loongarch/virt.h
++++ b/include/hw/loongarch/virt.h
+@@ -13,6 +13,25 @@
+ #include "hw/block/flash.h"
+ #include "hw/loongarch/boot.h"
+ 
++#define IOCSRF_TEMP             0
++#define IOCSRF_NODECNT          1
++#define IOCSRF_MSI              2
++#define IOCSRF_EXTIOI           3
++#define IOCSRF_CSRIPI           4
++#define IOCSRF_FREQCSR          5
++#define IOCSRF_FREQSCALE        6
++#define IOCSRF_DVFSV1           7
++#define IOCSRF_GMOD             9
++#define IOCSRF_VM               11
++
++#define VERSION_REG             0x0
++#define FEATURE_REG             0x8
++#define VENDOR_REG              0x10
++#define CPUNAME_REG             0x20
++#define MISC_FUNC_REG           0x420
++#define IOCSRM_EXTIOI_EN        48
++#define IOCSRM_EXTIOI_INT_ENCODE 49
++
+ #define LOONGARCH_MAX_CPUS      256
+ 
+ #define VIRT_FWCFG_BASE         0x1e020000UL
+diff --git a/target/loongarch/cpu.h b/target/loongarch/cpu.h
+index 3611d8e761f3..2d0239c259b5 100644
+--- a/target/loongarch/cpu.h
++++ b/target/loongarch/cpu.h
+@@ -20,27 +20,6 @@
+ #include "cpu-qom.h"
+ #include "qapi/qapi-types-common.h"
+ 
+-#define IOCSRF_TEMP             0
+-#define IOCSRF_NODECNT          1
+-#define IOCSRF_MSI              2
+-#define IOCSRF_EXTIOI           3
+-#define IOCSRF_CSRIPI           4
+-#define IOCSRF_FREQCSR          5
+-#define IOCSRF_FREQSCALE        6
+-#define IOCSRF_DVFSV1           7
+-#define IOCSRF_GMOD             9
+-#define IOCSRF_VM               11
+-
+-#define VERSION_REG             0x0
+-#define FEATURE_REG             0x8
+-#define VENDOR_REG              0x10
+-#define CPUNAME_REG             0x20
+-#define MISC_FUNC_REG           0x420
+-#define IOCSRM_EXTIOI_EN        48
+-#define IOCSRM_EXTIOI_INT_ENCODE  49
+-
+-#define IOCSR_MEM_SIZE          0x428
+-
+ #define TCG_GUEST_DEFAULT_MO (0)
+ 
+ #define FCSR0_M1    0x1f         /* FCSR1 mask, Enables */
+-- 
+2.51.0
+

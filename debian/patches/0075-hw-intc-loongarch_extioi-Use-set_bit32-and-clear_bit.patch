@@ -1,0 +1,156 @@
+From 7fc19200357d81deb4c06e676c7d6da345b554c1 Mon Sep 17 00:00:00 2001
+From: Peter Maydell <peter.maydell@linaro.org>
+Date: Tue, 19 Nov 2024 13:02:07 +0000
+Subject: [PATCH 075/285] hw/intc/loongarch_extioi: Use set_bit32() and
+ clear_bit32() for s->isr
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+In extioi_setirq() we try to operate on a bit array stored as an
+array of uint32_t using the set_bit() and clear_bit() functions
+by casting the pointer to 'unsigned long *'.
+This has two problems:
+ * the alignment of 'uint32_t' is less than that of 'unsigned long'
+   so we pass an insufficiently aligned pointer, which is
+   undefined behaviour
+ * on big-endian hosts the 64-bit 'unsigned long' will have
+   its two halves the wrong way around, and we will produce
+   incorrect results
+
+The undefined behaviour is shown by the clang undefined-behaviour
+sanitizer when running the loongarch64-virt functional test:
+
+/mnt/nvmedisk/linaro/qemu-from-laptop/qemu/include/qemu/bitops.h:41:5: runtime error: store to misaligned address 0x555559745d9c for type 'unsigned long', which requires 8 byte alignment
+0x555559745d9c: note: pointer points here
+  ff ff ff ff 00 00 00 00  00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 00
+              ^
+    #0 0x555556fb81c4 in set_bit /mnt/nvmedisk/linaro/qemu-from-laptop/qemu/include/qemu/bitops.h:41:9
+    #1 0x555556fb81c4 in extioi_setirq /mnt/nvmedisk/linaro/qemu-from-laptop/qemu/build/clang/../../hw/intc/loongarch_extioi.c:65:9
+    #2 0x555556fb6e90 in pch_pic_irq_handler /mnt/nvmedisk/linaro/qemu-from-laptop/qemu/build/clang/../../hw/intc/loongarch_pch_pic.c:75:5
+    #3 0x555556710265 in serial_ioport_write /mnt/nvmedisk/linaro/qemu-from-laptop/qemu/build/clang/../../hw/char/serial.c
+
+Fix these problems by using set_bit32() and clear_bit32(),
+which work with bit arrays stored as an array of uint32_t.
+
+Cc: qemu-stable@nongnu.org
+Fixes: cbff2db1e92f8759 ("hw/intc: Add LoongArch extioi interrupt controller(EIOINTC)")
+Signed-off-by: Peter Maydell <peter.maydell@linaro.org>
+Reviewed-by: Philippe Mathieu-Daudé <philmd@linaro.org>
+Reviewed-by: Bibo Mao <maobibo@loongson.cn>
+Message-id: 20241108135514.4006953-4-peter.maydell@linaro.org
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ hw/intc/loongarch_extioi.c | 57 ++++++++++++++++++++++++++++++--------
+ 1 file changed, 46 insertions(+), 11 deletions(-)
+
+diff --git a/hw/intc/loongarch_extioi.c b/hw/intc/loongarch_extioi.c
+index fa23e247ca33..87dcb31955cb 100644
+--- a/hw/intc/loongarch_extioi.c
++++ b/hw/intc/loongarch_extioi.c
+@@ -18,6 +18,45 @@
+ #include "migration/vmstate.h"
+ #include "trace.h"
+ 
++#define BIT32_MASK(nr)            (1UL << ((nr) % 32))
++#define BIT32_WORD(nr)            ((nr) / 32)
++
++/**
++ * test_bit32 - Determine whether a bit is set
++ * @nr: bit number to test
++ * @addr: Address to start counting from
++ */
++static inline int test_bit32(long nr, const uint32_t *addr)
++{
++    return 1U & (addr[BIT32_WORD(nr)] >> (nr & 31));
++}
++
++/**
++ * set_bit32 - Set a bit in memory
++ * @nr: the bit to set
++ * @addr: the address to start counting from
++ */
++static inline void set_bit32(long nr, uint32_t *addr)
++{
++    uint32_t mask = BIT32_MASK(nr);
++    uint32_t *p = addr + BIT32_WORD(nr);
++
++    *p  |= mask;
++}
++
++/**
++ * clear_bit32 - Clears a bit in memory
++ * @nr: Bit to clear
++ * @addr: Address to start counting from
++ */
++static inline void clear_bit32(long nr, uint32_t *addr)
++{
++    uint32_t mask = BIT32_MASK(nr);
++    uint32_t *p = addr + BIT32_WORD(nr);
++
++    *p &= ~mask;
++}
++
+ 
+ static void extioi_update_irq(LoongArchExtIOI *s, int irq, int level)
+ {
+@@ -57,14 +96,9 @@ static void extioi_setirq(void *opaque, int irq, int level)
+     LoongArchExtIOI *s = LOONGARCH_EXTIOI(opaque);
+     trace_loongarch_extioi_setirq(irq, level);
+     if (level) {
+-        /*
+-         * s->isr should be used in vmstate structure,
+-         * but it not support 'unsigned long',
+-         * so we have to switch it.
+-         */
+-        set_bit(irq, (unsigned long *)s->isr);
++        set_bit32(irq, s->isr);
+     } else {
+-        clear_bit(irq, (unsigned long *)s->isr);
++        clear_bit32(irq, s->isr);
+     }
+     extioi_update_irq(s, irq, level);
+ }
+@@ -143,17 +177,18 @@ static inline void extioi_update_sw_coremap(LoongArchExtIOI *s, int irq,
+ 
+     for (i = 0; i < 4; i++) {
+         cpu = val & 0xff;
++        val = val >> 8;
++
+ 	if (!(s->status & BIT(EXTIOI_ENABLE_CPU_ENCODE))) {
+             cpu = ctz32(cpu);
+             cpu = (cpu >= 4) ? 0 : cpu;
+         }
+-        val = val >> 8;
+ 
+         if (s->sw_coremap[irq + i] == cpu) {
+             continue;
+         }
+ 
+-        if (notify && test_bit(irq + i, (unsigned long *)s->isr)) {
++        if (notify && test_bit32(irq + i, s->isr)) {
+             /*
+              * lower irq at old cpu and raise irq at new cpu
+              */
+@@ -280,7 +315,7 @@ static MemTxResult extioi_virt_readw(void *opaque, hwaddr addr, uint64_t *data,
+         *data = s->status;
+         break;
+     default:
+-        break;
++        g_assert_not_reached();
+     }
+ 
+     return MEMTX_OK;
+@@ -307,7 +342,7 @@ static MemTxResult extioi_virt_writew(void *opaque, hwaddr addr,
+         s->status = val & s->features;
+         break;
+     default:
+-        break;
++        g_assert_not_reached();
+     }
+     return MEMTX_OK;
+ }
+-- 
+2.51.0
+

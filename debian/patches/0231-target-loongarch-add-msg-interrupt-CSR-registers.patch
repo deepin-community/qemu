@@ -1,0 +1,114 @@
+From 117cd9ed72e89984059787848195fc3f5f71f369 Mon Sep 17 00:00:00 2001
+From: Song Gao <gaosong@loongson.cn>
+Date: Tue, 16 Sep 2025 20:21:03 +0800
+Subject: [PATCH 231/285] target/loongarch: add msg interrupt CSR registers
+
+include CSR_MSGIS0-3, CSR_MSGIR and CSR_MSGIE.
+
+Reviewed-by: Bibo Mao <maobibo@loongson.cn>
+Signed-off-by: Song Gao <gaosong@loongson.cn>
+Message-ID: <20250916122109.749813-6-gaosong@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ target/loongarch/cpu-csr.h |  3 +++
+ target/loongarch/cpu.h     | 11 +++++++++++
+ target/loongarch/machine.c | 25 +++++++++++++++++++++++--
+ 3 files changed, 37 insertions(+), 2 deletions(-)
+
+diff --git a/target/loongarch/cpu-csr.h b/target/loongarch/cpu-csr.h
+index 0834e91f30e3..479267708617 100644
+--- a/target/loongarch/cpu-csr.h
++++ b/target/loongarch/cpu-csr.h
+@@ -186,6 +186,9 @@ FIELD(CSR_MERRCTL, ISMERR, 0, 1)
+ 
+ #define LOONGARCH_CSR_CTAG           0x98 /* TagLo + TagHi */
+ 
++#define LOONGARCH_CSR_MSGIS(N)       (0xa0 + N)
++#define LOONGARCH_CSR_MSGIR               0xa4
++
+ /* Direct map windows CSRs*/
+ #define LOONGARCH_CSR_DMW(N)         (0x180 + N)
+ FIELD(CSR_DMW, PLV0, 0, 1)
+diff --git a/target/loongarch/cpu.h b/target/loongarch/cpu.h
+index 127cbebc9484..9415b3bb6c39 100644
+--- a/target/loongarch/cpu.h
++++ b/target/loongarch/cpu.h
+@@ -234,6 +234,13 @@ FIELD(TLB_MISC, ASID, 1, 10)
+ FIELD(TLB_MISC, VPPN, 13, 35)
+ FIELD(TLB_MISC, PS, 48, 6)
+ 
++/*Msg interrupt registers */
++#define N_MSGIS                4
++FIELD(CSR_MSGIS, IS, 0, 63)
++FIELD(CSR_MSGIR, INTNUM, 0, 8)
++FIELD(CSR_MSGIR, ACTIVE, 31, 1)
++FIELD(CSR_MSGIE, PT, 0, 8)
++
+ #define LSX_LEN    (128)
+ #define LASX_LEN   (256)
+ 
+@@ -351,6 +358,10 @@ typedef struct CPUArchState {
+     uint64_t CSR_DBG;
+     uint64_t CSR_DERA;
+     uint64_t CSR_DSAVE;
++    /* Msg interrupt registers */
++    uint64_t CSR_MSGIS[N_MSGIS];
++    uint64_t CSR_MSGIR;
++    uint64_t CSR_MSGIE;
+     struct {
+         uint64_t guest_addr;
+     } stealtime;
+diff --git a/target/loongarch/machine.c b/target/loongarch/machine.c
+index 818aa71a8b59..f81b6632a067 100644
+--- a/target/loongarch/machine.c
++++ b/target/loongarch/machine.c
+@@ -45,6 +45,26 @@ static const VMStateDescription vmstate_fpu = {
+     },
+ };
+ 
++static bool msgint_needed(void *opaque)
++{
++    LoongArchCPU *cpu = opaque;
++
++    return FIELD_EX64(cpu->env.cpucfg[1], CPUCFG1, MSG_INT);
++}
++
++static const VMStateDescription vmstate_msgint = {
++    .name = "cpu/msgint",
++    .version_id = 1,
++    .minimum_version_id = 1,
++    .needed = msgint_needed,
++    .fields = (const VMStateField[]) {
++        VMSTATE_UINT64_ARRAY(env.CSR_MSGIS, LoongArchCPU, N_MSGIS),
++        VMSTATE_UINT64(env.CSR_MSGIR, LoongArchCPU),
++        VMSTATE_UINT64(env.CSR_MSGIE, LoongArchCPU),
++        VMSTATE_END_OF_LIST()
++    },
++};
++
+ static const VMStateDescription vmstate_lsxh_reg = {
+     .name = "lsxh_reg",
+     .version_id = 1,
+@@ -169,8 +189,8 @@ static const VMStateDescription vmstate_tlb = {
+ /* LoongArch CPU state */
+ const VMStateDescription vmstate_loongarch_cpu = {
+     .name = "cpu",
+-    .version_id = 3,
+-    .minimum_version_id = 3,
++    .version_id = 4,
++    .minimum_version_id = 4,
+     .fields = (VMStateField[]) {
+         VMSTATE_UINTTL_ARRAY(env.gpr, LoongArchCPU, 32),
+         VMSTATE_UINTTL(env.pc, LoongArchCPU),
+@@ -246,6 +266,7 @@ const VMStateDescription vmstate_loongarch_cpu = {
+         &vmstate_tlb,
+ #endif
+         &vmstate_lbt,
++        &vmstate_msgint,
+         NULL
+     }
+ };
+-- 
+2.51.0
+

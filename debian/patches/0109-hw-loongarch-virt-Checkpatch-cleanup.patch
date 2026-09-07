@@ -1,0 +1,98 @@
+From b8027d4154baaa9b5b419791f587aff02c964007 Mon Sep 17 00:00:00 2001
+From: Bibo Mao <maobibo@loongson.cn>
+Date: Fri, 3 Jan 2025 14:45:14 +0800
+Subject: [PATCH 109/285] hw/loongarch/virt: Checkpatch cleanup
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Code cleanup with directory hw/loongarch/, removing errors from
+command "scripts/checkpatch.pl hw/loongarch/*"
+
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+Reviewed-by: Philippe Mathieu-Daudé <philmd@linaro.org>
+Message-ID: <20250103064514.2660438-1-maobibo@loongson.cn>
+Signed-off-by: Philippe Mathieu-Daudé <philmd@linaro.org>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ hw/loongarch/acpi-build.c | 3 ++-
+ hw/loongarch/boot.c       | 4 ++--
+ hw/loongarch/virt.c       | 8 +++++---
+ 3 files changed, 9 insertions(+), 6 deletions(-)
+
+diff --git a/hw/loongarch/acpi-build.c b/hw/loongarch/acpi-build.c
+index 0b46e31a6adc..e751c972fabb 100644
+--- a/hw/loongarch/acpi-build.c
++++ b/hw/loongarch/acpi-build.c
+@@ -487,8 +487,9 @@ build_dsdt(GArray *table_data, BIOSLinker *linker, MachineState *machine)
+ 
+     acpi_table_begin(&table, table_data);
+     dsdt = init_aml_allocator();
+-    for (i = 0; i < VIRT_UART_COUNT; i++)
++    for (i = 0; i < VIRT_UART_COUNT; i++) {
+         build_uart_device_aml(dsdt, i);
++    }
+     build_pci_device_aml(dsdt, lvms);
+     build_la_ged_aml(dsdt, machine);
+     build_flash_aml(dsdt, lvms);
+diff --git a/hw/loongarch/boot.c b/hw/loongarch/boot.c
+index 747fe39626bc..d2b26b7d35a0 100644
+--- a/hw/loongarch/boot.c
++++ b/hw/loongarch/boot.c
+@@ -327,7 +327,7 @@ void reset_load_elf(void *opaque)
+ 
+     cpu_reset(CPU(cpu));
+     if (env->load_elf) {
+-	if (cpu == LOONGARCH_CPU(first_cpu)) {
++        if (cpu == LOONGARCH_CPU(first_cpu)) {
+             env->gpr[4] = env->boot_info->a0;
+             env->gpr[5] = env->boot_info->a1;
+             env->gpr[6] = env->boot_info->a2;
+@@ -389,7 +389,7 @@ static void loongarch_direct_kernel_boot(struct loongarch_boot_info *info)
+     if (info->kernel_filename) {
+         kernel_addr = load_kernel_info(info);
+     } else {
+-        if(!qtest_enabled()) {
++        if (!qtest_enabled()) {
+             warn_report("No kernel provided, booting from flash drive.");
+         }
+     }
+diff --git a/hw/loongarch/virt.c b/hw/loongarch/virt.c
+index 02d31d716c5a..21fb239acacc 100644
+--- a/hw/loongarch/virt.c
++++ b/hw/loongarch/virt.c
+@@ -337,8 +337,9 @@ static void fdt_add_uart_node(LoongArchVirtMachineState *lvms,
+     qemu_fdt_setprop_string(ms->fdt, nodename, "compatible", "ns16550a");
+     qemu_fdt_setprop_cells(ms->fdt, nodename, "reg", 0x0, base, 0x0, size);
+     qemu_fdt_setprop_cell(ms->fdt, nodename, "clock-frequency", 100000000);
+-    if (chosen)
++    if (chosen) {
+         qemu_fdt_setprop_string(ms->fdt, "/chosen", "stdout-path", nodename);
++    }
+     qemu_fdt_setprop_cells(ms->fdt, nodename, "interrupts", irq, FDT_IRQ_FLAGS_LEVEL_HI);
+     qemu_fdt_setprop_cell(ms->fdt, nodename, "interrupt-parent",
+                           *pch_pic_phandle);
+@@ -829,7 +830,7 @@ static void virt_devices_init(DeviceState *pch_pic,
+      * Create uart fdt node in reverse order so that they appear
+      * in the finished device tree lowest address first
+      */
+-    for (i = VIRT_UART_COUNT; i --> 0;) {
++    for (i = VIRT_UART_COUNT; i-- > 0;) {
+         hwaddr base = VIRT_UART_BASE + i * VIRT_UART_SIZE;
+         int irq = VIRT_UART_IRQ + i - VIRT_GSI_BASE;
+         serial_mm_init(get_system_memory(), base, 0,
+@@ -1220,8 +1221,9 @@ static void fw_cfg_add_memory(MachineState *ms)
+         size = ram_size - numa_info[0].node_mem;
+     }
+ 
+-   if (size)
++    if (size) {
+         memmap_add_entry(base, size, 1);
++    }
+ }
+ 
+ static void virt_init(MachineState *machine)
+-- 
+2.51.0
+

@@ -1,0 +1,71 @@
+From a608c1a3d91579382c6b16621d985fc670012d6e Mon Sep 17 00:00:00 2001
+From: Bibo Mao <maobibo@loongson.cn>
+Date: Fri, 10 Jan 2025 16:29:47 +0800
+Subject: [PATCH 139/285] hw/intc/loongarch_extioi: Move gpio irq initial to
+ common code
+
+When cpu is added, it will connect gpio irq line to cpu irq.
+And cpu hot-add is put in common code, move gpio irq initial
+part into common code.
+
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ hw/intc/loongarch_extioi.c        | 8 +-------
+ hw/intc/loongarch_extioi_common.c | 6 +++++-
+ 2 files changed, 6 insertions(+), 8 deletions(-)
+
+diff --git a/hw/intc/loongarch_extioi.c b/hw/intc/loongarch_extioi.c
+index 5cc987f00a1f..9d7e63ee08a9 100644
+--- a/hw/intc/loongarch_extioi.c
++++ b/hw/intc/loongarch_extioi.c
+@@ -382,7 +382,7 @@ static void loongarch_extioi_realize(DeviceState *dev, Error **errp)
+     LoongArchExtIOIClass *lec = LOONGARCH_EXTIOI_GET_CLASS(dev);
+     SysBusDevice *sbd = SYS_BUS_DEVICE(dev);
+     Error *local_err = NULL;
+-    int i, pin;
++    int i;
+ 
+     lec->parent_realize(dev, &local_err);
+     if (local_err) {
+@@ -407,12 +407,6 @@ static void loongarch_extioi_realize(DeviceState *dev, Error **errp)
+     } else {
+         s->status |= BIT(EXTIOI_ENABLE);
+     }
+-
+-    for (i = 0; i < s->num_cpu; i++) {
+-        for (pin = 0; pin < LS3A_INTC_IP; pin++) {
+-            qdev_init_gpio_out(dev, &s->cpu[i].parent_irq[pin], 1);
+-        }
+-    }
+ }
+ 
+ static void loongarch_extioi_unrealize(DeviceState *dev)
+diff --git a/hw/intc/loongarch_extioi_common.c b/hw/intc/loongarch_extioi_common.c
+index dabf3b8d2605..4f01575b6f1f 100644
+--- a/hw/intc/loongarch_extioi_common.c
++++ b/hw/intc/loongarch_extioi_common.c
+@@ -16,7 +16,7 @@ static void loongarch_extioi_common_realize(DeviceState *dev, Error **errp)
+     MachineState *machine = MACHINE(qdev_get_machine());
+     MachineClass *mc = MACHINE_GET_CLASS(machine);
+     const CPUArchIdList *id_list;
+-    int i;
++    int i, pin;
+ 
+     assert(mc->possible_cpu_arch_ids);
+     id_list = mc->possible_cpu_arch_ids(machine);
+@@ -30,6 +30,10 @@ static void loongarch_extioi_common_realize(DeviceState *dev, Error **errp)
+     for (i = 0; i < s->num_cpu; i++) {
+         s->cpu[i].arch_id = id_list->cpus[i].arch_id;
+         s->cpu[i].cpu = CPU(id_list->cpus[i].cpu);
++
++        for (pin = 0; pin < LS3A_INTC_IP; pin++) {
++            qdev_init_gpio_out(dev, &s->cpu[i].parent_irq[pin], 1);
++        }
+     }
+ }
+ 
+-- 
+2.51.0
+

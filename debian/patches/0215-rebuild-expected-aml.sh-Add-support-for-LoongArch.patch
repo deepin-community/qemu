@@ -1,0 +1,42 @@
+From 9ed2e2cf3b1ea77e9876d3bb6c118526169e2858 Mon Sep 17 00:00:00 2001
+From: Bibo Mao <maobibo@loongson.cn>
+Date: Thu, 12 Jun 2025 17:03:19 +0800
+Subject: [PATCH 215/285] rebuild-expected-aml.sh: Add support for LoongArch
+
+Update the list of supported architectures to include LoongArch.
+
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+Message-Id: <20250612090321.3416594-4-maobibo@loongson.cn>
+Reviewed-by: Michael S. Tsirkin <mst@redhat.com>
+Signed-off-by: Michael S. Tsirkin <mst@redhat.com>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ tests/data/acpi/rebuild-expected-aml.sh | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/tests/data/acpi/rebuild-expected-aml.sh b/tests/data/acpi/rebuild-expected-aml.sh
+index dcf2e2f221b3..f744bb2dbb2b 100755
+--- a/tests/data/acpi/rebuild-expected-aml.sh
++++ b/tests/data/acpi/rebuild-expected-aml.sh
+@@ -12,7 +12,7 @@
+ # This work is licensed under the terms of the GNU GPLv2.
+ # See the COPYING.LIB file in the top-level directory.
+ 
+-qemu_arches="x86_64 aarch64"
++qemu_arches="x86_64 aarch64 loongarch64"
+ 
+ if [ ! -e "tests/qtest/bios-tables-test" ]; then
+     echo "Test: bios-tables-test is required! Run make check before this script."
+@@ -36,7 +36,7 @@ fi
+ if [ -z "$qemu_bins" ]; then
+     echo "Only the following architectures are currently supported: $qemu_arches"
+     echo "None of these configured!"
+-    echo "To fix, run configure --target-list=x86_64-softmmu,aarch64-softmmu"
++    echo "To fix, run configure --target-list=x86_64-softmmu,aarch64-softmmu,loongarch64-softmmu"
+     exit 1;
+ fi
+ 
+-- 
+2.51.0
+

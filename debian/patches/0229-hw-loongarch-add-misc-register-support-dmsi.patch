@@ -1,0 +1,56 @@
+From 93ff674c1ac8af7498edca2a8385b17ed8388fd3 Mon Sep 17 00:00:00 2001
+From: Song Gao <gaosong@loongson.cn>
+Date: Tue, 16 Sep 2025 20:21:01 +0800
+Subject: [PATCH 229/285] hw/loongarch: add misc register support dmsi
+
+Add feature register and misc register for dmsi feature checking and
+setting
+
+Signed-off-by: Song Gao <gaosong@loongson.cn>
+Reviewed-by: Bibo Mao <maobibo@loongson.cn>
+Message-ID: <20250916122109.749813-4-gaosong@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ hw/loongarch/virt.c | 11 +++++++++++
+ 1 file changed, 11 insertions(+)
+
+diff --git a/hw/loongarch/virt.c b/hw/loongarch/virt.c
+index bdf6a0c21cee..7afadfc16d22 100644
+--- a/hw/loongarch/virt.c
++++ b/hw/loongarch/virt.c
+@@ -563,6 +563,10 @@ static MemTxResult virt_iocsr_misc_write(void *opaque, hwaddr addr,
+             return MEMTX_OK;
+         }
+ 
++        if (virt_has_dmsi(lvms) && val & BIT_ULL(IOCSRM_DMSI_EN)) {
++            lvms->misc_status |= BIT_ULL(IOCSRM_DMSI_EN);
++        }
++
+         features = address_space_ldl(&lvms->as_iocsr,
+                                      EXTIOI_VIRT_BASE + EXTIOI_VIRT_CONFIG,
+                                      attrs, NULL);
+@@ -598,6 +602,9 @@ static MemTxResult virt_iocsr_misc_read(void *opaque, hwaddr addr,
+         break;
+     case FEATURE_REG:
+         ret = BIT(IOCSRF_MSI) | BIT(IOCSRF_EXTIOI) | BIT(IOCSRF_CSRIPI);
++        if (virt_has_dmsi(lvms)) {
++            ret |= BIT(IOCSRF_DMSI);
++        }
+         if (kvm_enabled()) {
+             ret |= BIT(IOCSRF_VM);
+         }
+@@ -627,6 +634,10 @@ static MemTxResult virt_iocsr_misc_read(void *opaque, hwaddr addr,
+         if (features & BIT(EXTIOI_ENABLE_INT_ENCODE)) {
+             ret |= BIT_ULL(IOCSRM_EXTIOI_INT_ENCODE);
+         }
++        if (virt_has_dmsi(lvms) &&
++            (lvms->misc_status & BIT_ULL(IOCSRM_DMSI_EN))) {
++            ret |= BIT_ULL(IOCSRM_DMSI_EN);
++        }
+         break;
+     default:
+         g_assert_not_reached();
+-- 
+2.51.0
+

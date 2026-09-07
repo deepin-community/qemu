@@ -1,0 +1,40 @@
+From f485440d53cca6352a294969a84b2de107b4d5cc Mon Sep 17 00:00:00 2001
+From: Bibo Mao <maobibo@loongson.cn>
+Date: Mon, 10 Feb 2025 14:56:01 +0800
+Subject: [PATCH 145/285] hw/loongarch/virt: Add basic cpu plug interface
+ framework
+
+Add basic cpu hotplug interface framework, cpu hotplug interface is
+stub function and only framework is added here.
+
+Co-developed-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ target/loongarch/cpu.c | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/target/loongarch/cpu.c b/target/loongarch/cpu.c
+index eaed3bc9b454..bfbb59659a78 100644
+--- a/target/loongarch/cpu.c
++++ b/target/loongarch/cpu.c
+@@ -637,13 +637,13 @@ static void loongarch_cpu_realizefn(DeviceState *dev, Error **errp)
+ 
+ static void loongarch_cpu_unrealizefn(DeviceState *dev)
+ {
+-    LoongArchCPUClass *mcc = LOONGARCH_CPU_GET_CLASS(dev);
++    LoongArchCPUClass *lacc = LOONGARCH_CPU_GET_CLASS(dev);
+ 
+ #ifndef CONFIG_USER_ONLY
+     cpu_remove_sync(CPU(dev));
+ #endif
+ 
+-    mcc->parent_unrealize(dev);
++    lacc->parent_unrealize(dev);
+ }
+ 
+ static bool loongarch_get_lsx(Object *obj, Error **errp)
+-- 
+2.51.0
+

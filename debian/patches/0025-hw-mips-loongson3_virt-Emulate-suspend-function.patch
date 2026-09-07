@@ -1,0 +1,96 @@
+From 8caeed629c0c510bffa12773d0fe325c0a494d3c Mon Sep 17 00:00:00 2001
+From: Jiaxun Yang <jiaxun.yang@flygoat.com>
+Date: Wed, 8 May 2024 10:31:09 +0100
+Subject: [PATCH 025/285] hw/mips/loongson3_virt: Emulate suspend function
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Suspend function is emulated as what hardware actually do.
+Doorbell register fields are updates to include suspend value,
+suspend vector is encoded in firmware blob and fw_cfg is updated
+to include S3 bits as what x86 did.
+
+Signed-off-by: Jiaxun Yang <jiaxun.yang@flygoat.com>
+Message-ID: <20240508-loongson3v-suspend-v1-1-186725524a39@flygoat.com>
+[PMD: Use g_memdup2(), constify suspend array]
+Signed-off-by: Philippe Mathieu-Daudé <philmd@linaro.org>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ hw/mips/loongson3_bootp.c |  1 +
+ hw/mips/loongson3_virt.c  | 20 ++++++++++++++++++++
+ 2 files changed, 21 insertions(+)
+
+diff --git a/hw/mips/loongson3_bootp.c b/hw/mips/loongson3_bootp.c
+index f99af229327a..03a10b63c1b4 100644
+--- a/hw/mips/loongson3_bootp.c
++++ b/hw/mips/loongson3_bootp.c
+@@ -148,4 +148,5 @@ void init_reset_system(struct efi_reset_system_t *reset)
+     reset->Shutdown = cpu_to_le64(0xffffffffbfc000a8);
+     reset->ResetCold = cpu_to_le64(0xffffffffbfc00080);
+     reset->ResetWarm = cpu_to_le64(0xffffffffbfc00080);
++    reset->DoSuspend = cpu_to_le64(0xffffffffbfc000d0);
+ }
+diff --git a/hw/mips/loongson3_virt.c b/hw/mips/loongson3_virt.c
+index 33eae01eca2b..7428f9c814c5 100644
+--- a/hw/mips/loongson3_virt.c
++++ b/hw/mips/loongson3_virt.c
+@@ -127,6 +127,9 @@ static void loongson3_pm_write(void *opaque, hwaddr addr,
+     case 0x00:
+         qemu_system_reset_request(SHUTDOWN_CAUSE_GUEST_RESET);
+         return;
++    case 0x01:
++        qemu_system_suspend_request();
++        return;
+     case 0xff:
+         qemu_system_shutdown_request(SHUTDOWN_CAUSE_GUEST_SHUTDOWN);
+         return;
+@@ -250,6 +253,17 @@ static void init_boot_rom(void)
+         0x240D00FF,   /* li      t1, 0xff                                     */
+         0xA18D0000,   /* sb      t1, (t0)                                     */
+         0x1000FFFF,   /* 1:  b   1b                                           */
++        0x00000000,   /* nop                                                  */
++                      /* Suspend                                              */
++        0x3C0C9000,   /* dli     t0, 0x9000000010080010                       */
++        0x358C0000,
++        0x000C6438,
++        0x358C1008,
++        0x000C6438,
++        0x358C0010,
++        0x240D0001,   /* li      t1, 0x01                                     */
++        0xA18D0000,   /* sb      t1, (t0)                                     */
++        0x03e00008,   /* jr      ra                                           */
+         0x00000000    /* nop                                                  */
+     };
+ 
+@@ -265,6 +279,7 @@ static void fw_cfg_boot_set(void *opaque, const char *boot_device,
+ 
+ static void fw_conf_init(unsigned long ram_size)
+ {
++    static const uint8_t suspend[6] = {128, 0, 0, 129, 128, 128};
+     FWCfgState *fw_cfg;
+     hwaddr cfg_addr = virt_memmap[VIRT_FW_CFG].base;
+ 
+@@ -274,6 +289,10 @@ static void fw_conf_init(unsigned long ram_size)
+     fw_cfg_add_i64(fw_cfg, FW_CFG_RAM_SIZE, (uint64_t)ram_size);
+     fw_cfg_add_i32(fw_cfg, FW_CFG_MACHINE_VERSION, 1);
+     fw_cfg_add_i64(fw_cfg, FW_CFG_CPU_FREQ, get_cpu_freq_hz());
++
++    fw_cfg_add_file(fw_cfg, "etc/system-states",
++                    g_memdup2(suspend, sizeof(suspend)), sizeof(suspend));
++
+     qemu_register_boot_set(fw_cfg_boot_set, fw_cfg);
+ }
+ 
+@@ -551,6 +570,7 @@ static void mips_loongson3_virt_init(MachineState *machine)
+                            machine->ram, 0, virt_memmap[VIRT_LOWMEM].size);
+     memory_region_init_io(iomem, NULL, &loongson3_pm_ops,
+                            NULL, "loongson3_pm", virt_memmap[VIRT_PM].size);
++    qemu_register_wakeup_support();
+ 
+     memory_region_add_subregion(address_space_mem,
+                       virt_memmap[VIRT_LOWMEM].base, ram);
+-- 
+2.51.0
+

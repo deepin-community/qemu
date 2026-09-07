@@ -1,0 +1,58 @@
+From a976227a30052baae26a495a07b28ac86e28aa99 Mon Sep 17 00:00:00 2001
+From: Xianglai Li <lixianglai@loongson.cn>
+Date: Thu, 19 Mar 2026 10:12:41 +0800
+Subject: [PATCH 278/285] hw/loongarch: modify rtc fdt table
+
+Delete the interrupt information in the rtc fdt table.
+
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ hw/loongarch/virt-fdt-build.c | 16 ++++++++--------
+ 1 file changed, 8 insertions(+), 8 deletions(-)
+
+diff --git a/hw/loongarch/virt-fdt-build.c b/hw/loongarch/virt-fdt-build.c
+index 7526a94024ec..b7097a297384 100644
+--- a/hw/loongarch/virt-fdt-build.c
++++ b/hw/loongarch/virt-fdt-build.c
+@@ -458,8 +458,7 @@ static void fdt_add_uart_node(LoongArchVirtMachineState *lvms,
+     g_free(nodename);
+ }
+ 
+-static void fdt_add_rtc_node(LoongArchVirtMachineState *lvms,
+-                             uint32_t *pch_pic_phandle)
++static void fdt_add_rtc_node(LoongArchVirtMachineState *lvms)
+ {
+     char *nodename;
+     hwaddr base = VIRT_RTC_REG_BASE;
+@@ -470,12 +469,13 @@ static void fdt_add_rtc_node(LoongArchVirtMachineState *lvms,
+     qemu_fdt_add_subnode(ms->fdt, nodename);
+     qemu_fdt_setprop_string(ms->fdt, nodename, "compatible",
+                             "loongson,ls7a-rtc");
++    /*
++     * The virtual machine model does not support suspend and wake-up,
++     * and rtc is no longer the wake-up source. Therefore, the current
++     * rtc table no longer provides the rtc alarm interrupt number to
++     * avoid the software initializing alarm.
++     */
+     qemu_fdt_setprop_sized_cells(ms->fdt, nodename, "reg", 2, base, 2, size);
+-    qemu_fdt_setprop_cells(ms->fdt, nodename, "interrupts",
+-                           VIRT_RTC_IRQ - VIRT_GSI_BASE ,
+-                           FDT_IRQ_TYPE_LEVEL_HIGH);
+-    qemu_fdt_setprop_cell(ms->fdt, nodename, "interrupt-parent",
+-                          *pch_pic_phandle);
+     g_free(nodename);
+ }
+ 
+@@ -550,7 +550,7 @@ void virt_fdt_setup(LoongArchVirtMachineState *lvms)
+         fdt_add_uart_node(lvms, &pch_pic_phandle, base, irq, i == 0);
+     }
+ 
+-    fdt_add_rtc_node(lvms, &pch_pic_phandle);
++    fdt_add_rtc_node(lvms);
+     fdt_add_ged_reset(lvms);
+     platform_bus_add_all_fdt_nodes(machine->fdt, "/platic",
+                                    VIRT_PLATFORM_BUS_BASEADDRESS,
+-- 
+2.51.0
+

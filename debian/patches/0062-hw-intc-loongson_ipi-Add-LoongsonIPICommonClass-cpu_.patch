@@ -1,0 +1,104 @@
+From d4b6c593f1c77069669f160a22d790dce566f664 Mon Sep 17 00:00:00 2001
+From: Bibo Mao <maobibo@loongson.cn>
+Date: Mon, 15 Jul 2024 18:24:02 +0200
+Subject: [PATCH 062/285] hw/intc/loongson_ipi: Add
+ LoongsonIPICommonClass::cpu_by_arch_id handler
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Allow Loongson IPI implementations to have their own
+cpu_by_arch_id() handler.
+
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+[PMD: Extracted from bigger commit, added commit description]
+Co-Developed-by: Philippe Mathieu-Daudé <philmd@linaro.org>
+Signed-off-by: Philippe Mathieu-Daudé <philmd@linaro.org>
+Reviewed-by: Bibo Mao <maobibo@loongson.cn>
+Tested-by: Bibo Mao <maobibo@loongson.cn>
+Acked-by: Song Gao <gaosong@loongson.cn>
+Reviewed-by: Richard Henderson <richard.henderson@linaro.org>
+Reviewed-by: Jiaxun Yang <jiaxun.yang@flygoat.com>
+Tested-by: Jiaxun Yang <jiaxun.yang@flygoat.com>
+Message-Id: <20240805180622.21001-10-philmd@linaro.org>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ hw/intc/loongson_ipi.c                | 10 +++++++---
+ include/hw/intc/loongson_ipi_common.h |  1 +
+ 2 files changed, 8 insertions(+), 3 deletions(-)
+
+diff --git a/hw/intc/loongson_ipi.c b/hw/intc/loongson_ipi.c
+index eb99de906828..4a8e7435282f 100644
+--- a/hw/intc/loongson_ipi.c
++++ b/hw/intc/loongson_ipi.c
+@@ -128,12 +128,13 @@ static MemTxResult send_ipi_data(LoongsonIPICommonState *ipi, CPUState *cpu,
+ static MemTxResult mail_send(LoongsonIPICommonState *ipi,
+                              uint64_t val, MemTxAttrs attrs)
+ {
++    LoongsonIPICommonClass *licc = LOONGSON_IPI_COMMON_GET_CLASS(ipi);
+     uint32_t cpuid;
+     hwaddr addr;
+     CPUState *cs;
+ 
+     cpuid = extract32(val, 16, 10);
+-    cs = cpu_by_arch_id(cpuid);
++    cs = licc->cpu_by_arch_id(cpuid);
+     if (cs == NULL) {
+         return MEMTX_DECODE_ERROR;
+     }
+@@ -147,12 +148,13 @@ static MemTxResult mail_send(LoongsonIPICommonState *ipi,
+ static MemTxResult any_send(LoongsonIPICommonState *ipi,
+                             uint64_t val, MemTxAttrs attrs)
+ {
++    LoongsonIPICommonClass *licc = LOONGSON_IPI_COMMON_GET_CLASS(ipi);
+     uint32_t cpuid;
+     hwaddr addr;
+     CPUState *cs;
+ 
+     cpuid = extract32(val, 16, 10);
+-    cs = cpu_by_arch_id(cpuid);
++    cs = licc->cpu_by_arch_id(cpuid);
+     if (cs == NULL) {
+         return MEMTX_DECODE_ERROR;
+     }
+@@ -169,6 +171,7 @@ static MemTxResult loongson_ipi_core_writel(void *opaque, hwaddr addr,
+ {
+     IPICore *s = opaque;
+     LoongsonIPICommonState *ipi = s->ipi;
++    LoongsonIPICommonClass *licc = LOONGSON_IPI_COMMON_GET_CLASS(ipi);
+     int index = 0;
+     uint32_t cpuid;
+     uint8_t vector;
+@@ -203,7 +206,7 @@ static MemTxResult loongson_ipi_core_writel(void *opaque, hwaddr addr,
+         cpuid = extract32(val, 16, 10);
+         /* IPI status vector */
+         vector = extract8(val, 0, 5);
+-        cs = cpu_by_arch_id(cpuid);
++        cs = licc->cpu_by_arch_id(cpuid);
+         if (cs == NULL || cs->cpu_index >= ipi->num_cpu) {
+             return MEMTX_DECODE_ERROR;
+         }
+@@ -367,6 +370,7 @@ static void loongson_ipi_class_init(ObjectClass *klass, void *data)
+     device_class_set_parent_unrealize(dc, loongson_ipi_unrealize,
+                                       &lic->parent_unrealize);
+     licc->get_iocsr_as = get_iocsr_as;
++    licc->cpu_by_arch_id = cpu_by_arch_id;
+ }
+ 
+ static const TypeInfo loongson_ipi_types[] = {
+diff --git a/include/hw/intc/loongson_ipi_common.h b/include/hw/intc/loongson_ipi_common.h
+index 1a2ee41cc908..8997676f0df7 100644
+--- a/include/hw/intc/loongson_ipi_common.h
++++ b/include/hw/intc/loongson_ipi_common.h
+@@ -41,6 +41,7 @@ struct LoongsonIPICommonClass {
+     SysBusDeviceClass parent_class;
+ 
+     AddressSpace *(*get_iocsr_as)(CPUState *cpu);
++    CPUState *(*cpu_by_arch_id)(int64_t id);
+ };
+ 
+ /* Mainy used by iocsr read and write */
+-- 
+2.51.0
+

@@ -1,0 +1,77 @@
+From c1c1c88a6640720fbb72f0db8e855995f40fcd37 Mon Sep 17 00:00:00 2001
+From: Bibo Mao <maobibo@loongson.cn>
+Date: Wed, 7 May 2025 10:31:43 +0800
+Subject: [PATCH 185/285] hw/intc/loongarch_pch: Use generic write callback for
+ iomem32_high region
+
+Add iomem32_high region register write operation emulation in generic
+write function loongarch_pch_pic_write(), and use this function for
+iomem32_high region.
+
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+Reviewed-by: Song Gao <gaosong@loongson.cn>
+Message-Id: <20250507023148.1877287-12-maobibo@loongson.cn>
+Signed-off-by: Song Gao <gaosong@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ hw/intc/loongarch_pch_pic.c | 28 +++++-----------------------
+ 1 file changed, 5 insertions(+), 23 deletions(-)
+
+diff --git a/hw/intc/loongarch_pch_pic.c b/hw/intc/loongarch_pch_pic.c
+index f2ac28c4b1a3..5d535338df97 100644
+--- a/hw/intc/loongarch_pch_pic.c
++++ b/hw/intc/loongarch_pch_pic.c
+@@ -167,6 +167,9 @@ static void pch_pic_write(void *opaque, hwaddr addr, uint64_t value,
+     case PCH_PIC_AUTO_CTRL1:
+         /* Discard auto_ctrl access */
+         break;
++    case PCH_PIC_INT_POL:
++        s->int_polarity = (s->int_polarity & ~mask) | data;
++        break;
+     default:
+         qemu_log_mask(LOG_GUEST_ERROR,
+                       "pch_pic_write: Bad address 0x%"PRIx64"\n", addr);
+@@ -235,14 +238,6 @@ static uint64_t loongarch_pch_pic_low_readw(void *opaque, hwaddr addr,
+     return val;
+ }
+ 
+-static uint64_t get_writew_val(uint64_t value, uint32_t target, bool hi)
+-{
+-    uint64_t mask = 0xffffffff00000000;
+-    uint64_t data = target;
+-
+-    return hi ? (value & ~mask) | (data << 32) : (value & mask) | data;
+-}
+-
+ static void loongarch_pch_pic_low_writew(void *opaque, hwaddr addr,
+                                          uint64_t value, unsigned size)
+ {
+@@ -264,22 +259,9 @@ static uint64_t loongarch_pch_pic_high_readw(void *opaque, hwaddr addr,
+ static void loongarch_pch_pic_high_writew(void *opaque, hwaddr addr,
+                                      uint64_t value, unsigned size)
+ {
+-    LoongArchPICCommonState *s = LOONGARCH_PIC_COMMON(opaque);
+-    uint32_t data = (uint32_t)value;
+-
+     addr += PCH_PIC_INT_STATUS;
+-    trace_loongarch_pch_pic_high_writew(size, addr, data);
+-
+-    switch (addr) {
+-    case PCH_PIC_INT_POL:
+-        s->int_polarity = get_writew_val(s->int_polarity, data, 0);
+-        break;
+-    case PCH_PIC_INT_POL + 4:
+-        s->int_polarity = get_writew_val(s->int_polarity, data, 1);
+-        break;
+-    default:
+-        break;
+-    }
++    trace_loongarch_pch_pic_high_writew(size, addr, value);
++    loongarch_pch_pic_write(opaque, addr, value, size);
+ }
+ 
+ static uint64_t loongarch_pch_pic_readb(void *opaque, hwaddr addr,
+-- 
+2.51.0
+

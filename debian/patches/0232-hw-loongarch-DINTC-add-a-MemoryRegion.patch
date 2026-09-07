@@ -1,0 +1,172 @@
+From b11e59081774f7260d80ce4e16bdd9451e81dec1 Mon Sep 17 00:00:00 2001
+From: Song Gao <gaosong@loongson.cn>
+Date: Tue, 16 Sep 2025 20:21:04 +0800
+Subject: [PATCH 232/285] hw/loongarch: DINTC add a MemoryRegion
+
+the DINTC use [2fe00000-2ff00000) Memory.
+
+Signed-off-by: Song Gao <gaosong@loongson.cn>
+Reviewed-by: Bibo Mao <maobibo@loongson.cn>
+Message-ID: <20250916122109.749813-7-gaosong@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ hw/intc/loongarch_dintc.c         | 24 +++++++++++++++++++
+ hw/loongarch/virt.c               | 38 ++++++++++++++++++++++++++++++-
+ include/hw/intc/loongarch_dintc.h |  1 +
+ include/hw/loongarch/virt.h       |  1 +
+ include/hw/pci-host/ls7a.h        |  2 ++
+ 5 files changed, 65 insertions(+), 1 deletion(-)
+
+diff --git a/hw/intc/loongarch_dintc.c b/hw/intc/loongarch_dintc.c
+index 3d653f100d03..656d329ba784 100644
+--- a/hw/intc/loongarch_dintc.c
++++ b/hw/intc/loongarch_dintc.c
+@@ -17,6 +17,24 @@
+ #include "trace.h"
+ #include "hw/qdev-properties.h"
+ 
++static uint64_t loongarch_dintc_mem_read(void *opaque,
++                                        hwaddr addr, unsigned size)
++{
++    return 0;
++}
++
++static void loongarch_dintc_mem_write(void *opaque, hwaddr addr,
++                                     uint64_t val, unsigned size)
++{
++    return;
++}
++
++
++static const MemoryRegionOps loongarch_dintc_ops = {
++    .read = loongarch_dintc_mem_read,
++    .write = loongarch_dintc_mem_write,
++    .endianness = DEVICE_LITTLE_ENDIAN,
++};
+ 
+ static void loongarch_dintc_realize(DeviceState *dev, Error **errp)
+ {
+@@ -39,6 +57,12 @@ static void loongarch_dintc_unrealize(DeviceState *dev)
+ 
+ static void loongarch_dintc_init(Object *obj)
+ {
++    LoongArchDINTCState *s = LOONGARCH_DINTC(obj);
++    SysBusDevice *shd = SYS_BUS_DEVICE(obj);
++    memory_region_init_io(&s->dintc_mmio, OBJECT(s), &loongarch_dintc_ops,
++                          s, TYPE_LOONGARCH_DINTC, VIRT_DINTC_SIZE);
++    sysbus_init_mmio(shd, &s->dintc_mmio);
++    msi_nonbroken = true;
+     return;
+ }
+ 
+diff --git a/hw/loongarch/virt.c b/hw/loongarch/virt.c
+index 7afadfc16d22..d8658ff82198 100644
+--- a/hw/loongarch/virt.c
++++ b/hw/loongarch/virt.c
+@@ -27,6 +27,7 @@
+ #include "hw/intc/loongarch_extioi.h"
+ #include "hw/intc/loongarch_pch_pic.h"
+ #include "hw/intc/loongarch_pch_msi.h"
++#include "hw/intc/loongarch_dintc.h"
+ #include "hw/pci-host/ls7a.h"
+ #include "hw/pci-host/gpex.h"
+ #include "hw/misc/unimp.h"
+@@ -385,7 +386,7 @@ static void virt_cpu_irq_init(LoongArchVirtMachineState *lvms)
+ static void virt_irq_init(LoongArchVirtMachineState *lvms)
+ {
+     DeviceState *pch_pic, *pch_msi;
+-    DeviceState *ipi, *extioi;
++    DeviceState *ipi, *extioi, *dintc;
+     SysBusDevice *d;
+     int i, start, num;
+ 
+@@ -431,6 +432,33 @@ static void virt_irq_init(LoongArchVirtMachineState *lvms)
+      *    +--------+ +---------+ +---------+
+      *    | UARTs  | | Devices | | Devices |
+      *    +--------+ +---------+ +---------+
++     *
++     *
++     *  Advanced Extended IRQ model
++     *
++     *  +-----+     +---------------------------------+     +-------+
++     *  | IPI | --> |        CPUINTC                  | <-- | Timer |
++     *  +-----+     +---------------------------------+     +-------+
++     *                      ^            ^          ^
++     *                      |            |          |
++     *             +-------------+ +----------+ +---------+     +-------+
++     *             |   EIOINTC   | |   DINTC  | | LIOINTC | <-- | UARTs |
++     *             +-------------+ +----------+ +---------+     +-------+
++     *             ^            ^       ^
++     *             |            |       |
++     *        +---------+  +---------+  |
++     *        | PCH-PIC |  | PCH-MSI |  |
++     *        +---------+  +---------+  |
++     *          ^     ^           ^     |
++     *          |     |           |     |
++     *  +---------+ +---------+ +---------+
++     *  | Devices | | PCH-LPC | | Devices |
++     *  +---------+ +---------+ +---------+
++     *                  ^
++     *                  |
++     *             +---------+
++     *             | Devices |
++     *             +---------+
+      */
+ 
+     /* Create IPI device */
+@@ -438,6 +466,14 @@ static void virt_irq_init(LoongArchVirtMachineState *lvms)
+     lvms->ipi = ipi;
+     sysbus_realize_and_unref(SYS_BUS_DEVICE(ipi), &error_fatal);
+ 
++    /* Create DINTC device*/
++    if (virt_has_dmsi(lvms)) {
++        dintc = qdev_new(TYPE_LOONGARCH_DINTC);
++        lvms->dintc = dintc;
++        sysbus_realize_and_unref(SYS_BUS_DEVICE(dintc), &error_fatal);
++        sysbus_mmio_map(SYS_BUS_DEVICE(dintc), 0, VIRT_DINTC_BASE);
++    }
++
+     /* Create EXTIOI device */
+     extioi = qdev_new(TYPE_LOONGARCH_EXTIOI);
+     lvms->extioi = extioi;
+diff --git a/include/hw/intc/loongarch_dintc.h b/include/hw/intc/loongarch_dintc.h
+index aa94cd100347..0b0b5347b2c8 100644
+--- a/include/hw/intc/loongarch_dintc.h
++++ b/include/hw/intc/loongarch_dintc.h
+@@ -23,6 +23,7 @@ typedef struct DINTCCore {
+ 
+ struct LoongArchDINTCState {
+     SysBusDevice parent_obj;
++    MemoryRegion dintc_mmio;
+     DINTCCore *cpu;
+     uint32_t num_cpu;
+ };
+diff --git a/include/hw/loongarch/virt.h b/include/hw/loongarch/virt.h
+index 175da4dc4cc5..b9a33bf782b8 100644
+--- a/include/hw/loongarch/virt.h
++++ b/include/hw/loongarch/virt.h
+@@ -96,6 +96,7 @@ struct LoongArchVirtMachineState {
+     unsigned int memmap_entries;
+     uint64_t misc_feature;
+     uint64_t misc_status;
++    DeviceState *dintc;
+ };
+ 
+ #define TYPE_LOONGARCH_VIRT_MACHINE  MACHINE_TYPE_NAME("virt")
+diff --git a/include/hw/pci-host/ls7a.h b/include/hw/pci-host/ls7a.h
+index 79d4ea850127..bfdbfe36146d 100644
+--- a/include/hw/pci-host/ls7a.h
++++ b/include/hw/pci-host/ls7a.h
+@@ -24,6 +24,8 @@
+ #define VIRT_PCH_REG_BASE        0x10000000UL
+ #define VIRT_IOAPIC_REG_BASE     (VIRT_PCH_REG_BASE)
+ #define VIRT_PCH_MSI_ADDR_LOW    0x2FF00000UL
++#define VIRT_DINTC_SIZE          0x100000UL
++#define VIRT_DINTC_BASE          0x2FE00000UL
+ #define VIRT_PCH_REG_SIZE        0x400
+ #define VIRT_PCH_MSI_SIZE        0x8
+ 
+-- 
+2.51.0
+

@@ -1,0 +1,81 @@
+From 8de361b6106db44235724f01503421be4612d099 Mon Sep 17 00:00:00 2001
+From: Bibo Mao <maobibo@loongson.cn>
+Date: Sat, 8 Feb 2025 15:06:54 +0800
+Subject: [PATCH 121/285] hw/loongarch/virt: Rename function prefix name
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Replace function prefix name loongarch_xxx with virt_xxx in file
+virt-acpi-build.c
+
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+Reviewed-by: Philippe Mathieu-Daudé <philmd@linaro.org>
+Tested-by: Philippe Mathieu-Daudé <philmd@linaro.org>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ hw/loongarch/virt-acpi-build.c | 6 +++---
+ hw/loongarch/virt.c            | 2 +-
+ include/hw/loongarch/virt.h    | 2 +-
+ 3 files changed, 5 insertions(+), 5 deletions(-)
+
+diff --git a/hw/loongarch/virt-acpi-build.c b/hw/loongarch/virt-acpi-build.c
+index e751c972fabb..3770bd39d9c0 100644
+--- a/hw/loongarch/virt-acpi-build.c
++++ b/hw/loongarch/virt-acpi-build.c
+@@ -687,7 +687,7 @@ static const VMStateDescription vmstate_acpi_build = {
+     },
+ };
+ 
+-static bool loongarch_is_acpi_enabled(LoongArchVirtMachineState *lvms)
++static bool virt_is_acpi_enabled(LoongArchVirtMachineState *lvms)
+ {
+     if (lvms->acpi == ON_OFF_AUTO_OFF) {
+         return false;
+@@ -695,7 +695,7 @@ static bool loongarch_is_acpi_enabled(LoongArchVirtMachineState *lvms)
+     return true;
+ }
+ 
+-void loongarch_acpi_setup(LoongArchVirtMachineState *lvms)
++void virt_acpi_setup(LoongArchVirtMachineState *lvms)
+ {
+     AcpiBuildTables tables;
+     AcpiBuildState *build_state;
+@@ -705,7 +705,7 @@ void loongarch_acpi_setup(LoongArchVirtMachineState *lvms)
+         return;
+     }
+ 
+-    if (!loongarch_is_acpi_enabled(lvms)) {
++    if (!virt_is_acpi_enabled(lvms)) {
+         ACPI_BUILD_DPRINTF("ACPI disabled. Bailing out.\n");
+         return;
+     }
+diff --git a/hw/loongarch/virt.c b/hw/loongarch/virt.c
+index 0028df09c7aa..854e1948f5aa 100644
+--- a/hw/loongarch/virt.c
++++ b/hw/loongarch/virt.c
+@@ -690,7 +690,7 @@ static void virt_done(Notifier *notifier, void *data)
+     LoongArchVirtMachineState *lvms = container_of(notifier,
+                                       LoongArchVirtMachineState, machine_done);
+     virt_build_smbios(lvms);
+-    loongarch_acpi_setup(lvms);
++    virt_acpi_setup(lvms);
+     virt_fdt_setup(lvms);
+ }
+ 
+diff --git a/include/hw/loongarch/virt.h b/include/hw/loongarch/virt.h
+index d5850a9a98c8..7942ac54a663 100644
+--- a/include/hw/loongarch/virt.h
++++ b/include/hw/loongarch/virt.h
+@@ -74,6 +74,6 @@ struct LoongArchVirtMachineState {
+ 
+ #define TYPE_LOONGARCH_VIRT_MACHINE  MACHINE_TYPE_NAME("virt")
+ OBJECT_DECLARE_SIMPLE_TYPE(LoongArchVirtMachineState, LOONGARCH_VIRT_MACHINE)
+-void loongarch_acpi_setup(LoongArchVirtMachineState *lvms);
++void virt_acpi_setup(LoongArchVirtMachineState *lvms);
+ void reset_load_elf(void *opaque);
+ #endif
+-- 
+2.51.0
+

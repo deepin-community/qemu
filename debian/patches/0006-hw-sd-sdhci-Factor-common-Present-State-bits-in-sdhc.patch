@@ -1,0 +1,53 @@
+From 6a161c2164264039cb7dd797b3eac771077ac551 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Philippe=20Mathieu-Daud=C3=A9?= <philmd@linaro.org>
+Date: Mon, 7 Nov 2022 23:12:36 +0100
+Subject: [PATCH 006/285] hw/sd/sdhci: Factor common Present State bits in
+ sdhci_data_transfer()
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+When we do a non-DMA transfer, we have to set the 'DAT Line Active'
+and 'Command Inhibit (DAT)' bits in the 'Present State' register.
+
+Factor that common code to ease code review.
+
+Signed-off-by: Philippe Mathieu-Daudé <philmd@linaro.org>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ hw/sd/sdhci.c | 9 +++++----
+ 1 file changed, 5 insertions(+), 4 deletions(-)
+
+diff --git a/hw/sd/sdhci.c b/hw/sd/sdhci.c
+index 9d4eec33c2bb..158d0be77f77 100644
+--- a/hw/sd/sdhci.c
++++ b/hw/sd/sdhci.c
+@@ -911,6 +911,7 @@ static void sdhci_data_transfer(void *opaque)
+     SDHCIState *s = (SDHCIState *)opaque;
+ 
+     if (s->trnmod & SDHC_TRNS_DMA) {
++        /* DMA Data transfer: DMA functionality available and enabled */
+         switch (SDHC_DMA_TYPE(s->hostctl1)) {
+         case SDHC_CTRL_SDMA:
+             if ((s->blkcnt == 1) || !(s->trnmod & SDHC_TRNS_MULTI)) {
+@@ -950,13 +951,13 @@ static void sdhci_data_transfer(void *opaque)
+             break;
+         }
+     } else {
++        /* Non-DMA data transfer: DMA functionality not available or disabled */
++        s->prnsts |= SDHC_DAT_LINE_ACTIVE | SDHC_DATA_INHIBIT;
+         if ((s->trnmod & SDHC_TRNS_READ) && sdbus_data_ready(&s->sdbus)) {
+-            s->prnsts |= SDHC_DOING_READ | SDHC_DATA_INHIBIT |
+-                    SDHC_DAT_LINE_ACTIVE;
++            s->prnsts |= SDHC_DOING_READ;
+             sdhci_read_block_from_card(s);
+         } else {
+-            s->prnsts |= SDHC_DOING_WRITE | SDHC_DAT_LINE_ACTIVE |
+-                                           SDHC_DATA_INHIBIT;
++            s->prnsts |= SDHC_DOING_WRITE;
+             sdhci_write_block_to_card(s);
+         }
+     }
+-- 
+2.51.0
+

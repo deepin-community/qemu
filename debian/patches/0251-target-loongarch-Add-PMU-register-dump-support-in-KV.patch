@@ -1,0 +1,101 @@
+From 7356783c4c65218d352f293f29837dd137cdf87a Mon Sep 17 00:00:00 2001
+From: Bibo Mao <maobibo@loongson.cn>
+Date: Thu, 30 Oct 2025 16:17:24 +0800
+Subject: [PATCH 251/285] target/loongarch: Add PMU register dump support in
+ KVM
+
+PMU is supported in KVM mode. With info registers command, PMU CSR
+registers should be dumped also. And it is not necessary in TCG mode.
+
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+Reviewed-by: Song Gao <gaosong@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ target/loongarch/cpu.c |  5 +++++
+ target/loongarch/csr.c | 37 +++++++++++++++++++++++++++++++++++++
+ target/loongarch/csr.h |  1 +
+ 3 files changed, 43 insertions(+)
+
+diff --git a/target/loongarch/cpu.c b/target/loongarch/cpu.c
+index 4c3c5610770f..45c74e8b340d 100644
+--- a/target/loongarch/cpu.c
++++ b/target/loongarch/cpu.c
+@@ -398,6 +398,11 @@ static void loongarch_la464_init_csr(DeviceState *dev)
+         set_csr_flag(LOONGARCH_CSR_MERRERA, CSRFL_UNUSED);
+         set_csr_flag(LOONGARCH_CSR_MERRSAVE, CSRFL_UNUSED);
+         set_csr_flag(LOONGARCH_CSR_CTAG, CSRFL_UNUSED);
++
++        for (i = env->perf_event_num; i < MAX_PERF_EVENTS; i++) {
++            set_csr_flag(LOONGARCH_CSR_PERFCTRL(i), CSRFL_UNUSED);
++            set_csr_flag(LOONGARCH_CSR_PERFCNTR(i), CSRFL_UNUSED);
++        }
+     }
+ #endif
+ }
+diff --git a/target/loongarch/csr.c b/target/loongarch/csr.c
+index 7ea0a3045066..332a1396cc21 100644
+--- a/target/loongarch/csr.c
++++ b/target/loongarch/csr.c
+@@ -94,9 +94,46 @@ static CSRInfo csr_info[] = {
+     CSR_OFF_ARRAY(DMW, 1),
+     CSR_OFF_ARRAY(DMW, 2),
+     CSR_OFF_ARRAY(DMW, 3),
++    CSR_OFF_ARRAY(PERFCTRL, 0),
++    CSR_OFF_ARRAY(PERFCNTR, 0),
++    CSR_OFF_ARRAY(PERFCTRL, 1),
++    CSR_OFF_ARRAY(PERFCNTR, 1),
++    CSR_OFF_ARRAY(PERFCTRL, 2),
++    CSR_OFF_ARRAY(PERFCNTR, 2),
++    CSR_OFF_ARRAY(PERFCTRL, 3),
++    CSR_OFF_ARRAY(PERFCNTR, 3),
++    CSR_OFF_ARRAY(PERFCTRL, 4),
++    CSR_OFF_ARRAY(PERFCNTR, 4),
++    CSR_OFF_ARRAY(PERFCTRL, 5),
++    CSR_OFF_ARRAY(PERFCNTR, 5),
++    CSR_OFF_ARRAY(PERFCTRL, 6),
++    CSR_OFF_ARRAY(PERFCNTR, 6),
++    CSR_OFF_ARRAY(PERFCTRL, 7),
++    CSR_OFF_ARRAY(PERFCNTR, 7),
++    CSR_OFF_ARRAY(PERFCTRL, 8),
++    CSR_OFF_ARRAY(PERFCNTR, 8),
++    CSR_OFF_ARRAY(PERFCTRL, 9),
++    CSR_OFF_ARRAY(PERFCNTR, 9),
++    CSR_OFF_ARRAY(PERFCTRL, 10),
++    CSR_OFF_ARRAY(PERFCNTR, 10),
++    CSR_OFF_ARRAY(PERFCTRL, 11),
++    CSR_OFF_ARRAY(PERFCNTR, 11),
++    CSR_OFF_ARRAY(PERFCTRL, 12),
++    CSR_OFF_ARRAY(PERFCNTR, 12),
++    CSR_OFF_ARRAY(PERFCTRL, 13),
++    CSR_OFF_ARRAY(PERFCNTR, 13),
++    CSR_OFF_ARRAY(PERFCTRL, 14),
++    CSR_OFF_ARRAY(PERFCNTR, 14),
++    CSR_OFF_ARRAY(PERFCTRL, 15),
++    CSR_OFF_ARRAY(PERFCNTR, 15),
+     CSR_OFF(DBG),
+     CSR_OFF(DERA),
+     CSR_OFF(DSAVE),
++    CSR_OFF_ARRAY(MSGIS, 0),
++    CSR_OFF_ARRAY(MSGIS, 1),
++    CSR_OFF_ARRAY(MSGIS, 2),
++    CSR_OFF_ARRAY(MSGIS, 3),
++    CSR_OFF(MSGIR),
+ };
+ 
+ CSRInfo *get_csr(unsigned int csr_num)
+diff --git a/target/loongarch/csr.h b/target/loongarch/csr.h
+index 1eb2e510b42a..81a656baaed6 100644
+--- a/target/loongarch/csr.h
++++ b/target/loongarch/csr.h
+@@ -13,6 +13,7 @@ enum {
+     CSRFL_READONLY = (1 << 0),
+     CSRFL_EXITTB   = (1 << 1),
+     CSRFL_IO       = (1 << 2),
++    CSRFL_UNUSED   = (1 << 3),
+ };
+ 
+ typedef struct {
+-- 
+2.51.0
+

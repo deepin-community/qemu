@@ -1,0 +1,27 @@
+From 9967482f1f2f55d648af6e7b4a8d9e70d59e40ca Mon Sep 17 00:00:00 2001
+From: Sia Jee Heng <jeeheng.sia@starfivetech.com>
+Date: Sun, 27 Oct 2024 18:57:42 -0700
+Subject: [PATCH 098/285] qtest: allow SPCR acpi table changes
+
+Signed-off-by: Sia Jee Heng <jeeheng.sia@starfivetech.com>
+Reviewed-by: Sunil V L <sunilvl@ventanamicro.com>
+Acked-by: Alistair Francis <alistair.francis@wdc.com>
+Message-ID: <20241028015744.624943-2-jeeheng.sia@starfivetech.com>
+Signed-off-by: Alistair Francis <alistair.francis@wdc.com>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ tests/qtest/bios-tables-test-allowed-diff.h | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/tests/qtest/bios-tables-test-allowed-diff.h b/tests/qtest/bios-tables-test-allowed-diff.h
+index 9ce0f596cc59..5fb3598c1199 100644
+--- a/tests/qtest/bios-tables-test-allowed-diff.h
++++ b/tests/qtest/bios-tables-test-allowed-diff.h
+@@ -1,2 +1,3 @@
+ /* List of comma-separated changed AML files to ignore */
++"tests/data/acpi/riscv64/virt/SPCR",
+ "tests/data/acpi/q35/DSDT.cxl",
+-- 
+2.51.0
+

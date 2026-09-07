@@ -1,0 +1,47 @@
+From 5e6dadd94f1546fe3dc6bf7784f60e2bf38ddd71 Mon Sep 17 00:00:00 2001
+From: Bibo Mao <maobibo@loongson.cn>
+Date: Fri, 13 Sep 2024 17:52:02 +0800
+Subject: [PATCH 071/285] hw/loongarch/virt: Add description for virt machine
+ type
+
+The description about virt machine type is removed by mistake, add
+new description here. Here is output result with command
+"./qemu-system-loongarch64 -M help"
+
+Supported machines are:
+none                 empty machine
+virt                 QEMU LoongArch Virtual Machine (default)
+x-remote             Experimental remote machine
+
+Without the patch, it shows as follows:
+Supported machines are:
+none                 empty machine
+virt                 (null) (default)
+x-remote             Experimental remote machine
+
+Fixes: ef2f11454c(hw/loongarch/virt: Replace Loongson IPI with LoongArch IPI)
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+Reviewed-by: Thomas Huth <thuth@redhat.com>
+Reviewed-by: Michael Tokarev <mjt@tls.msk.ru>
+Signed-off-by: Michael Tokarev <mjt@tls.msk.ru>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ hw/loongarch/virt.c | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/hw/loongarch/virt.c b/hw/loongarch/virt.c
+index 06194cf39c94..63d237cdcb0c 100644
+--- a/hw/loongarch/virt.c
++++ b/hw/loongarch/virt.c
+@@ -1728,6 +1728,7 @@ static void virt_class_init(ObjectClass *oc, void *data)
+     mc->init = virt_init;
+     mc->default_cpu_type = LOONGARCH_CPU_TYPE_NAME("la464");
+     mc->default_ram_id = "loongarch.ram";
++    mc->desc = "QEMU LoongArch Virtual Machine";
+     mc->max_cpus = LOONGARCH_MAX_CPUS;
+     mc->is_default = 1;
+     mc->default_kernel_irqchip_split = false;
+-- 
+2.51.0
+

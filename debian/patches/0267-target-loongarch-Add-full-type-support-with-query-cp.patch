@@ -1,0 +1,36 @@
+From f66bf8479bf506e3654a114b4a93f0b63cefa9fd Mon Sep 17 00:00:00 2001
+From: Bibo Mao <maobibo@loongson.cn>
+Date: Mon, 19 Jan 2026 18:07:01 +0800
+Subject: [PATCH 267/285] target/loongarch: Add full type support with
+ query-cpu-model-expansion
+
+On LoongArch with QMP command query-cpu-model-expansion, only static
+type is supported, full type is not supported. Here add full type support
+with QMP cpu model query command.
+
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+Reviewed-by: Song Gao <gaosong@loongson.cn>
+Signed-off-by: Song Gao <gaosong@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ target/loongarch/loongarch-qmp-cmds.c | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/target/loongarch/loongarch-qmp-cmds.c b/target/loongarch/loongarch-qmp-cmds.c
+index e41f3010a34a..613a499482a2 100644
+--- a/target/loongarch/loongarch-qmp-cmds.c
++++ b/target/loongarch/loongarch-qmp-cmds.c
+@@ -58,7 +58,8 @@ CpuModelExpansionInfo *qmp_query_cpu_model_expansion(CpuModelExpansionType type,
+     const char *name;
+     int i;
+ 
+-    if (type != CPU_MODEL_EXPANSION_TYPE_STATIC) {
++    if ((type != CPU_MODEL_EXPANSION_TYPE_STATIC) &&
++        (type != CPU_MODEL_EXPANSION_TYPE_FULL)) {
+         error_setg(errp, "The requested expansion type is not supported");
+         return NULL;
+     }
+-- 
+2.51.0
+

@@ -1,0 +1,153 @@
+From 779c068a1de37df84e10cd243aa0d03fd8a70ee7 Mon Sep 17 00:00:00 2001
+From: Song Gao <gaosong@loongson.cn>
+Date: Tue, 16 Sep 2025 20:21:09 +0800
+Subject: [PATCH 236/285] hw/loongarch: Implement DINTC plug/unplug interfaces
+
+when cpu added, connect dintc irq to cpu INT_DMSI irq pin.
+
+Reviewed-by: Bibo Mao <maobibo@loongson.cn>
+Signed-off-by: Song Gao <gaosong@loongson.cn>
+Message-ID: <20250916122109.749813-12-gaosong@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ hw/intc/loongarch_dintc.c | 71 +++++++++++++++++++++++++++++++++++++++
+ hw/loongarch/virt.c       | 11 ++++++
+ 2 files changed, 82 insertions(+)
+
+diff --git a/hw/intc/loongarch_dintc.c b/hw/intc/loongarch_dintc.c
+index 9e53c457c6c5..b2cd5ce12f87 100644
+--- a/hw/intc/loongarch_dintc.c
++++ b/hw/intc/loongarch_dintc.c
+@@ -115,14 +115,81 @@ static void loongarch_dintc_init(Object *obj)
+     return;
+ }
+ 
++static DINTCCore *loongarch_dintc_get_cpu(LoongArchDINTCState *s,
++                                        DeviceState *dev)
++{
++    CPUClass *k = CPU_GET_CLASS(dev);
++    uint64_t arch_id = k->get_arch_id(CPU(dev));
++    int i;
++
++    for (i = 0; i < s->num_cpu; i++) {
++        if (s->cpu[i].arch_id == arch_id) {
++            return &s->cpu[i];
++        }
++    }
++
++    return NULL;
++}
++
++static void loongarch_dintc_cpu_plug(HotplugHandler *hotplug_dev,
++                                   DeviceState *dev, Error **errp)
++{
++    LoongArchDINTCState *s = LOONGARCH_DINTC(hotplug_dev);
++    Object *obj = OBJECT(dev);
++    DINTCCore *core;
++    int index;
++
++    if (!object_dynamic_cast(obj, TYPE_LOONGARCH_CPU)) {
++        warn_report("LoongArch DINTC: Invalid %s device type",
++                                       object_get_typename(obj));
++        return;
++    }
++    core = loongarch_dintc_get_cpu(s, dev);
++    if (!core) {
++        return;
++    }
++
++    core->cpu = CPU(dev);
++    index = core - s->cpu;
++
++    /* connect dintc msg irq to cpu irq */
++    qdev_connect_gpio_out(DEVICE(s), index, qdev_get_gpio_in(dev, INT_DMSI));
++    return;
++}
++
++static void loongarch_dintc_cpu_unplug(HotplugHandler *hotplug_dev,
++                                     DeviceState *dev, Error **errp)
++{
++    LoongArchDINTCState *s = LOONGARCH_DINTC(hotplug_dev);
++    Object *obj = OBJECT(dev);
++    DINTCCore *core;
++
++    if (!object_dynamic_cast(obj, TYPE_LOONGARCH_CPU)) {
++        warn_report("LoongArch DINTC: Invalid %s device type",
++                                       object_get_typename(obj));
++        return;
++    }
++
++    core = loongarch_dintc_get_cpu(s, dev);
++
++    if (!core) {
++        return;
++    }
++
++    core->cpu = NULL;
++}
++
+ static void loongarch_dintc_class_init(ObjectClass *klass, void *data)
+ {
+     DeviceClass *dc = DEVICE_CLASS(klass);
++    HotplugHandlerClass *hc = HOTPLUG_HANDLER_CLASS(klass);
+     LoongArchDINTCClass *lac = LOONGARCH_DINTC_CLASS(klass);
+ 
+     dc->unrealize = loongarch_dintc_unrealize;
+     device_class_set_parent_realize(dc, loongarch_dintc_realize,
+                                     &lac->parent_realize);
++    hc->plug = loongarch_dintc_cpu_plug;
++    hc->unplug = loongarch_dintc_cpu_unplug;
+ }
+ 
+ static const TypeInfo loongarch_dintc_info = {
+@@ -132,6 +199,10 @@ static const TypeInfo loongarch_dintc_info = {
+     .instance_init = loongarch_dintc_init,
+     .class_size    = sizeof(LoongArchDINTCClass),
+     .class_init    = loongarch_dintc_class_init,
++    .interfaces    = (InterfaceInfo[]) {
++        { TYPE_HOTPLUG_HANDLER },
++        { }
++    },
+ };
+ 
+ static void loongarch_dintc_register_types(void)
+diff --git a/hw/loongarch/virt.c b/hw/loongarch/virt.c
+index d8658ff82198..144681eda53d 100644
+--- a/hw/loongarch/virt.c
++++ b/hw/loongarch/virt.c
+@@ -380,6 +380,10 @@ static void virt_cpu_irq_init(LoongArchVirtMachineState *lvms)
+                              &error_abort);
+         hotplug_handler_plug(HOTPLUG_HANDLER(lvms->extioi), DEVICE(cs),
+                              &error_abort);
++	if (lvms->dintc) {
++            hotplug_handler_plug(HOTPLUG_HANDLER(lvms->dintc), DEVICE(cs),
++                                 &error_abort);
++        }
+     }
+ }
+ 
+@@ -1107,6 +1111,9 @@ static void virt_cpu_unplug(HotplugHandler *hotplug_dev,
+     /* Notify ipi and extioi irqchip to remove interrupt routing to CPU */
+     hotplug_handler_unplug(HOTPLUG_HANDLER(lvms->ipi), dev, &error_abort);
+     hotplug_handler_unplug(HOTPLUG_HANDLER(lvms->extioi), dev, &error_abort);
++    if (lvms->dintc) {
++        hotplug_handler_unplug(HOTPLUG_HANDLER(lvms->dintc), dev, &error_abort);
++    }
+ 
+     /* Notify acpi ged CPU removed */
+     hotplug_handler_unplug(HOTPLUG_HANDLER(lvms->acpi_ged), dev, &error_abort);
+@@ -1131,6 +1138,10 @@ static void virt_cpu_plug(HotplugHandler *hotplug_dev,
+         hotplug_handler_plug(HOTPLUG_HANDLER(lvms->extioi), dev, &error_abort);
+     }
+ 
++    if (lvms->dintc) {
++        hotplug_handler_plug(HOTPLUG_HANDLER(lvms->dintc), dev, &error_abort);
++    }
++
+     if (lvms->acpi_ged) {
+         hotplug_handler_plug(HOTPLUG_HANDLER(lvms->acpi_ged), dev,
+                              &error_abort);
+-- 
+2.51.0
+

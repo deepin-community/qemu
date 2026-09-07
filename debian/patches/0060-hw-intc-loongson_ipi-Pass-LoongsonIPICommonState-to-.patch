@@ -1,0 +1,99 @@
+From d9afc0aa8d3d803cd3554d2d3b96b06e12ad364e Mon Sep 17 00:00:00 2001
+From: Bibo Mao <maobibo@loongson.cn>
+Date: Mon, 15 Jul 2024 17:40:50 +0200
+Subject: [PATCH 060/285] hw/intc/loongson_ipi: Pass LoongsonIPICommonState to
+ send_ipi_data()
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+In order to get LoongsonIPICommonClass in send_ipi_data()
+in the next commit, propagate LoongsonIPICommonState.
+
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+[PMD: Extracted from bigger commit, added commit description]
+Co-Developed-by: Philippe Mathieu-Daudé <philmd@linaro.org>
+Signed-off-by: Philippe Mathieu-Daudé <philmd@linaro.org>
+Reviewed-by: Bibo Mao <maobibo@loongson.cn>
+Tested-by: Bibo Mao <maobibo@loongson.cn>
+Acked-by: Song Gao <gaosong@loongson.cn>
+Reviewed-by: Richard Henderson <richard.henderson@linaro.org>
+Reviewed-by: Jiaxun Yang <jiaxun.yang@flygoat.com>
+Tested-by: Jiaxun Yang <jiaxun.yang@flygoat.com>
+Message-Id: <20240805180622.21001-8-philmd@linaro.org>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ hw/intc/loongson_ipi.c | 19 +++++++++++--------
+ 1 file changed, 11 insertions(+), 8 deletions(-)
+
+diff --git a/hw/intc/loongson_ipi.c b/hw/intc/loongson_ipi.c
+index 347bc26729f3..8bf16f26d4ba 100644
+--- a/hw/intc/loongson_ipi.c
++++ b/hw/intc/loongson_ipi.c
+@@ -88,8 +88,8 @@ static AddressSpace *get_cpu_iocsr_as(CPUState *cpu)
+     return NULL;
+ }
+ 
+-static MemTxResult send_ipi_data(CPUState *cpu, uint64_t val, hwaddr addr,
+-                          MemTxAttrs attrs)
++static MemTxResult send_ipi_data(LoongsonIPICommonState *ipi, CPUState *cpu,
++                                 uint64_t val, hwaddr addr, MemTxAttrs attrs)
+ {
+     int i, mask = 0, data = 0;
+     AddressSpace *iocsr_as = get_cpu_iocsr_as(cpu);
+@@ -119,7 +119,8 @@ static MemTxResult send_ipi_data(CPUState *cpu, uint64_t val, hwaddr addr,
+     return MEMTX_OK;
+ }
+ 
+-static MemTxResult mail_send(uint64_t val, MemTxAttrs attrs)
++static MemTxResult mail_send(LoongsonIPICommonState *ipi,
++                             uint64_t val, MemTxAttrs attrs)
+ {
+     uint32_t cpuid;
+     hwaddr addr;
+@@ -134,10 +135,11 @@ static MemTxResult mail_send(uint64_t val, MemTxAttrs attrs)
+     /* override requester_id */
+     addr = SMP_IPI_MAILBOX + CORE_BUF_20 + (val & 0x1c);
+     attrs.requester_id = cs->cpu_index;
+-    return send_ipi_data(cs, val, addr, attrs);
++    return send_ipi_data(ipi, cs, val, addr, attrs);
+ }
+ 
+-static MemTxResult any_send(uint64_t val, MemTxAttrs attrs)
++static MemTxResult any_send(LoongsonIPICommonState *ipi,
++                            uint64_t val, MemTxAttrs attrs)
+ {
+     uint32_t cpuid;
+     hwaddr addr;
+@@ -152,7 +154,7 @@ static MemTxResult any_send(uint64_t val, MemTxAttrs attrs)
+     /* override requester_id */
+     addr = val & 0xffff;
+     attrs.requester_id = cs->cpu_index;
+-    return send_ipi_data(cs, val, addr, attrs);
++    return send_ipi_data(ipi, cs, val, addr, attrs);
+ }
+ 
+ static MemTxResult loongson_ipi_core_writel(void *opaque, hwaddr addr,
+@@ -249,15 +251,16 @@ static const MemoryRegionOps loongson_ipi_iocsr_ops = {
+ static MemTxResult loongson_ipi_writeq(void *opaque, hwaddr addr, uint64_t val,
+                                         unsigned size, MemTxAttrs attrs)
+ {
++    LoongsonIPICommonState *ipi = opaque;
+     MemTxResult ret = MEMTX_OK;
+ 
+     addr &= 0xfff;
+     switch (addr) {
+     case MAIL_SEND_OFFSET:
+-        ret = mail_send(val, attrs);
++        ret = mail_send(ipi, val, attrs);
+         break;
+     case ANY_SEND_OFFSET:
+-        ret = any_send(val, attrs);
++        ret = any_send(ipi, val, attrs);
+         break;
+     default:
+        break;
+-- 
+2.51.0
+

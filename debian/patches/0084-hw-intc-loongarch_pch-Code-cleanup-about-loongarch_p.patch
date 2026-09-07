@@ -1,0 +1,148 @@
+From d14bb96de9a621f4f387f64328a095988b043a7d Mon Sep 17 00:00:00 2001
+From: Bibo Mao <maobibo@loongson.cn>
+Date: Wed, 18 Sep 2024 12:05:00 +0800
+Subject: [PATCH 084/285] hw/intc/loongarch_pch: Code cleanup about
+ loongarch_pch_pic
+
+Remove definition about LoongArchPCHPIC and LOONGARCH_PCH_PIC, and
+replace them with LoongArchPICCommonState and LOONGARCH_PIC_COMMON
+separately. Also remove unnecessary header files.
+
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+Reviewed-by: Song Gao <gaosong@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ hw/intc/loongarch_pch_pic.c         | 24 ++++++++++--------------
+ hw/loongarch/virt.c                 |  2 +-
+ include/hw/intc/loongarch_pch_pic.h |  4 ----
+ 3 files changed, 11 insertions(+), 19 deletions(-)
+
+diff --git a/hw/intc/loongarch_pch_pic.c b/hw/intc/loongarch_pch_pic.c
+index 1caf80c41a38..f9a42e7c83f2 100644
+--- a/hw/intc/loongarch_pch_pic.c
++++ b/hw/intc/loongarch_pch_pic.c
+@@ -7,18 +7,14 @@
+ 
+ #include "qemu/osdep.h"
+ #include "qemu/bitops.h"
+-#include "hw/sysbus.h"
+-#include "hw/loongarch/virt.h"
+-#include "hw/pci-host/ls7a.h"
+ #include "hw/irq.h"
+ #include "hw/intc/loongarch_pch_pic.h"
+-#include "hw/qdev-properties.h"
+-#include "migration/vmstate.h"
+ #include "trace.h"
+ #include "qapi/error.h"
+ #include "sysemu/kvm.h"
+ 
+-static void pch_pic_update_irq(LoongArchPCHPIC *s, uint64_t mask, int level)
++static void pch_pic_update_irq(LoongArchPICCommonState *s, uint64_t mask,
++                               int level)
+ {
+     uint64_t val;
+     int irq;
+@@ -54,7 +50,7 @@ static void pch_pic_update_irq(LoongArchPCHPIC *s, uint64_t mask, int level)
+ 
+ static void pch_pic_irq_handler(void *opaque, int irq, int level)
+ {
+-    LoongArchPCHPIC *s = LOONGARCH_PCH_PIC(opaque);
++    LoongArchPICCommonState *s = LOONGARCH_PIC_COMMON(opaque);
+     uint64_t mask = 1ULL << irq;
+ 
+     assert(irq < s->irq_num);
+@@ -87,7 +83,7 @@ static void pch_pic_irq_handler(void *opaque, int irq, int level)
+ static uint64_t loongarch_pch_pic_low_readw(void *opaque, hwaddr addr,
+                                             unsigned size)
+ {
+-    LoongArchPCHPIC *s = LOONGARCH_PCH_PIC(opaque);
++    LoongArchPICCommonState *s = LOONGARCH_PIC_COMMON(opaque);
+     uint64_t val = 0;
+     uint32_t offset = addr & 0xfff;
+ 
+@@ -145,7 +141,7 @@ static uint64_t get_writew_val(uint64_t value, uint32_t target, bool hi)
+ static void loongarch_pch_pic_low_writew(void *opaque, hwaddr addr,
+                                          uint64_t value, unsigned size)
+ {
+-    LoongArchPCHPIC *s = LOONGARCH_PCH_PIC(opaque);
++    LoongArchPICCommonState *s = LOONGARCH_PIC_COMMON(opaque);
+     uint32_t offset, old_valid, data = (uint32_t)value;
+     uint64_t old, int_mask;
+     offset = addr & 0xfff;
+@@ -217,7 +213,7 @@ static void loongarch_pch_pic_low_writew(void *opaque, hwaddr addr,
+ static uint64_t loongarch_pch_pic_high_readw(void *opaque, hwaddr addr,
+                                         unsigned size)
+ {
+-    LoongArchPCHPIC *s = LOONGARCH_PCH_PIC(opaque);
++    LoongArchPICCommonState *s = LOONGARCH_PIC_COMMON(opaque);
+     uint64_t val = 0;
+     uint32_t offset = addr & 0xfff;
+ 
+@@ -245,7 +241,7 @@ static uint64_t loongarch_pch_pic_high_readw(void *opaque, hwaddr addr,
+ static void loongarch_pch_pic_high_writew(void *opaque, hwaddr addr,
+                                      uint64_t value, unsigned size)
+ {
+-    LoongArchPCHPIC *s = LOONGARCH_PCH_PIC(opaque);
++    LoongArchPICCommonState *s = LOONGARCH_PIC_COMMON(opaque);
+     uint32_t offset, data = (uint32_t)value;
+     offset = addr & 0xfff;
+ 
+@@ -272,7 +268,7 @@ static void loongarch_pch_pic_high_writew(void *opaque, hwaddr addr,
+ static uint64_t loongarch_pch_pic_readb(void *opaque, hwaddr addr,
+                                         unsigned size)
+ {
+-    LoongArchPCHPIC *s = LOONGARCH_PCH_PIC(opaque);
++    LoongArchPICCommonState *s = LOONGARCH_PIC_COMMON(opaque);
+     uint64_t val = 0;
+     uint32_t offset = (addr & 0xfff) + PCH_PIC_ROUTE_ENTRY_OFFSET;
+     int64_t offset_tmp;
+@@ -301,7 +297,7 @@ static uint64_t loongarch_pch_pic_readb(void *opaque, hwaddr addr,
+ static void loongarch_pch_pic_writeb(void *opaque, hwaddr addr,
+                                      uint64_t data, unsigned size)
+ {
+-    LoongArchPCHPIC *s = LOONGARCH_PCH_PIC(opaque);
++    LoongArchPICCommonState *s = LOONGARCH_PIC_COMMON(opaque);
+     int32_t offset_tmp;
+     uint32_t offset = (addr & 0xfff) + PCH_PIC_ROUTE_ENTRY_OFFSET;
+ 
+@@ -369,7 +365,7 @@ static const MemoryRegionOps loongarch_pch_pic_reg8_ops = {
+ 
+ static void loongarch_pch_pic_reset(DeviceState *d)
+ {
+-    LoongArchPCHPIC *s = LOONGARCH_PCH_PIC(d);
++    LoongArchPICCommonState *s = LOONGARCH_PIC_COMMON(d);
+     int i;
+ 
+     s->int_mask = -1;
+diff --git a/hw/loongarch/virt.c b/hw/loongarch/virt.c
+index 63d237cdcb0c..cf54597b921a 100644
+--- a/hw/loongarch/virt.c
++++ b/hw/loongarch/virt.c
+@@ -934,7 +934,7 @@ static void virt_irq_init(LoongArchVirtMachineState *lvms)
+         pch_pic = qdev_new(TYPE_KVM_LOONGARCH_PCH_PIC);
+         sysbus_realize_and_unref(SYS_BUS_DEVICE(pch_pic), &error_fatal);
+     } else {
+-        pch_pic = qdev_new(TYPE_LOONGARCH_PCH_PIC);
++        pch_pic = qdev_new(TYPE_LOONGARCH_PIC);
+         num = VIRT_PCH_PIC_IRQ_NUM;
+         qdev_prop_set_uint32(pch_pic, "pch_pic_irq_num", num);
+         d = SYS_BUS_DEVICE(pch_pic);
+diff --git a/include/hw/intc/loongarch_pch_pic.h b/include/hw/intc/loongarch_pch_pic.h
+index c08972ea4982..3ba09b212073 100644
+--- a/include/hw/intc/loongarch_pch_pic.h
++++ b/include/hw/intc/loongarch_pch_pic.h
+@@ -26,10 +26,6 @@ struct LoongarchPICClass {
+     DeviceRealize parent_realize;
+ };
+ 
+-#define TYPE_LOONGARCH_PCH_PIC TYPE_LOONGARCH_PIC
+-typedef struct LoongArchPICCommonState LoongArchPCHPIC;
+-#define LOONGARCH_PCH_PIC(obj)   ((struct LoongArchPICCommonState *)(obj))
+-
+ struct KVMLoongArchPCHPIC {
+     SysBusDevice parent_obj;
+     uint64_t int_mask; /*0x020 interrupt mask register*/
+-- 
+2.51.0
+

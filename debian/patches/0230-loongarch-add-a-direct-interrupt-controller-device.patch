@@ -1,0 +1,173 @@
+From 8283bb27ee96fec5676e8019215b19619e4b3e2d Mon Sep 17 00:00:00 2001
+From: Song Gao <gaosong@loongson.cn>
+Date: Tue, 16 Sep 2025 20:21:02 +0800
+Subject: [PATCH 230/285] loongarch: add a direct interrupt controller device
+
+Add Loongarch direct interrupt controller device base Definition.
+
+Signed-off-by: Song Gao <gaosong@loongson.cn>
+Reviewed-by: Bibo Mao <maobibo@loongson.cn>
+Message-ID: <20250916122109.749813-5-gaosong@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ hw/intc/Kconfig                   |  3 ++
+ hw/intc/loongarch_dintc.c         | 69 +++++++++++++++++++++++++++++++
+ hw/intc/meson.build               |  1 +
+ hw/loongarch/Kconfig              |  1 +
+ include/hw/intc/loongarch_dintc.h | 35 ++++++++++++++++
+ 5 files changed, 109 insertions(+)
+ create mode 100644 hw/intc/loongarch_dintc.c
+ create mode 100644 include/hw/intc/loongarch_dintc.h
+
+diff --git a/hw/intc/Kconfig b/hw/intc/Kconfig
+index efd779ae0265..47ec1305df3b 100644
+--- a/hw/intc/Kconfig
++++ b/hw/intc/Kconfig
+@@ -112,3 +112,6 @@ config LOONGARCH_PCH_MSI
+ 
+ config LOONGARCH_EXTIOI
+     bool
++
++config LOONGARCH_DINTC
++    bool
+diff --git a/hw/intc/loongarch_dintc.c b/hw/intc/loongarch_dintc.c
+new file mode 100644
+index 000000000000..3d653f100d03
+--- /dev/null
++++ b/hw/intc/loongarch_dintc.c
+@@ -0,0 +1,69 @@
++/* SPDX-License-Identifier: GPL-2.0-or-later */
++/*
++ * QEMU LoongArch direct interrupt controller.
++ *
++ * Copyright (C) 2025 Loongson Technology Corporation Limited
++ */
++
++#include "qemu/osdep.h"
++#include "hw/sysbus.h"
++#include "hw/irq.h"
++#include "hw/intc/loongarch_pch_msi.h"
++#include "hw/intc/loongarch_pch_pic.h"
++#include "hw/intc/loongarch_dintc.h"
++#include "hw/pci/msi.h"
++#include "hw/misc/unimp.h"
++#include "migration/vmstate.h"
++#include "trace.h"
++#include "hw/qdev-properties.h"
++
++
++static void loongarch_dintc_realize(DeviceState *dev, Error **errp)
++{
++    LoongArchDINTCClass *lac = LOONGARCH_DINTC_GET_CLASS(dev);
++
++    Error *local_err = NULL;
++    lac->parent_realize(dev, &local_err);
++    if (local_err) {
++        error_propagate(errp, local_err);
++        return;
++    }
++
++    return;
++}
++
++static void loongarch_dintc_unrealize(DeviceState *dev)
++{
++    return;
++}
++
++static void loongarch_dintc_init(Object *obj)
++{
++    return;
++}
++
++static void loongarch_dintc_class_init(ObjectClass *klass, void *data)
++{
++    DeviceClass *dc = DEVICE_CLASS(klass);
++    LoongArchDINTCClass *lac = LOONGARCH_DINTC_CLASS(klass);
++
++    dc->unrealize = loongarch_dintc_unrealize;
++    device_class_set_parent_realize(dc, loongarch_dintc_realize,
++                                    &lac->parent_realize);
++}
++
++static const TypeInfo loongarch_dintc_info = {
++    .name          = TYPE_LOONGARCH_DINTC,
++    .parent        = TYPE_SYS_BUS_DEVICE,
++    .instance_size = sizeof(LoongArchDINTCState),
++    .instance_init = loongarch_dintc_init,
++    .class_size    = sizeof(LoongArchDINTCClass),
++    .class_init    = loongarch_dintc_class_init,
++};
++
++static void loongarch_dintc_register_types(void)
++{
++    type_register_static(&loongarch_dintc_info);
++}
++
++type_init(loongarch_dintc_register_types)
+diff --git a/hw/intc/meson.build b/hw/intc/meson.build
+index 2596e07ef00d..75475e7b6a94 100644
+--- a/hw/intc/meson.build
++++ b/hw/intc/meson.build
+@@ -81,3 +81,4 @@ specific_ss.add(when: 'CONFIG_LOONGARCH_PCH_MSI', if_true: files('loongarch_pch_
+ specific_ss.add(when: 'CONFIG_LOONGARCH_EXTIOI', if_true: files('loongarch_extioi.c', 'loongarch_extioi_common.c'))
+ specific_ss.add(when: ['CONFIG_KVM', 'CONFIG_LOONGARCH_EXTIOI'],
+                if_true: files('loongarch_extioi_kvm.c'))
++specific_ss.add(when: 'CONFIG_LOONGARCH_DINTC', if_true: files('loongarch_dintc.c'))
+diff --git a/hw/loongarch/Kconfig b/hw/loongarch/Kconfig
+index b42a8573d41c..1ec87774476c 100644
+--- a/hw/loongarch/Kconfig
++++ b/hw/loongarch/Kconfig
+@@ -14,6 +14,7 @@ config LOONGARCH_VIRT
+     select LOONGARCH_PCH_PIC
+     select LOONGARCH_PCH_MSI
+     select LOONGARCH_EXTIOI
++    select LOONGARCH_DINTC
+     select LS7A_RTC
+     select SMBIOS
+     select ACPI_CPU_HOTPLUG
+diff --git a/include/hw/intc/loongarch_dintc.h b/include/hw/intc/loongarch_dintc.h
+new file mode 100644
+index 000000000000..aa94cd100347
+--- /dev/null
++++ b/include/hw/intc/loongarch_dintc.h
+@@ -0,0 +1,35 @@
++/* SPDX-License-Identifier: GPL-2.0-or-later */
++/*
++ * LoongArch  direct interrupt controller definitions
++ *
++ * Copyright (C) 2025 Loongson Technology Corporation Limited
++ */
++
++#include "qom/object.h"
++#include "hw/sysbus.h"
++#include "hw/loongarch/virt.h"
++
++
++#define NR_VECTORS     256
++
++#define TYPE_LOONGARCH_DINTC "loongarch_dintc"
++OBJECT_DECLARE_TYPE(LoongArchDINTCState, LoongArchDINTCClass, LOONGARCH_DINTC)
++
++typedef struct DINTCCore {
++    CPUState *cpu;
++    qemu_irq parent_irq;
++    uint64_t arch_id;
++} DINTCCore;
++
++struct LoongArchDINTCState {
++    SysBusDevice parent_obj;
++    DINTCCore *cpu;
++    uint32_t num_cpu;
++};
++
++struct LoongArchDINTCClass {
++    SysBusDeviceClass parent_class;
++
++    DeviceRealize parent_realize;
++    DeviceUnrealize parent_unrealize;
++};
+-- 
+2.51.0
+

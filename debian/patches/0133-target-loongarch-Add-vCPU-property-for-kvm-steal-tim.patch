@@ -1,0 +1,83 @@
+From 0cca7f1b57b09f89e2b6c2726f29a88c3ef4f6d1 Mon Sep 17 00:00:00 2001
+From: Bibo Mao <maobibo@loongson.cn>
+Date: Sat, 15 Feb 2025 17:01:21 +0800
+Subject: [PATCH 133/285] target/loongarch: Add vCPU property for kvm steal
+ time feature
+
+Property kvm-steal-time is added for kvm steal time feature, it is
+specially for kvm mode.
+
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+Reviewed-by: Bibo Mao <maobibo@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ target/loongarch/cpu.h                |  1 +
+ target/loongarch/kvm/kvm.c            | 18 ++++++++++++++++++
+ target/loongarch/loongarch-qmp-cmds.c |  2 +-
+ 3 files changed, 20 insertions(+), 1 deletion(-)
+
+diff --git a/target/loongarch/cpu.h b/target/loongarch/cpu.h
+index 428a3e72da41..43c33d29f174 100644
+--- a/target/loongarch/cpu.h
++++ b/target/loongarch/cpu.h
+@@ -422,6 +422,7 @@ struct ArchCPU {
+     OnOffAuto lsx;
+     OnOffAuto lasx;
+     OnOffAuto kvm_pv_ipi;
++    OnOffAuto kvm_steal_time;
+ 
+     /* 'compatible' string for this CPU for Linux device trees */
+     const char *dtb_compatible;
+diff --git a/target/loongarch/kvm/kvm.c b/target/loongarch/kvm/kvm.c
+index f10dca8e3ae9..a6322bf5c9dc 100644
+--- a/target/loongarch/kvm/kvm.c
++++ b/target/loongarch/kvm/kvm.c
+@@ -1140,6 +1140,18 @@ static void kvm_pv_ipi_set(Object *obj, bool value, Error **errp)
+     cpu->kvm_pv_ipi = value ? ON_OFF_AUTO_ON : ON_OFF_AUTO_OFF;
+ }
+ 
++static bool kvm_steal_time_get(Object *obj, Error **errp)
++{
++    return LOONGARCH_CPU(obj)->kvm_steal_time != ON_OFF_AUTO_OFF;
++}
++
++static void kvm_steal_time_set(Object *obj, bool value, Error **errp)
++{
++    LoongArchCPU *cpu = LOONGARCH_CPU(obj);
++
++    cpu->kvm_steal_time = value ? ON_OFF_AUTO_ON : ON_OFF_AUTO_OFF;
++}
++
+ void kvm_loongarch_cpu_post_init(LoongArchCPU *cpu)
+ {
+     cpu->lbt = ON_OFF_AUTO_AUTO;
+@@ -1159,6 +1171,12 @@ void kvm_loongarch_cpu_post_init(LoongArchCPU *cpu)
+                              kvm_pv_ipi_set);
+     object_property_set_description(OBJECT(cpu), "kvm-pv-ipi",
+                                     "Set off to disable KVM paravirt IPI.");
++
++    cpu->kvm_steal_time = ON_OFF_AUTO_AUTO;
++    object_property_add_bool(OBJECT(cpu), "kvm-steal-time", kvm_steal_time_get,
++                             kvm_steal_time_set);
++    object_property_set_description(OBJECT(cpu), "kvm-steal-time",
++                                    "Set off to disable KVM steal time.");
+ }
+ 
+ int kvm_arch_destroy_vcpu(CPUState *cs)
+diff --git a/target/loongarch/loongarch-qmp-cmds.c b/target/loongarch/loongarch-qmp-cmds.c
+index a3efa20dbf29..05e8ad34bb1b 100644
+--- a/target/loongarch/loongarch-qmp-cmds.c
++++ b/target/loongarch/loongarch-qmp-cmds.c
+@@ -42,7 +42,7 @@ CpuDefinitionInfoList *qmp_query_cpu_definitions(Error **errp)
+ }
+ 
+ static const char *cpu_model_advertised_features[] = {
+-    "lsx", "lasx", "lbt", "pmu", "kvm-pv-ipi", NULL
++    "lsx", "lasx", "lbt", "pmu", "kvm-pv-ipi", "kvm-steal-time", NULL
+ };
+ 
+ CpuModelExpansionInfo *qmp_query_cpu_model_expansion(CpuModelExpansionType type,
+-- 
+2.51.0
+

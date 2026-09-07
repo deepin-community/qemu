@@ -1,0 +1,114 @@
+From ed2c7522ae411049a051d442a474658a08148dd8 Mon Sep 17 00:00:00 2001
+From: Bibo Mao <maobibo@loongson.cn>
+Date: Thu, 20 Mar 2025 11:21:56 +0800
+Subject: [PATCH 158/285] hw/loongarch/virt: Eliminate error_propagate()
+
+When there is an error, it is put into a local variable and then
+propagated to somewhere else. Instead the error can be set right
+away, error propagation can be removed.
+
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+Message-ID: <20250320032158.1762751-5-maobibo@loongson.cn>
+Reviewed-by: Markus Armbruster <armbru@redhat.com>
+Signed-off-by: Markus Armbruster <armbru@redhat.com>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ hw/loongarch/virt.c | 32 +++++++++++---------------------
+ 1 file changed, 11 insertions(+), 21 deletions(-)
+
+diff --git a/hw/loongarch/virt.c b/hw/loongarch/virt.c
+index 7458ba774a5a..9d1034678e5b 100644
+--- a/hw/loongarch/virt.c
++++ b/hw/loongarch/virt.c
+@@ -885,30 +885,29 @@ static void virt_cpu_pre_plug(HotplugHandler *hotplug_dev,
+     LoongArchCPU *cpu = LOONGARCH_CPU(dev);
+     CPUState *cs = CPU(dev);
+     CPUArchId *cpu_slot;
+-    Error *err = NULL;
+     LoongArchCPUTopo topo;
+     int arch_id;
+ 
+     if (lvms->acpi_ged) {
+         if ((cpu->thread_id < 0) || (cpu->thread_id >= ms->smp.threads)) {
+-            error_setg(&err,
++            error_setg(errp,
+                        "Invalid thread-id %u specified, must be in range 1:%u",
+                        cpu->thread_id, ms->smp.threads - 1);
+-            goto out;
++            return;
+         }
+ 
+         if ((cpu->core_id < 0) || (cpu->core_id >= ms->smp.cores)) {
+-            error_setg(&err,
++            error_setg(errp,
+                        "Invalid core-id %u specified, must be in range 1:%u",
+                        cpu->core_id, ms->smp.cores - 1);
+-            goto out;
++            return;
+         }
+ 
+         if ((cpu->socket_id < 0) || (cpu->socket_id >= ms->smp.sockets)) {
+-            error_setg(&err,
++            error_setg(errp,
+                        "Invalid socket-id %u specified, must be in range 1:%u",
+                        cpu->socket_id, ms->smp.sockets - 1);
+-            goto out;
++            return;
+         }
+ 
+         topo.socket_id = cpu->socket_id;
+@@ -917,11 +916,11 @@ static void virt_cpu_pre_plug(HotplugHandler *hotplug_dev,
+         arch_id =  virt_get_arch_id_from_topo(ms, &topo);
+         cpu_slot = virt_find_cpu_slot(ms, arch_id);
+         if (CPU(cpu_slot->cpu)) {
+-            error_setg(&err,
++            error_setg(errp,
+                        "cpu(id%d=%d:%d:%d) with arch-id %" PRIu64 " exists",
+                        cs->cpu_index, cpu->socket_id, cpu->core_id,
+                        cpu->thread_id, cpu_slot->arch_id);
+-            goto out;
++            return;
+         }
+     } else {
+         /* For cold-add cpu, find empty cpu slot */
+@@ -937,33 +936,24 @@ static void virt_cpu_pre_plug(HotplugHandler *hotplug_dev,
+     cpu->env.address_space_iocsr = &lvms->as_iocsr;
+     cpu->phy_id = cpu_slot->arch_id;
+     cs->cpu_index = cpu_slot - ms->possible_cpus->cpus;
+-    numa_cpu_pre_plug(cpu_slot, dev, &err);
+-out:
+-    if (err) {
+-        error_propagate(errp, err);
+-    }
++    numa_cpu_pre_plug(cpu_slot, dev, errp);
+ }
+ 
+ static void virt_cpu_unplug_request(HotplugHandler *hotplug_dev,
+                                     DeviceState *dev, Error **errp)
+ {
+     LoongArchVirtMachineState *lvms = LOONGARCH_VIRT_MACHINE(hotplug_dev);
+-    Error *err = NULL;
+     LoongArchCPU *cpu = LOONGARCH_CPU(dev);
+     CPUState *cs = CPU(dev);
+ 
+     if (cs->cpu_index == 0) {
+-        error_setg(&err, "hot-unplug of boot cpu(id%d=%d:%d:%d) not supported",
++        error_setg(errp, "hot-unplug of boot cpu(id%d=%d:%d:%d) not supported",
+                    cs->cpu_index, cpu->socket_id,
+                    cpu->core_id, cpu->thread_id);
+-        error_propagate(errp, err);
+         return;
+     }
+ 
+-    hotplug_handler_unplug_request(HOTPLUG_HANDLER(lvms->acpi_ged), dev, &err);
+-    if (err) {
+-        error_propagate(errp, err);
+-    }
++    hotplug_handler_unplug_request(HOTPLUG_HANDLER(lvms->acpi_ged), dev, errp);
+ }
+ 
+ static void virt_cpu_unplug(HotplugHandler *hotplug_dev,
+-- 
+2.51.0
+

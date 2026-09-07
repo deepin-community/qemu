@@ -1,0 +1,52 @@
+From 78d60f3e600100567740b2c1c28371136698b6f2 Mon Sep 17 00:00:00 2001
+From: Bibo Mao <maobibo@loongson.cn>
+Date: Fri, 20 Sep 2024 15:49:12 +0800
+Subject: [PATCH 089/285] hw/intc/loongarch_extioi: Add common realize
+ interface
+
+Add common realize function, it is only to check validity of property.
+
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+Reviewed-by: Song Gao <gaosong@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ hw/intc/loongarch_extioi.c | 16 ++++++++++++++--
+ 1 file changed, 14 insertions(+), 2 deletions(-)
+
+diff --git a/hw/intc/loongarch_extioi.c b/hw/intc/loongarch_extioi.c
+index f16ecf159ce9..6f20d7e6ea83 100644
+--- a/hw/intc/loongarch_extioi.c
++++ b/hw/intc/loongarch_extioi.c
+@@ -357,14 +357,26 @@ static const MemoryRegionOps extioi_virt_ops = {
+     .endianness = DEVICE_LITTLE_ENDIAN,
+ };
+ 
++static void loongarch_extioi_common_realize(DeviceState *dev, Error **errp)
++{
++    LoongArchExtIOICommonState *s = (LoongArchExtIOICommonState *)dev;
++
++    if (s->num_cpu == 0) {
++        error_setg(errp, "num-cpu must be at least 1");
++        return;
++    }
++}
++
+ static void loongarch_extioi_realize(DeviceState *dev, Error **errp)
+ {
+     LoongArchExtIOI *s = LOONGARCH_EXTIOI(dev);
+     SysBusDevice *sbd = SYS_BUS_DEVICE(dev);
++    Error *local_err = NULL;
+     int i, pin;
+ 
+-    if (s->num_cpu == 0) {
+-        error_setg(errp, "num-cpu must be at least 1");
++    loongarch_extioi_common_realize(dev, &local_err);
++    if (local_err) {
++        error_propagate(errp, local_err);
+         return;
+     }
+ 
+-- 
+2.51.0
+

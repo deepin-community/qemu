@@ -1,0 +1,95 @@
+From b179421f627e0f0e5418ec19f11763f27d8e63e9 Mon Sep 17 00:00:00 2001
+From: Bibo Mao <maobibo@loongson.cn>
+Date: Fri, 7 Mar 2025 10:12:09 +0800
+Subject: [PATCH 168/285] hw/intc/loongarch_extioi: Add reset support
+
+Add reset support with extioi irqchip, and register reset callback
+support with new API resettable_class_set_parent_phases(). Clear
+internal HW registers and SW state when virt machine resets.
+
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+Reviewed-by: Song Gao <gaosong@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ hw/intc/loongarch_extioi_common.c         | 41 +++++++++++++++++++++++
+ include/hw/intc/loongarch_extioi_common.h |  1 +
+ 2 files changed, 42 insertions(+)
+
+diff --git a/hw/intc/loongarch_extioi_common.c b/hw/intc/loongarch_extioi_common.c
+index eb9fb0fc802b..2ecef4294d19 100644
+--- a/hw/intc/loongarch_extioi_common.c
++++ b/hw/intc/loongarch_extioi_common.c
+@@ -108,6 +108,43 @@ static void loongarch_extioi_common_realize(DeviceState *dev, Error **errp)
+     }
+ }
+ 
++static void loongarch_extioi_common_reset_hold(Object *obj)
++{
++    LoongArchExtIOICommonClass *lecc = LOONGARCH_EXTIOI_COMMON_GET_CLASS(obj);
++    LoongArchExtIOICommonState *s = LOONGARCH_EXTIOI_COMMON(obj);
++    ExtIOICore *core;
++    int i;
++
++    if (lecc->parent_phases.hold) {
++        lecc->parent_phases.hold(obj);
++    }
++
++    /* Clear HW registers for the board */
++    memset(s->nodetype, 0, sizeof(s->nodetype));
++    memset(s->bounce, 0, sizeof(s->bounce));
++    memset(s->isr, 0, sizeof(s->isr));
++    memset(s->enable, 0, sizeof(s->enable));
++    memset(s->ipmap, 0, sizeof(s->ipmap));
++    memset(s->coremap, 0, sizeof(s->coremap));
++    memset(s->sw_pending, 0, sizeof(s->sw_pending));
++    memset(s->sw_ipmap, 0, sizeof(s->sw_ipmap));
++    memset(s->sw_coremap, 0, sizeof(s->sw_coremap));
++
++    for (i = 0; i < s->num_cpu; i++) {
++        core = s->cpu + i;
++        /* EXTIOI with targeted CPU available however not present */
++        if (!core->cpu) {
++            continue;
++        }
++
++        /* Clear HW registers for CPUs */
++        memset(core->coreisr, 0, sizeof(core->coreisr));
++        memset(core->sw_isr, 0, sizeof(core->sw_isr));
++    }
++
++    s->status = 0;
++}
++
+ static int loongarch_extioi_common_pre_save(void *opaque)
+ {
+     LoongArchExtIOICommonState *s = (LoongArchExtIOICommonState *)opaque;
+@@ -180,9 +217,13 @@ static void loongarch_extioi_common_class_init(ObjectClass *klass, void *data)
+     DeviceClass *dc = DEVICE_CLASS(klass);
+     LoongArchExtIOICommonClass *lecc = LOONGARCH_EXTIOI_COMMON_CLASS(klass);
+     HotplugHandlerClass *hc = HOTPLUG_HANDLER_CLASS(klass);
++    ResettableClass *rc = RESETTABLE_CLASS(klass);
+ 
+     device_class_set_parent_realize(dc, loongarch_extioi_common_realize,
+                                     &lecc->parent_realize);
++    resettable_class_set_parent_phases(rc, NULL,
++                                       loongarch_extioi_common_reset_hold,
++                                       NULL, &lecc->parent_phases);
+     device_class_set_props(dc, extioi_properties);
+     dc->vmsd = &vmstate_loongarch_extioi;
+     hc->plug = loongarch_extioi_cpu_plug;
+diff --git a/include/hw/intc/loongarch_extioi_common.h b/include/hw/intc/loongarch_extioi_common.h
+index 17b739687a47..5faf67659b9f 100644
+--- a/include/hw/intc/loongarch_extioi_common.h
++++ b/include/hw/intc/loongarch_extioi_common.h
+@@ -95,6 +95,7 @@ struct LoongArchExtIOICommonClass {
+     SysBusDeviceClass parent_class;
+ 
+     DeviceRealize parent_realize;
++    ResettablePhases parent_phases;
+     int (*pre_save)(void *s);
+     int (*post_load)(void *s, int version_id);
+ };
+-- 
+2.51.0
+

@@ -1,0 +1,50 @@
+From 6b0fad01965f575f8804fd4d89bda9d6f85caffb Mon Sep 17 00:00:00 2001
+From: Bibo Mao <maobibo@loongson.cn>
+Date: Fri, 17 Oct 2025 14:45:17 +0800
+Subject: [PATCH 252/285] hw/loongarch/virt: Add field ram_end in
+ LoongArchVirtMachineState
+
+DRAM region is dynamically set and the last valid physical address region
+with LoongArch Virt Machine. To record the last valid physical address,
+field ram_end is added in structure LoongArchVirtMachineState. In future
+end address of DRAM cannot exceed base addres of PCIE 64-bit MMIO region.
+
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+Reviewed-by: Song Gao <gaosong@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ hw/loongarch/virt.c         | 2 ++
+ include/hw/loongarch/virt.h | 1 +
+ 2 files changed, 3 insertions(+)
+
+diff --git a/hw/loongarch/virt.c b/hw/loongarch/virt.c
+index 3136c0b7442f..671370f23a1b 100644
+--- a/hw/loongarch/virt.c
++++ b/hw/loongarch/virt.c
+@@ -848,8 +848,10 @@ static void virt_init(MachineState *machine)
+             exit(EXIT_FAILURE);
+         }
+         machine_memory_devices_init(machine, base, device_mem_size);
++        base += device_mem_size;
+     }
+ 
++    lvms->ram_end = base;
+     /* load the BIOS image. */
+     virt_firmware_init(lvms);
+ 
+diff --git a/include/hw/loongarch/virt.h b/include/hw/loongarch/virt.h
+index 4aff93669b76..3b91c637dfca 100644
+--- a/include/hw/loongarch/virt.h
++++ b/include/hw/loongarch/virt.h
+@@ -125,6 +125,7 @@ struct LoongArchVirtMachineState {
+     uint64_t misc_feature;
+     uint64_t misc_status;
+     DeviceState *dintc;
++    hwaddr ram_end;
+ };
+ 
+ #define TYPE_LOONGARCH_VIRT_MACHINE  MACHINE_TYPE_NAME("virt")
+-- 
+2.51.0
+

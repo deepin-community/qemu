@@ -1,0 +1,39 @@
+From 353b09355abd956f8b9ffd361e6e635091c53912 Mon Sep 17 00:00:00 2001
+From: Bibo Mao <maobibo@loongson.cn>
+Date: Tue, 12 Nov 2024 15:37:14 +0800
+Subject: [PATCH 076/285] MAINTAINERS: add myself as the maintainer for
+ LoongArch VirtMachine
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Song Gao is will be sick leave for a long time, I apply for maintainer
+for LoongArch Virt Machine during this period, LoongArch TCG keeps unchanged
+since I am not familiar with it. The maintainer duty will transfer to him
+after he comes back to work.
+
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+Acked-by: Philippe Mathieu-Daudé <philmd@linaro.org>
+Message-ID: <20241112073714.1953481-1-maobibo@loongson.cn>
+Signed-off-by: Philippe Mathieu-Daudé <philmd@linaro.org>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ MAINTAINERS | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/MAINTAINERS b/MAINTAINERS
+index cf4e88f1f3a2..09dd9b954d73 100644
+--- a/MAINTAINERS
++++ b/MAINTAINERS
+@@ -1230,6 +1230,7 @@ LoongArch Machines
+ ------------------
+ Virt
+ M: Song Gao <gaosong@loongson.cn>
++M: Bibo Mao <maobibo@loongson.cn>
+ R: Jiaxun Yang <jiaxun.yang@flygoat.com>
+ S: Maintained
+ F: docs/system/loongarch/virt.rst
+-- 
+2.51.0
+

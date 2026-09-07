@@ -1,0 +1,106 @@
+From 649f1a00547d94744b427d0698fd5584ef73302a Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Philippe=20Mathieu-Daud=C3=A9?= <philmd@linaro.org>
+Date: Fri, 24 Oct 2025 16:24:09 +0200
+Subject: [PATCH 246/285] hw/int/loongarch: Include missing 'system/memory.h'
+ header
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+"system/memory.h" header is indirectly pulled by "hw/sysbus.h".
+Include it explicitly to avoid when refactoring the latter:
+
+  In file included from ../../hw/intc/loongson_ipi.c:9:
+  In file included from /Users/philmd/source/qemu/include/hw/intc/loongson_ipi.h:12:
+  include/hw/intc/loongson_ipi_common.h:37:18: error: field has incomplete type 'MemoryRegion' (aka 'struct MemoryRegion')
+     37 |     MemoryRegion ipi_iocsr_mem;
+        |                  ^
+
+Signed-off-by: Philippe Mathieu-Daudé <philmd@linaro.org>
+Reviewed-by: Bibo Mao <maobibo@loongson.cn>
+Message-Id: <20251024190416.8803-21-philmd@linaro.org>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ include/hw/intc/loongarch_dintc.h         | 2 +-
+ include/hw/intc/loongarch_extioi_common.h | 2 +-
+ include/hw/intc/loongarch_pch_msi.h       | 3 ++-
+ include/hw/intc/loongarch_pic_common.h    | 1 +
+ include/hw/intc/loongson_ipi_common.h     | 1 +
+ 5 files changed, 6 insertions(+), 3 deletions(-)
+
+diff --git a/include/hw/intc/loongarch_dintc.h b/include/hw/intc/loongarch_dintc.h
+index 0b0b5347b2c8..76c1ac6bbc14 100644
+--- a/include/hw/intc/loongarch_dintc.h
++++ b/include/hw/intc/loongarch_dintc.h
+@@ -8,7 +8,7 @@
+ #include "qom/object.h"
+ #include "hw/sysbus.h"
+ #include "hw/loongarch/virt.h"
+-
++#include "exec/memory.h"
+ 
+ #define NR_VECTORS     256
+ 
+diff --git a/include/hw/intc/loongarch_extioi_common.h b/include/hw/intc/loongarch_extioi_common.h
+index 77dab16e3944..603694ad514a 100644
+--- a/include/hw/intc/loongarch_extioi_common.h
++++ b/include/hw/intc/loongarch_extioi_common.h
+@@ -10,6 +10,7 @@
+ #include "qom/object.h"
+ #include "hw/sysbus.h"
+ #include "hw/loongarch/virt.h"
++#include "exec/memory.h"
+ 
+ #define LS3A_INTC_IP                 8
+ #define EXTIOI_IRQS                  (256)
+@@ -56,7 +57,6 @@
+ #define  EXTIOI_ENABLE_CPU_ENCODE    (3)
+ #define EXTIOI_VIRT_COREMAP_START    (0x40)
+ #define EXTIOI_VIRT_COREMAP_END      (0x240)
+-#define EXTIOI_SW_COREMAP_FLAG       (1 << 0)
+ 
+ #define TYPE_LOONGARCH_EXTIOI_COMMON "loongarch_extioi_common"
+ OBJECT_DECLARE_TYPE(LoongArchExtIOICommonState,
+diff --git a/include/hw/intc/loongarch_pch_msi.h b/include/hw/intc/loongarch_pch_msi.h
+index fd4ea97a83b3..850e70985f8c 100644
+--- a/include/hw/intc/loongarch_pch_msi.h
++++ b/include/hw/intc/loongarch_pch_msi.h
+@@ -6,8 +6,9 @@
+  */
+ 
+ #include "hw/sysbus.h"
++#include "exec/memory.h"
+ 
+-#define TYPE_LOONGARCH_PCH_MSI     "loongarch_pch_msi"
++#define TYPE_LOONGARCH_PCH_MSI "loongarch_pch_msi"
+ OBJECT_DECLARE_SIMPLE_TYPE(LoongArchPCHMSI, LOONGARCH_PCH_MSI)
+ 
+ /* MSI irq start from 32 to 255 */
+diff --git a/include/hw/intc/loongarch_pic_common.h b/include/hw/intc/loongarch_pic_common.h
+index 675ba96e64ec..6f75f8eaf54b 100644
+--- a/include/hw/intc/loongarch_pic_common.h
++++ b/include/hw/intc/loongarch_pic_common.h
+@@ -9,6 +9,7 @@
+ 
+ #include "hw/loongarch/virt.h"
+ #include "hw/sysbus.h"
++#include "exec/memory.h"
+ 
+ #define PCH_PIC_INT_ID                  0x00
+ #define  PCH_PIC_INT_ID_VAL             0x7
+diff --git a/include/hw/intc/loongson_ipi_common.h b/include/hw/intc/loongson_ipi_common.h
+index e58ce2aa1c4b..30aefa10cbc9 100644
+--- a/include/hw/intc/loongson_ipi_common.h
++++ b/include/hw/intc/loongson_ipi_common.h
+@@ -11,6 +11,7 @@
+ #include "qom/object.h"
+ #include "hw/sysbus.h"
+ #include "exec/memattrs.h"
++#include "exec/memory.h"
+ 
+ #define IPI_MBX_NUM           4
+ 
+-- 
+2.51.0
+

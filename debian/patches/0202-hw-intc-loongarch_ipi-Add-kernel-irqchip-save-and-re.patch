@@ -1,0 +1,139 @@
+From c5032d3531300ad25e832248e765b7849f249e22 Mon Sep 17 00:00:00 2001
+From: Bibo Mao <maobibo@loongson.cn>
+Date: Fri, 6 Jun 2025 14:30:25 +0800
+Subject: [PATCH 202/285] hw/intc/loongarch_ipi: Add kernel irqchip save and
+ restore function
+
+Add save and store funtction if kvm_irqchip_in_kernel() return true,
+it is to get and set IPI irqchip state from KVM kernel.
+
+Reviewed-by: Song Gao <gaosong@loongson.cn>
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+Message-ID: <20250606063033.2557365-6-maobibo@loongson.cn>
+Signed-off-by: Song Gao <gaosong@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ hw/intc/loongarch_ipi.c         | 20 ++++++++++++
+ hw/intc/loongarch_ipi_kvm.c     | 54 +++++++++++++++++++++++++++++++++
+ include/hw/intc/loongarch_ipi.h |  2 ++
+ 3 files changed, 76 insertions(+)
+
+diff --git a/hw/intc/loongarch_ipi.c b/hw/intc/loongarch_ipi.c
+index 171977af977c..c6e31bc9d2fe 100644
+--- a/hw/intc/loongarch_ipi.c
++++ b/hw/intc/loongarch_ipi.c
+@@ -171,6 +171,24 @@ static void loongarch_ipi_cpu_unplug(HotplugHandler *hotplug_dev,
+     core->cpu = NULL;
+ }
+ 
++static int loongarch_ipi_pre_save(void *opaque)
++{
++    if (kvm_irqchip_in_kernel()) {
++        return kvm_ipi_get(opaque);
++    }
++
++    return 0;
++}
++
++static int loongarch_ipi_post_load(void *opaque, int version_id)
++{
++    if (kvm_irqchip_in_kernel()) {
++        return kvm_ipi_put(opaque, version_id);
++    }
++
++    return 0;
++}
++
+ static void loongarch_ipi_class_init(ObjectClass *klass, void *data)
+ {
+     LoongsonIPICommonClass *licc = LOONGSON_IPI_COMMON_CLASS(klass);
+@@ -187,6 +205,8 @@ static void loongarch_ipi_class_init(ObjectClass *klass, void *data)
+     licc->cpu_by_arch_id = loongarch_cpu_by_arch_id;
+     hc->plug = loongarch_ipi_cpu_plug;
+     hc->unplug = loongarch_ipi_cpu_unplug;
++    licc->pre_save = loongarch_ipi_pre_save;
++    licc->post_load = loongarch_ipi_post_load;
+ }
+ 
+ static const TypeInfo loongarch_ipi_types[] = {
+diff --git a/hw/intc/loongarch_ipi_kvm.c b/hw/intc/loongarch_ipi_kvm.c
+index d10c6eb6a7dd..8cccd3eba326 100644
+--- a/hw/intc/loongarch_ipi_kvm.c
++++ b/hw/intc/loongarch_ipi_kvm.c
+@@ -11,6 +11,60 @@
+ #include "sysemu/kvm.h"
+ #include "target/loongarch/cpu.h"
+ 
++static void kvm_ipi_access_reg(int fd, uint64_t addr, uint32_t *val, bool write)
++{
++    kvm_device_access(fd, KVM_DEV_LOONGARCH_IPI_GRP_REGS,
++                      addr, val, write, &error_abort);
++}
++
++static void kvm_ipi_access_regs(void *opaque, bool write)
++{
++    LoongsonIPICommonState *ipi = (LoongsonIPICommonState *)opaque;
++    LoongarchIPIState *lis = LOONGARCH_IPI(opaque);
++    IPICore *core;
++    uint64_t attr;
++    int cpu, fd = lis->dev_fd;
++
++    for (cpu = 0; cpu < ipi->num_cpu; cpu++) {
++        core = &ipi->cpu[cpu];
++        attr = (cpu << 16) | CORE_STATUS_OFF;
++        kvm_ipi_access_reg(fd, attr, &core->status, write);
++
++        attr = (cpu << 16) | CORE_EN_OFF;
++        kvm_ipi_access_reg(fd, attr, &core->en, write);
++
++        attr = (cpu << 16) | CORE_SET_OFF;
++        kvm_ipi_access_reg(fd, attr, &core->set, write);
++
++        attr = (cpu << 16) | CORE_CLEAR_OFF;
++        kvm_ipi_access_reg(fd, attr, &core->clear, write);
++
++        attr = (cpu << 16) | CORE_BUF_20;
++        kvm_ipi_access_reg(fd, attr, &core->buf[0], write);
++
++        attr = (cpu << 16) | CORE_BUF_28;
++        kvm_ipi_access_reg(fd, attr, &core->buf[2], write);
++
++        attr = (cpu << 16) | CORE_BUF_30;
++        kvm_ipi_access_reg(fd, attr, &core->buf[4], write);
++
++        attr = (cpu << 16) | CORE_BUF_38;
++        kvm_ipi_access_reg(fd, attr, &core->buf[6], write);
++    }
++}
++
++int kvm_ipi_get(void *opaque)
++{
++    kvm_ipi_access_regs(opaque, false);
++    return 0;
++}
++
++int kvm_ipi_put(void *opaque, int version_id)
++{
++    kvm_ipi_access_regs(opaque, true);
++    return 0;
++}
++
+ void kvm_ipi_realize(DeviceState *dev, Error **errp)
+ {
+     LoongarchIPIState *lis = LOONGARCH_IPI(dev);
+diff --git a/include/hw/intc/loongarch_ipi.h b/include/hw/intc/loongarch_ipi.h
+index 608cd09a78e5..5175a6b00449 100644
+--- a/include/hw/intc/loongarch_ipi.h
++++ b/include/hw/intc/loongarch_ipi.h
+@@ -26,5 +26,7 @@ struct LoongarchIPIClass {
+ };
+ 
+ void kvm_ipi_realize(DeviceState *dev, Error **errp);
++int kvm_ipi_get(void *opaque);
++int kvm_ipi_put(void *opaque, int version_id);
+ 
+ #endif
+-- 
+2.51.0
+

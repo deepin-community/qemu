@@ -1,0 +1,289 @@
+From 3baae272cb86404c474ab7975cc893676faa36f8 Mon Sep 17 00:00:00 2001
+From: Bibo Mao <maobibo@loongson.cn>
+Date: Fri, 6 Jun 2025 14:30:23 +0800
+Subject: [PATCH 200/285] hw/intc/loongarch_ipi: Add kernel irqchip realize
+ function
+
+Function kvm_ipi_realize() is added if kvm_irqchip_in_kernel() return true.
+It is to create and initialize IPI device in kernel mode.
+
+Reviewed-by: Song Gao <gaosong@loongson.cn>
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+Message-ID: <20250606063033.2557365-4-maobibo@loongson.cn>
+Signed-off-by: Song Gao <gaosong@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ hw/intc/Kconfig             |   3 -
+ hw/intc/loongarch_ipi_kvm.c | 204 +++---------------------------------
+ hw/intc/meson.build         |   3 +-
+ hw/loongarch/Kconfig        |   1 -
+ 4 files changed, 14 insertions(+), 197 deletions(-)
+
+diff --git a/hw/intc/Kconfig b/hw/intc/Kconfig
+index 61c43e4da50c..e074c06834f6 100644
+--- a/hw/intc/Kconfig
++++ b/hw/intc/Kconfig
+@@ -97,9 +97,6 @@ config LOONGSON_IPI
+     bool
+     select LOONGSON_IPI_COMMON
+ 
+-config LOONGARCH_IPI_KVM
+-    bool
+-
+ config LOONGARCH_IPI
+     bool
+     select LOONGSON_IPI_COMMON
+diff --git a/hw/intc/loongarch_ipi_kvm.c b/hw/intc/loongarch_ipi_kvm.c
+index 57fc05db778d..d10c6eb6a7dd 100644
+--- a/hw/intc/loongarch_ipi_kvm.c
++++ b/hw/intc/loongarch_ipi_kvm.c
+@@ -1,207 +1,27 @@
+ /* SPDX-License-Identifier: GPL-2.0-or-later */
+ /*
+- * LoongArch kvm ipi interrupt support
++ * LoongArch IPI interrupt KVM support
+  *
+- * Copyright (C) 2024 Loongson Technology Corporation Limited
++ * Copyright (C) 2025 Loongson Technology Corporation Limited
+  */
+ 
+ #include "qemu/osdep.h"
+-#include "hw/qdev-properties.h"
+-#include "qemu/typedefs.h"
+-#include "hw/intc/loongarch_ipi.h"
+-#include "hw/sysbus.h"
+-#include "linux/kvm.h"
+-#include "migration/vmstate.h"
+ #include "qapi/error.h"
++#include "hw/intc/loongarch_ipi.h"
+ #include "sysemu/kvm.h"
++#include "target/loongarch/cpu.h"
+ 
+-#define IPI_DEV_FD_UNDEF        -1
+-
+-static void kvm_ipi_access_regs(int fd, uint64_t addr,
+-                                uint32_t *val, int is_write)
+-{
+-        kvm_device_access(fd, KVM_DEV_LOONGARCH_IPI_GRP_REGS,
+-                          addr, val, is_write, &error_abort);
+-}
+-
+-static int kvm_loongarch_ipi_pre_save(void *opaque)
+-{
+-    KVMLoongArchIPI *ipi = (KVMLoongArchIPI *)opaque;
+-    KVMLoongArchIPIClass *ipi_class = KVM_LOONGARCH_IPI_GET_CLASS(ipi);
+-    IPICore *cpu;
+-    uint64_t attr;
+-    int cpu_id = 0;
+-    int fd = ipi_class->dev_fd;
+-
+-    for (cpu_id = 0; cpu_id < ipi->num_cpu; cpu_id++) {
+-        cpu = &ipi->cpu[cpu_id];
+-        attr = (cpu_id << 16) | CORE_STATUS_OFF;
+-        kvm_ipi_access_regs(fd, attr, &cpu->status, false);
+-
+-        attr = (cpu_id << 16) | CORE_EN_OFF;
+-        kvm_ipi_access_regs(fd, attr, &cpu->en, false);
+-
+-        attr = (cpu_id << 16) | CORE_SET_OFF;
+-        kvm_ipi_access_regs(fd, attr, &cpu->set, false);
+-
+-        attr = (cpu_id << 16) | CORE_CLEAR_OFF;
+-        kvm_ipi_access_regs(fd, attr, &cpu->clear, false);
+-
+-        attr = (cpu_id << 16) | CORE_BUF_20;
+-        kvm_ipi_access_regs(fd, attr, &cpu->buf[0], false);
+-
+-        attr = (cpu_id << 16) | CORE_BUF_28;
+-        kvm_ipi_access_regs(fd, attr, &cpu->buf[2], false);
+-
+-        attr = (cpu_id << 16) | CORE_BUF_30;
+-        kvm_ipi_access_regs(fd, attr, &cpu->buf[4], false);
+-
+-        attr = (cpu_id << 16) | CORE_BUF_38;
+-        kvm_ipi_access_regs(fd, attr, &cpu->buf[6], false);
+-    }
+-
+-    return 0;
+-}
+-
+-static int kvm_loongarch_ipi_post_load(void *opaque, int version_id)
+-{
+-    KVMLoongArchIPI *ipi = (KVMLoongArchIPI *)opaque;
+-    KVMLoongArchIPIClass *ipi_class = KVM_LOONGARCH_IPI_GET_CLASS(ipi);
+-    IPICore *cpu;
+-    uint64_t attr;
+-    int cpu_id = 0;
+-    int fd = ipi_class->dev_fd;
+-
+-    for (cpu_id = 0; cpu_id < ipi->num_cpu; cpu_id++) {
+-        cpu = &ipi->cpu[cpu_id];
+-        attr = (cpu_id << 16) | CORE_STATUS_OFF;
+-        kvm_ipi_access_regs(fd, attr, &cpu->status, true);
+-
+-        attr = (cpu_id << 16) | CORE_EN_OFF;
+-        kvm_ipi_access_regs(fd, attr, &cpu->en, true);
+-
+-        attr = (cpu_id << 16) | CORE_SET_OFF;
+-        kvm_ipi_access_regs(fd, attr, &cpu->set, true);
+-
+-        attr = (cpu_id << 16) | CORE_CLEAR_OFF;
+-        kvm_ipi_access_regs(fd, attr, &cpu->clear, true);
+-
+-        attr = (cpu_id << 16) | CORE_BUF_20;
+-        kvm_ipi_access_regs(fd, attr, &cpu->buf[0], true);
+-
+-        attr = (cpu_id << 16) | CORE_BUF_28;
+-        kvm_ipi_access_regs(fd, attr, &cpu->buf[2], true);
+-
+-        attr = (cpu_id << 16) | CORE_BUF_30;
+-        kvm_ipi_access_regs(fd, attr, &cpu->buf[4], true);
+-
+-        attr = (cpu_id << 16) | CORE_BUF_38;
+-        kvm_ipi_access_regs(fd, attr, &cpu->buf[6], true);
+-    }
+-
+-    return 0;
+-}
+-
+-static void kvm_loongarch_ipi_realize(DeviceState *dev, Error **errp)
++void kvm_ipi_realize(DeviceState *dev, Error **errp)
+ {
+-    KVMLoongArchIPI *ipi = KVM_LOONGARCH_IPI(dev);
+-    KVMLoongArchIPIClass *ipi_class = KVM_LOONGARCH_IPI_GET_CLASS(dev);
+-    struct kvm_create_device cd = {0};
+-    Error *err = NULL;
++    LoongarchIPIState *lis = LOONGARCH_IPI(dev);
+     int ret;
+ 
+-    if (ipi->num_cpu == 0) {
+-        error_setg(errp, "num-cpu must be at least 1");
+-        return;
+-    }
+-
+-    ipi_class->parent_realize(dev, &err);
+-    if (err) {
+-        error_propagate(errp, err);
+-        return;
+-    }
+-
+-    ipi->cpu = g_new0(IPICore, ipi->num_cpu);
+-    if (ipi->cpu == NULL) {
+-        error_setg(errp, "Memory allocation for ExtIOICore faile");
+-        return;
+-    }
+-
+-    if (!ipi_class->is_created) {
+-        cd.type = KVM_DEV_TYPE_LOONGARCH_IPI;
+-        ret = kvm_vm_ioctl(kvm_state, KVM_CREATE_DEVICE, &cd);
+-        if (ret < 0) {
+-            error_setg_errno(errp, errno, "Creating the KVM device failed");
+-            return;
+-        }
+-        ipi_class->is_created = true;
+-        ipi_class->dev_fd = cd.fd;
+-        fprintf(stdout, "Create LoongArch IPI irqchip in KVM done!\n");
+-    }
+-
+-    assert(ipi_class->dev_fd != IPI_DEV_FD_UNDEF);
+-}
+-
+-static Property kvm_loongarch_ipi_properties[] = {
+-    DEFINE_PROP_UINT32("num-cpu", KVMLoongArchIPI, num_cpu, 1),
+-    DEFINE_PROP_END_OF_LIST()
+-};
+-
+-static const VMStateDescription vmstate_kvm_ipi_core = {
+-    .name = "kvm-ipi-single",
+-    .version_id = 1,
+-    .minimum_version_id = 1,
+-    .fields = (VMStateField[]) {
+-        VMSTATE_UINT32(status, IPICore),
+-        VMSTATE_UINT32(en, IPICore),
+-        VMSTATE_UINT32(set, IPICore),
+-        VMSTATE_UINT32(clear, IPICore),
+-        VMSTATE_UINT32_ARRAY(buf, IPICore, 8),
+-        VMSTATE_END_OF_LIST()
+-    }
+-};
+-
+-static const VMStateDescription vmstate_kvm_loongarch_ipi = {
+-    .name = TYPE_KVM_LOONGARCH_IPI,
+-    .version_id = 1,
+-    .minimum_version_id = 1,
+-    .pre_save = kvm_loongarch_ipi_pre_save,
+-    .post_load = kvm_loongarch_ipi_post_load,
+-    .fields = (VMStateField[]) {
+-        VMSTATE_STRUCT_VARRAY_POINTER_UINT32(cpu, KVMLoongArchIPI, num_cpu,
+-                         vmstate_kvm_ipi_core, IPICore),
+-
+-        VMSTATE_END_OF_LIST()
++    ret = kvm_create_device(kvm_state, KVM_DEV_TYPE_LOONGARCH_IPI, false);
++    if (ret < 0) {
++        fprintf(stderr, "IPI KVM_CREATE_DEVICE failed: %s\n",
++                strerror(-ret));
++        abort();
+     }
+-};
+-
+-static void kvm_loongarch_ipi_class_init(ObjectClass *oc, void *data)
+-{
+-    DeviceClass *dc = DEVICE_CLASS(oc);
+-    KVMLoongArchIPIClass *ipi_class = KVM_LOONGARCH_IPI_CLASS(oc);
+-
+-    ipi_class->parent_realize = dc->realize;
+-    dc->realize = kvm_loongarch_ipi_realize;
+ 
+-    ipi_class->is_created = false;
+-    ipi_class->dev_fd = IPI_DEV_FD_UNDEF;
+-
+-    device_class_set_props(dc, kvm_loongarch_ipi_properties);
+-
+-    dc->vmsd = &vmstate_kvm_loongarch_ipi;
++    lis->dev_fd = ret;
+ }
+-
+-static const TypeInfo kvm_loongarch_ipi_info = {
+-    .name = TYPE_KVM_LOONGARCH_IPI,
+-    .parent = TYPE_SYS_BUS_DEVICE,
+-    .instance_size = sizeof(KVMLoongArchIPI),
+-    .class_size = sizeof(KVMLoongArchIPIClass),
+-    .class_init = kvm_loongarch_ipi_class_init,
+-};
+-
+-static void kvm_loongarch_ipi_register_types(void)
+-{
+-    type_register_static(&kvm_loongarch_ipi_info);
+-}
+-
+-type_init(kvm_loongarch_ipi_register_types)
+diff --git a/hw/intc/meson.build b/hw/intc/meson.build
+index d7bdaf4f6ca3..eefe1e357ec7 100644
+--- a/hw/intc/meson.build
++++ b/hw/intc/meson.build
+@@ -72,7 +72,8 @@ specific_ss.add(when: 'CONFIG_NIOS2_VIC', if_true: files('nios2_vic.c'))
+ specific_ss.add(when: 'CONFIG_LOONGSON_IPI_COMMON', if_true: files('loongson_ipi_common.c'))
+ specific_ss.add(when: 'CONFIG_LOONGSON_IPI', if_true: files('loongson_ipi.c'))
+ specific_ss.add(when: 'CONFIG_LOONGARCH_IPI', if_true: files('loongarch_ipi.c'))
+-specific_ss.add(when: 'CONFIG_LOONGARCH_IPI_KVM', if_true: files('loongarch_ipi_kvm.c'))
++specific_ss.add(when: ['CONFIG_KVM', 'CONFIG_LOONGARCH_IPI'],
++                if_true: files('loongarch_ipi_kvm.c'))
+ specific_ss.add(when: 'CONFIG_LOONGARCH_PCH_PIC', if_true: files('loongarch_pch_pic.c', 'loongarch_pic_common.c'))
+ specific_ss.add(when: 'CONFIG_LOONGARCH_PCH_MSI', if_true: files('loongarch_pch_msi.c'))
+ specific_ss.add(when: 'CONFIG_LOONGARCH_EXTIOI', if_true: files('loongarch_extioi.c', 'loongarch_extioi_common.c'))
+diff --git a/hw/loongarch/Kconfig b/hw/loongarch/Kconfig
+index d3a427edb184..1c4aa15e6b41 100644
+--- a/hw/loongarch/Kconfig
++++ b/hw/loongarch/Kconfig
+@@ -14,7 +14,6 @@ config LOONGARCH_VIRT
+     select LOONGARCH_PCH_PIC
+     select LOONGARCH_PCH_MSI
+     select LOONGARCH_EXTIOI
+-    select LOONGARCH_IPI_KVM if KVM
+     select LOONGARCH_PCH_PIC_KVM if KVM
+     select LS7A_RTC
+     select SMBIOS
+-- 
+2.51.0
+

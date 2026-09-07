@@ -1,0 +1,92 @@
+From 46657e838c64883b847e29eb112c799d97c41d72 Mon Sep 17 00:00:00 2001
+From: Bibo Mao <maobibo@loongson.cn>
+Date: Mon, 12 Jan 2026 14:58:01 +0800
+Subject: [PATCH 258/285] hw/loongarch/virt: Add property highmem-mmio-size
+ with virt machine
+
+The default high mmio size of GPEX PCIE host controller is 64G bytes on
+virt machine. If it does not meet requirements with some pass-throught HW
+devices in future, it can be adjust dynamically, here adds property
+highmem-mmio-size to set high mmio size.
+
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+Reviewed-by: Song Gao <gaosong@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ hw/loongarch/virt.c | 45 +++++++++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 45 insertions(+)
+
+diff --git a/hw/loongarch/virt.c b/hw/loongarch/virt.c
+index 93bd32a30b58..0460515b6f03 100644
+--- a/hw/loongarch/virt.c
++++ b/hw/loongarch/virt.c
+@@ -7,6 +7,7 @@
+ #include "qemu/osdep.h"
+ #include "qemu/units.h"
+ #include "qemu/datadir.h"
++#include "qemu/cutils.h"
+ #include "qapi/error.h"
+ #include "hw/boards.h"
+ #include "hw/char/serial.h"
+@@ -105,6 +106,43 @@ static void virt_set_highmem_mmio(Object *obj, bool value, Error **errp)
+     lvms->highmem_mmio = value;
+ }
+ 
++static void virt_get_highmem_mmio_size(Object *obj, Visitor *v,
++                                       const char *name, void *opaque,
++                                       Error **errp)
++{
++    LoongArchVirtMachineState *lvms = LOONGARCH_VIRT_MACHINE(obj);
++    uint64_t size = lvms->gpex.mmio64.size;
++
++    visit_type_size(v, name, &size, errp);
++}
++
++static void virt_set_highmem_mmio_size(Object *obj, Visitor *v,
++                                       const char *name, void *opaque,
++                                       Error **errp)
++{
++    LoongArchVirtMachineState *lvms = LOONGARCH_VIRT_MACHINE(obj);
++    uint64_t size;
++
++    if (!visit_type_size(v, name, &size, errp)) {
++        return;
++    }
++
++    if (!is_power_of_2(size)) {
++        error_setg(errp, "highmem-mmio-size is not a power of 2");
++        return;
++    }
++
++    if (size < DEFAULT_HIGH_PCIE_MMIO_SIZE) {
++        char *sz = size_to_str(DEFAULT_HIGH_PCIE_MMIO_SIZE);
++        error_setg(errp, "highmem-mmio-size cannot be set to a lower value "
++                         "than the default (%s)", sz);
++        g_free(sz);
++        return;
++    }
++
++    lvms->gpex.mmio64.size = size;
++}
++
+ static PFlashCFI01 *virt_flash_create1(LoongArchVirtMachineState *lvms,
+                                        const char *name,
+                                        const char *alias_prop_name)
+@@ -1476,6 +1514,13 @@ static void virt_class_init(ObjectClass *oc, void *data)
+     object_class_property_set_description(oc, "highmem-mmio",
+                                           "Set on/off to enable/disable high "
+                                           "memory region for PCI MMIO");
++    object_class_property_add(oc, "highmem-mmio-size", "size",
++                                   virt_get_highmem_mmio_size,
++                                   virt_set_highmem_mmio_size,
++                                   NULL, NULL);
++    object_class_property_set_description(oc, "highmem-mmio-size",
++                                          "Set the high memory region size "
++                                          "for PCI MMIO");
+ }
+ 
+ static const TypeInfo virt_machine_types[] = {
+-- 
+2.51.0
+

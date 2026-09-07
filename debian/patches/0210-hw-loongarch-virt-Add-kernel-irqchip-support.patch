@@ -1,0 +1,169 @@
+From 28e462fc4a59ac905c09b04e5e1440a789998608 Mon Sep 17 00:00:00 2001
+From: Bibo Mao <maobibo@loongson.cn>
+Date: Fri, 6 Jun 2025 14:36:07 +0800
+Subject: [PATCH 210/285] hw/loongarch/virt: Add kernel irqchip support
+
+If kvm_irqchip_in_kernel() return true, interrupt controller
+ExtIOI, IPI, PCH_PCI and PCH_MSI should be emlated in kernel. And
+it is not necessary to create memory region for these devices in
+user space.
+
+Reviewed-by: Song Gao <gaosong@loongson.cn>
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+Message-ID: <20250606063607.2557540-1-maobibo@loongson.cn>
+Signed-off-by: Song Gao <gaosong@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ hw/loongarch/virt.c        | 82 +++++++++++++++++++-------------------
+ target/loongarch/cpu.h     |  1 +
+ target/loongarch/kvm/kvm.c | 16 ++++++++
+ 3 files changed, 57 insertions(+), 42 deletions(-)
+
+diff --git a/hw/loongarch/virt.c b/hw/loongarch/virt.c
+index d9a216e6f2cd..82acf1b2869b 100644
+--- a/hw/loongarch/virt.c
++++ b/hw/loongarch/virt.c
+@@ -408,46 +408,18 @@ static void virt_irq_init(LoongArchVirtMachineState *lvms)
+      *    +--------+ +---------+ +---------+
+      */
+ 
+-    if (kvm_enabled() && kvm_irqchip_in_kernel()) {
+-        ipi = qdev_new(TYPE_KVM_LOONGARCH_IPI);
+-        qdev_prop_set_int32(ipi, "num-cpu", ms->smp.max_cpus);
+-        sysbus_realize_and_unref(SYS_BUS_DEVICE(ipi), &error_fatal);
+-    } else {
+-        ipi = qdev_new(TYPE_LOONGARCH_IPI);
+-        lvms->ipi = ipi;
+-
+-        sysbus_realize_and_unref(SYS_BUS_DEVICE(ipi), &error_fatal);
+-
+-        /* IPI iocsr memory region */
+-        memory_region_add_subregion(&lvms->system_iocsr, SMP_IPI_MAILBOX,
+-                       sysbus_mmio_get_region(SYS_BUS_DEVICE(ipi), 0));
+-        memory_region_add_subregion(&lvms->system_iocsr, MAIL_SEND_ADDR,
+-                       sysbus_mmio_get_region(SYS_BUS_DEVICE(ipi), 1));
+-    }
+-
++    /* Create IPI device */
++    ipi = qdev_new(TYPE_LOONGARCH_IPI);
+     lvms->ipi = ipi;
++    sysbus_realize_and_unref(SYS_BUS_DEVICE(ipi), &error_fatal);
+ 
+-    if (kvm_enabled() && kvm_irqchip_in_kernel()) {
+-        extioi = qdev_new(TYPE_KVM_LOONGARCH_EXTIOI);
+-        qdev_prop_set_uint32(extioi, "num-cpu", ms->smp.max_cpus);
++    /* Create EXTIOI device */
++    extioi = qdev_new(TYPE_LOONGARCH_EXTIOI);
++    lvms->extioi = extioi;
++    if (virt_is_veiointc_enabled(lvms)) {
+         qdev_prop_set_bit(extioi, "has-virtualization-extension", true);
+-        sysbus_realize_and_unref(SYS_BUS_DEVICE(extioi), &error_fatal);
+-    } else {
+-        extioi = qdev_new(TYPE_LOONGARCH_EXTIOI);
+-        lvms->extioi = extioi;
+-        if (virt_is_veiointc_enabled(lvms)) {
+-            qdev_prop_set_bit(extioi, "has-virtualization-extension", true);
+-        }
+-        sysbus_realize_and_unref(SYS_BUS_DEVICE(extioi), &error_fatal);
+-        memory_region_add_subregion(&lvms->system_iocsr, APIC_BASE,
+-                       sysbus_mmio_get_region(SYS_BUS_DEVICE(extioi), 0));
+-        if (virt_is_veiointc_enabled(lvms)) {
+-            memory_region_add_subregion(&lvms->system_iocsr, EXTIOI_VIRT_BASE,
+-                        sysbus_mmio_get_region(SYS_BUS_DEVICE(extioi), 1));
+-        }
+     }
+-
+-    lvms->extioi = extioi;
++    sysbus_realize_and_unref(SYS_BUS_DEVICE(extioi), &error_fatal);
+ 
+     virt_cpu_irq_init(lvms);
+     pch_pic = qdev_new(TYPE_LOONGARCH_PIC);
+@@ -464,14 +436,40 @@ static void virt_irq_init(LoongArchVirtMachineState *lvms)
+     d = SYS_BUS_DEVICE(pch_msi);
+     sysbus_realize_and_unref(d, &error_fatal);
+     sysbus_mmio_map(d, 0, VIRT_PCH_MSI_ADDR_LOW);
+-    if (!(kvm_enabled() && kvm_irqchip_in_kernel())) {
+-        /* Connect pch_msi irqs to extioi */
+-        for (i = 0; i < num; i++) {
+-            qdev_connect_gpio_out(DEVICE(d), i,
+-                                  qdev_get_gpio_in(extioi, i + start));
++
++    if (kvm_irqchip_in_kernel()) {
++        kvm_loongarch_init_irq_routing();
++    } else {
++        /* IPI iocsr memory region */
++        memory_region_add_subregion(&lvms->system_iocsr, SMP_IPI_MAILBOX,
++                       sysbus_mmio_get_region(SYS_BUS_DEVICE(ipi), 0));
++        memory_region_add_subregion(&lvms->system_iocsr, MAIL_SEND_ADDR,
++                       sysbus_mmio_get_region(SYS_BUS_DEVICE(ipi), 1));
++
++        /* EXTIOI iocsr memory region */
++        memory_region_add_subregion(&lvms->system_iocsr, APIC_BASE,
++                    sysbus_mmio_get_region(SYS_BUS_DEVICE(extioi), 0));
++        if (virt_is_veiointc_enabled(lvms)) {
++            memory_region_add_subregion(&lvms->system_iocsr, EXTIOI_VIRT_BASE,
++                    sysbus_mmio_get_region(SYS_BUS_DEVICE(extioi), 1));
+         }
+-    }
+ 
++        /* PCH_PIC memory region */
++        memory_region_add_subregion(get_system_memory(), VIRT_IOAPIC_REG_BASE,
++                    sysbus_mmio_get_region(SYS_BUS_DEVICE(pch_pic), 0));
++
++        /* Connect pch_pic irqs to extioi */
++        for (i = 0; i < VIRT_PCH_PIC_IRQ_NUM; i++) {
++            qdev_connect_gpio_out(DEVICE(pch_pic), i,
++                                  qdev_get_gpio_in(extioi, i));
++        }
++
++        for (i = VIRT_PCH_PIC_IRQ_NUM; i < EXTIOI_IRQS; i++) {
++            /* Connect pch_msi irqs to extioi */
++            qdev_connect_gpio_out(DEVICE(pch_msi), i - VIRT_PCH_PIC_IRQ_NUM,
++                                  qdev_get_gpio_in(extioi, i));
++        }
++    }
+     virt_devices_init(pch_pic, lvms);
+ }
+ 
+diff --git a/target/loongarch/cpu.h b/target/loongarch/cpu.h
+index faae3bb2382b..c5b5efd9caf4 100644
+--- a/target/loongarch/cpu.h
++++ b/target/loongarch/cpu.h
+@@ -536,5 +536,6 @@ static inline void kvm_loongarch_cpu_post_init(LoongArchCPU *cpu)
+ {
+ }
+ #endif
++void kvm_loongarch_init_irq_routing(void);
+ 
+ #endif /* LOONGARCH_CPU_H */
+diff --git a/target/loongarch/kvm/kvm.c b/target/loongarch/kvm/kvm.c
+index a1b2ee6b70d4..936ea90de619 100644
+--- a/target/loongarch/kvm/kvm.c
++++ b/target/loongarch/kvm/kvm.c
+@@ -1237,6 +1237,22 @@ void kvm_arch_init_irq_routing(KVMState *s)
+ {
+ }
+ 
++void kvm_loongarch_init_irq_routing(void)
++{
++    int i;
++
++    kvm_async_interrupts_allowed = true;
++    kvm_msi_via_irqfd_allowed = kvm_irqfds_enabled();
++    if (kvm_has_gsi_routing()) {
++        for (i = 0; i < KVM_IRQCHIP_NUM_PINS; ++i) {
++            kvm_irqchip_add_irq_route(kvm_state, i, 0, i);
++        }
++
++        kvm_gsi_routing_allowed = true;
++        kvm_irqchip_commit_routes(kvm_state);
++    }
++}
++
+ int kvm_arch_get_default_type(MachineState *ms)
+ {
+     return 0;
+-- 
+2.51.0
+

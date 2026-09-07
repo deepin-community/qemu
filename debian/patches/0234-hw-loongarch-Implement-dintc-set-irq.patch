@@ -1,0 +1,74 @@
+From d98224de60c96321615c86be2df35f7d86ba1c6f Mon Sep 17 00:00:00 2001
+From: Song Gao <gaosong@loongson.cn>
+Date: Tue, 16 Sep 2025 20:21:06 +0800
+Subject: [PATCH 234/285] hw/loongarch: Implement dintc set irq
+
+Implement dintc set irq and update CSR_MSGIS.
+
+Reviewed-by: Bibo Mao <maobibo@loongson.cn>
+Signed-off-by: Song Gao <gaosong@loongson.cn>
+Message-ID: <20250916122109.749813-9-gaosong@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ hw/intc/loongarch_dintc.c | 32 ++++++++++++++++++++++++++++++--
+ 1 file changed, 30 insertions(+), 2 deletions(-)
+
+diff --git a/hw/intc/loongarch_dintc.c b/hw/intc/loongarch_dintc.c
+index a96d84bf76dc..9e53c457c6c5 100644
+--- a/hw/intc/loongarch_dintc.c
++++ b/hw/intc/loongarch_dintc.c
+@@ -16,6 +16,14 @@
+ #include "migration/vmstate.h"
+ #include "trace.h"
+ #include "hw/qdev-properties.h"
++#include "target/loongarch/cpu.h"
++#include "qemu/error-report.h"
++#include "sysemu/hw_accel.h"
++
++/* msg addr field */
++FIELD(MSG_ADDR, IRQ_NUM, 4, 8)
++FIELD(MSG_ADDR, CPU_NUM, 12, 8)
++FIELD(MSG_ADDR, FIX, 28, 12)
+ 
+ static uint64_t loongarch_dintc_mem_read(void *opaque,
+                                         hwaddr addr, unsigned size)
+@@ -23,13 +31,33 @@ static uint64_t loongarch_dintc_mem_read(void *opaque,
+     return 0;
+ }
+ 
++static void do_set_vcpu_dintc_irq(CPUState *cs, run_on_cpu_data data)
++{
++    int irq = data.host_int;
++    CPULoongArchState *env;
++
++    env = &LOONGARCH_CPU(cs)->env;
++    cpu_synchronize_state(cs);
++    set_bit(irq, (unsigned long *)&env->CSR_MSGIS);
++}
++
+ static void loongarch_dintc_mem_write(void *opaque, hwaddr addr,
+                                      uint64_t val, unsigned size)
+ {
+-    return;
++    int irq_num, cpu_num = 0;
++    LoongArchDINTCState *s = LOONGARCH_DINTC(opaque);
++    uint64_t msg_addr = addr + VIRT_DINTC_BASE;
++    CPUState *cs;
++
++    cpu_num = FIELD_EX64(msg_addr, MSG_ADDR, CPU_NUM);
++    cs = cpu_by_arch_id(cpu_num);
++    irq_num = FIELD_EX64(msg_addr, MSG_ADDR, IRQ_NUM);
++
++    async_run_on_cpu(cs, do_set_vcpu_dintc_irq,
++                         RUN_ON_CPU_HOST_INT(irq_num));
++    qemu_set_irq(s->cpu[cpu_num].parent_irq, 1);
+ }
+ 
+-
+ static const MemoryRegionOps loongarch_dintc_ops = {
+     .read = loongarch_dintc_mem_read,
+     .write = loongarch_dintc_mem_write,
+-- 
+2.51.0
+

@@ -1,0 +1,37 @@
+From e139b82568d68bcfb9d288db5a1dc2a8bcfaf36a Mon Sep 17 00:00:00 2001
+From: Song Gao <gaosong@loongson.cn>
+Date: Tue, 16 Jul 2024 11:15:00 +0800
+Subject: [PATCH 047/285] qemu/timer: Add host ticks function for LoongArch
+
+Signed-off-by: Song Gao <gaosong@loongson.cn>
+Link: https://lore.kernel.org/r/20240716031500.4193498-1-gaosong@loongson.cn
+Signed-off-by: Paolo Bonzini <pbonzini@redhat.com>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ include/qemu/timer.h | 9 +++++++++
+ 1 file changed, 9 insertions(+)
+
+diff --git a/include/qemu/timer.h b/include/qemu/timer.h
+index 9a366e551fb3..4583e42bb98b 100644
+--- a/include/qemu/timer.h
++++ b/include/qemu/timer.h
+@@ -1001,6 +1001,15 @@ static inline int64_t cpu_get_host_ticks(void)
+     return val;
+ }
+ 
++#elif defined(__loongarch64)
++static inline int64_t cpu_get_host_ticks(void)
++{
++    uint64_t val;
++
++    asm volatile("rdtime.d %0, $zero" : "=r"(val));
++    return val;
++}
++
+ #else
+ /* The host CPU doesn't have an easily accessible cycle counter.
+    Just return a monotonically increasing value.  This will be
+-- 
+2.51.0
+

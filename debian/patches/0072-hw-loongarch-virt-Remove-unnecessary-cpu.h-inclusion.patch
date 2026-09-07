@@ -1,0 +1,35 @@
+From 8f259522d442c399fe8249416f1cfdacaa7d0af9 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Philippe=20Mathieu-Daud=C3=A9?= <philmd@linaro.org>
+Date: Fri, 27 Sep 2024 23:32:53 +0200
+Subject: [PATCH 072/285] hw/loongarch/virt: Remove unnecessary 'cpu.h'
+ inclusion
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Signed-off-by: Philippe Mathieu-Daudé <philmd@linaro.org>
+Reviewed-by: Song Gao <gaosong@loongson.cn>
+Reviewed-by: Thomas Huth <thuth@redhat.com>
+Message-Id: <20240927213254.17552-2-philmd@linaro.org>
+Signed-off-by: Song Gao <gaosong@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ include/hw/loongarch/virt.h | 1 -
+ 1 file changed, 1 deletion(-)
+
+diff --git a/include/hw/loongarch/virt.h b/include/hw/loongarch/virt.h
+index 6af3265517fe..d5850a9a98c8 100644
+--- a/include/hw/loongarch/virt.h
++++ b/include/hw/loongarch/virt.h
+@@ -8,7 +8,6 @@
+ #ifndef HW_LOONGARCH_H
+ #define HW_LOONGARCH_H
+ 
+-#include "target/loongarch/cpu.h"
+ #include "hw/boards.h"
+ #include "qemu/queue.h"
+ #include "hw/block/flash.h"
+-- 
+2.51.0
+

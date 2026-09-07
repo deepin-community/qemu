@@ -1,0 +1,92 @@
+From 1ca90e58faf88f7939b2aeb4d99ccf38c7c6d665 Mon Sep 17 00:00:00 2001
+From: Xianglai Li <lixianglai@loongson.cn>
+Date: Tue, 30 Dec 2025 18:00:32 +0800
+Subject: [PATCH 023/285] Fix compatibility issues with the upstream kernel
+
+Fix compatibility issues with the upstream kernel
+
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ hw/intc/loongarch_pch_pic.c     | 11 ++---------
+ hw/intc/loongarch_pch_pic_kvm.c |  7 +------
+ include/hw/loongarch/virt.h     |  8 --------
+ 3 files changed, 3 insertions(+), 23 deletions(-)
+
+diff --git a/hw/intc/loongarch_pch_pic.c b/hw/intc/loongarch_pch_pic.c
+index f801cfe7d105..90652e1c76c6 100644
+--- a/hw/intc/loongarch_pch_pic.c
++++ b/hw/intc/loongarch_pch_pic.c
+@@ -22,7 +22,6 @@ static void pch_pic_update_irq(LoongArchPCHPIC *s, uint64_t mask, int level)
+ {
+     uint64_t val;
+     int irq;
+-    int kvm_irq;
+ 
+     if (level) {
+         val = mask & s->intirr & ~s->int_mask;
+@@ -30,10 +29,7 @@ static void pch_pic_update_irq(LoongArchPCHPIC *s, uint64_t mask, int level)
+             irq = ctz64(val);
+             s->intisr |= MAKE_64BIT_MASK(irq, 1);
+             if (kvm_enabled() && kvm_irqchip_in_kernel()) {
+-                kvm_irq = (
+-                KVM_LOONGARCH_IRQ_TYPE_IOAPIC << KVM_LOONGARCH_IRQ_TYPE_SHIFT)
+-                | (0 <<  KVM_LOONGARCH_IRQ_VCPU_SHIFT) | s->htmsi_vector[irq];
+-                kvm_set_irq(kvm_state, kvm_irq, !!level);
++                kvm_set_irq(kvm_state, s->htmsi_vector[irq], !!level);
+             } else {
+                 qemu_set_irq(s->parent_irq[s->htmsi_vector[irq]], 1);
+             }
+@@ -48,10 +44,7 @@ static void pch_pic_update_irq(LoongArchPCHPIC *s, uint64_t mask, int level)
+             irq = ctz64(val);
+             s->intisr &= ~MAKE_64BIT_MASK(irq, 1);
+             if (kvm_enabled() && kvm_irqchip_in_kernel()) {
+-                kvm_irq = (
+-                KVM_LOONGARCH_IRQ_TYPE_IOAPIC << KVM_LOONGARCH_IRQ_TYPE_SHIFT)
+-                | (0 <<  KVM_LOONGARCH_IRQ_VCPU_SHIFT) | s->htmsi_vector[irq];
+-                kvm_set_irq(kvm_state, kvm_irq, !!level);
++                kvm_set_irq(kvm_state, s->htmsi_vector[irq], !!level);
+             } else {
+                 qemu_set_irq(s->parent_irq[s->htmsi_vector[irq]], 0);
+             }
+diff --git a/hw/intc/loongarch_pch_pic_kvm.c b/hw/intc/loongarch_pch_pic_kvm.c
+index e9cef02f9aac..5e5bba1e4dab 100644
+--- a/hw/intc/loongarch_pch_pic_kvm.c
++++ b/hw/intc/loongarch_pch_pic_kvm.c
+@@ -87,13 +87,8 @@ static int kvm_loongarch_pch_pic_post_load(void *opaque, int version_id)
+ 
+ static void kvm_pch_pic_handler(void *opaque, int irq, int level)
+ {
+-    int kvm_irq;
+-
+     if (kvm_enabled()) {
+-        kvm_irq = \
+-            (KVM_LOONGARCH_IRQ_TYPE_IOAPIC << KVM_LOONGARCH_IRQ_TYPE_SHIFT)
+-            | (0 <<  KVM_LOONGARCH_IRQ_VCPU_SHIFT) | irq;
+-        kvm_set_irq(kvm_state, kvm_irq, !!level);
++        kvm_set_irq(kvm_state, irq, !!level);
+     }
+ }
+ 
+diff --git a/include/hw/loongarch/virt.h b/include/hw/loongarch/virt.h
+index a99693b1ceb8..6af3265517fe 100644
+--- a/include/hw/loongarch/virt.h
++++ b/include/hw/loongarch/virt.h
+@@ -37,14 +37,6 @@
+ 
+ #define FDT_BASE                0x100000
+ 
+-/* KVM_IRQ_LINE irq field index values */
+-#define KVM_LOONGARCH_IRQ_TYPE_SHIFT            24
+-#define KVM_LOONGARCH_IRQ_TYPE_MASK             0xff
+-#define KVM_LOONGARCH_IRQ_VCPU_SHIFT            16
+-#define KVM_LOONGARCH_IRQ_VCPU_MASK             0xff
+-#define KVM_LOONGARCH_IRQ_NUM_SHIFT             0
+-#define KVM_LOONGARCH_IRQ_NUM_MASK              0xffff
+-
+ /* irq_type field */
+ #define KVM_LOONGARCH_IRQ_TYPE_CPU_IP           0
+ #define KVM_LOONGARCH_IRQ_TYPE_CPU_IO           1
+-- 
+2.51.0
+

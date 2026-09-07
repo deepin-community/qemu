@@ -1,0 +1,207 @@
+From 73d344fa11d9c7f691d99fa061a3a84a61e96ec2 Mon Sep 17 00:00:00 2001
+From: Bibo Mao <maobibo@loongson.cn>
+Date: Mon, 28 Oct 2024 10:38:09 +0800
+Subject: [PATCH 074/285] linux-headers: Update to Linux v6.12-rc5
+
+update linux-headers to v6.12-rc5. Pass to compile on aarch64, arm,
+loongarch64, x86_64, i386, riscv64,riscv32 softmmu and linux-user.
+
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+Acked-by: Song Gao <gaosong@loongson.cn>
+Message-Id: <20241028023809.1554405-4-maobibo@loongson.cn>
+Signed-off-by: Song Gao <gaosong@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ linux-headers/asm-arm64/kvm.h             | 15 ++++++++------
+ linux-headers/asm-arm64/mman.h            |  9 ++++++++
+ linux-headers/asm-arm64/sve_context.h     | 11 ++++++++++
+ linux-headers/asm-arm64/unistd.h          | 25 +----------------------
+ linux-headers/asm-loongarch/bitsperlong.h |  8 --------
+ linux-headers/asm-loongarch/kvm.h         | 23 ---------------------
+ linux-headers/asm-loongarch/unistd.h      |  5 +----
+ 7 files changed, 31 insertions(+), 65 deletions(-)
+
+diff --git a/linux-headers/asm-arm64/kvm.h b/linux-headers/asm-arm64/kvm.h
+index b30991de22d2..68fee67fe8b4 100644
+--- a/linux-headers/asm-arm64/kvm.h
++++ b/linux-headers/asm-arm64/kvm.h
+@@ -37,9 +37,7 @@
+ #include <asm/ptrace.h>
+ #include <asm/sve_context.h>
+ 
+-#define __KVM_HAVE_GUEST_DEBUG
+ #define __KVM_HAVE_IRQ_LINE
+-#define __KVM_HAVE_READONLY_MEM
+ #define __KVM_HAVE_VCPU_EVENTS
+ 
+ #define KVM_COALESCED_MMIO_PAGE_OFFSET 1
+@@ -76,11 +74,11 @@ struct kvm_regs {
+ 
+ /* KVM_ARM_SET_DEVICE_ADDR ioctl id encoding */
+ #define KVM_ARM_DEVICE_TYPE_SHIFT	0
+-#define KVM_ARM_DEVICE_TYPE_MASK	GENMASK(KVM_ARM_DEVICE_TYPE_SHIFT + 15, \
+-						KVM_ARM_DEVICE_TYPE_SHIFT)
++#define KVM_ARM_DEVICE_TYPE_MASK	__GENMASK(KVM_ARM_DEVICE_TYPE_SHIFT + 15, \
++						  KVM_ARM_DEVICE_TYPE_SHIFT)
+ #define KVM_ARM_DEVICE_ID_SHIFT		16
+-#define KVM_ARM_DEVICE_ID_MASK		GENMASK(KVM_ARM_DEVICE_ID_SHIFT + 15, \
+-						KVM_ARM_DEVICE_ID_SHIFT)
++#define KVM_ARM_DEVICE_ID_MASK		__GENMASK(KVM_ARM_DEVICE_ID_SHIFT + 15, \
++						  KVM_ARM_DEVICE_ID_SHIFT)
+ 
+ /* Supported device IDs */
+ #define KVM_ARM_DEVICE_VGIC_V2		0
+@@ -163,6 +161,11 @@ struct kvm_sync_regs {
+ 	__u64 device_irq_level;
+ };
+ 
++/* Bits for run->s.regs.device_irq_level */
++#define KVM_ARM_DEV_EL1_VTIMER		(1 << 0)
++#define KVM_ARM_DEV_EL1_PTIMER		(1 << 1)
++#define KVM_ARM_DEV_PMU			(1 << 2)
++
+ /*
+  * PMU filter structure. Describe a range of events with a particular
+  * action. To be used with KVM_ARM_VCPU_PMU_V3_FILTER.
+diff --git a/linux-headers/asm-arm64/mman.h b/linux-headers/asm-arm64/mman.h
+index d0dbfe958789..7b500a3a7be7 100644
+--- a/linux-headers/asm-arm64/mman.h
++++ b/linux-headers/asm-arm64/mman.h
+@@ -7,4 +7,13 @@
+ #define PROT_BTI	0x10		/* BTI guarded page */
+ #define PROT_MTE	0x20		/* Normal Tagged mapping */
+ 
++/* Override any generic PKEY permission defines */
++#define PKEY_DISABLE_EXECUTE	0x4
++#define PKEY_DISABLE_READ	0x8
++#undef PKEY_ACCESS_MASK
++#define PKEY_ACCESS_MASK       (PKEY_DISABLE_ACCESS |\
++				PKEY_DISABLE_WRITE  |\
++				PKEY_DISABLE_READ   |\
++				PKEY_DISABLE_EXECUTE)
++
+ #endif /* ! _UAPI__ASM_MMAN_H */
+diff --git a/linux-headers/asm-arm64/sve_context.h b/linux-headers/asm-arm64/sve_context.h
+index 1d0e3e1d0950..d1b1ec8cb1f1 100644
+--- a/linux-headers/asm-arm64/sve_context.h
++++ b/linux-headers/asm-arm64/sve_context.h
+@@ -13,6 +13,17 @@
+ 
+ #define __SVE_VQ_BYTES		16	/* number of bytes per quadword */
+ 
++/*
++ * Yes, __SVE_VQ_MAX is 512 QUADWORDS.
++ *
++ * To help ensure forward portability, this is much larger than the
++ * current maximum value defined by the SVE architecture.  While arrays
++ * or static allocations can be sized based on this value, watch out!
++ * It will waste a surprisingly large amount of memory.
++ *
++ * Dynamic sizing based on the actual runtime vector length is likely to
++ * be preferable for most purposes.
++ */
+ #define __SVE_VQ_MIN		1
+ #define __SVE_VQ_MAX		512
+ 
+diff --git a/linux-headers/asm-arm64/unistd.h b/linux-headers/asm-arm64/unistd.h
+index ce2ee8f1e361..df36f23876e8 100644
+--- a/linux-headers/asm-arm64/unistd.h
++++ b/linux-headers/asm-arm64/unistd.h
+@@ -1,25 +1,2 @@
+ /* SPDX-License-Identifier: GPL-2.0 WITH Linux-syscall-note */
+-/*
+- * Copyright (C) 2012 ARM Ltd.
+- *
+- * This program is free software; you can redistribute it and/or modify
+- * it under the terms of the GNU General Public License version 2 as
+- * published by the Free Software Foundation.
+- *
+- * This program is distributed in the hope that it will be useful,
+- * but WITHOUT ANY WARRANTY; without even the implied warranty of
+- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+- * GNU General Public License for more details.
+- *
+- * You should have received a copy of the GNU General Public License
+- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+- */
+-
+-#define __ARCH_WANT_RENAMEAT
+-#define __ARCH_WANT_NEW_STAT
+-#define __ARCH_WANT_SET_GET_RLIMIT
+-#define __ARCH_WANT_TIME32_SYSCALLS
+-#define __ARCH_WANT_SYS_CLONE3
+-#define __ARCH_WANT_MEMFD_SECRET
+-
+-#include <asm-generic/unistd.h>
++#include <asm/unistd_64.h>
+diff --git a/linux-headers/asm-loongarch/bitsperlong.h b/linux-headers/asm-loongarch/bitsperlong.h
+index 00b4ba1e5cdf..6dc0bb0c13b2 100644
+--- a/linux-headers/asm-loongarch/bitsperlong.h
++++ b/linux-headers/asm-loongarch/bitsperlong.h
+@@ -1,9 +1 @@
+-/* SPDX-License-Identifier: GPL-2.0 WITH Linux-syscall-note */
+-#ifndef __ASM_LOONGARCH_BITSPERLONG_H
+-#define __ASM_LOONGARCH_BITSPERLONG_H
+-
+-#define __BITS_PER_LONG (__SIZEOF_LONG__ * 8)
+-
+ #include <asm-generic/bitsperlong.h>
+-
+-#endif /* __ASM_LOONGARCH_BITSPERLONG_H */
+diff --git a/linux-headers/asm-loongarch/kvm.h b/linux-headers/asm-loongarch/kvm.h
+index 7c14d4ee75d2..70d89070bfeb 100644
+--- a/linux-headers/asm-loongarch/kvm.h
++++ b/linux-headers/asm-loongarch/kvm.h
+@@ -14,12 +14,8 @@
+  * Some parts derived from the x86 version of this file.
+  */
+ 
+-#define __KVM_HAVE_READONLY_MEM
+-#define __KVM_HAVE_GUEST_DEBUG
+-
+ #define KVM_COALESCED_MMIO_PAGE_OFFSET	1
+ #define KVM_DIRTY_LOG_PAGE_OFFSET	64
+-#define __KVM_HAVE_IRQ_LINE
+ 
+ #define KVM_GUESTDBG_USE_SW_BP		0x00010000
+ 
+@@ -136,23 +132,4 @@ struct kvm_iocsr_entry {
+ #define KVM_IRQCHIP_NUM_PINS	64
+ #define KVM_MAX_CORES		256
+ 
+-#define KVM_DEV_LOONGARCH_IPI_GRP_REGS		0x40000001
+-
+-#define KVM_DEV_LOONGARCH_EXTIOI_GRP_REGS	0x40000002
+-
+-#define KVM_DEV_LOONGARCH_EXTIOI_GRP_SW_STATUS		0x40000003
+-#define KVM_DEV_LOONGARCH_EXTIOI_SW_STATUS_NUM_CPU	0x0
+-#define KVM_DEV_LOONGARCH_EXTIOI_SW_STATUS_FEATURE	0x1
+-#define KVM_DEV_LOONGARCH_EXTIOI_SW_STATUS_STATE	0x2
+-
+-#define KVM_DEV_LOONGARCH_EXTIOI_GRP_CTRL		0x40000004
+-#define KVM_DEV_LOONGARCH_EXTIOI_CTRL_INIT_NUM_CPU	0x0
+-#define KVM_DEV_LOONGARCH_EXTIOI_CTRL_INIT_FEATURE	0x1
+-#define KVM_DEV_LOONGARCH_EXTIOI_CTRL_LOAD_FINISHED	0x3
+-
+-
+-#define KVM_DEV_LOONGARCH_PCH_PIC_GRP_REGS	0x40000005
+-#define KVM_DEV_LOONGARCH_PCH_PIC_GRP_CTRL	0x40000006
+-#define KVM_DEV_LOONGARCH_PCH_PIC_CTRL_INIT	0
+-
+ #endif /* __UAPI_ASM_LOONGARCH_KVM_H */
+diff --git a/linux-headers/asm-loongarch/unistd.h b/linux-headers/asm-loongarch/unistd.h
+index b344b1f91715..1f01980f9c94 100644
+--- a/linux-headers/asm-loongarch/unistd.h
++++ b/linux-headers/asm-loongarch/unistd.h
+@@ -1,6 +1,3 @@
+ /* SPDX-License-Identifier: GPL-2.0 WITH Linux-syscall-note */
+-#define __ARCH_WANT_NEW_STAT
+-#define __ARCH_WANT_SYS_CLONE
+-#define __ARCH_WANT_SYS_CLONE3
+ 
+-#include <asm-generic/unistd.h>
++#include <asm/unistd_64.h>
+-- 
+2.51.0
+

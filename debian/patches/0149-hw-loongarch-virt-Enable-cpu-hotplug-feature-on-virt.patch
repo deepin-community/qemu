@@ -1,0 +1,85 @@
+From a6c8d25a088aa18e4ad6735b2323c83f2d32bebc Mon Sep 17 00:00:00 2001
+From: Bibo Mao <maobibo@loongson.cn>
+Date: Mon, 10 Feb 2025 17:03:29 +0800
+Subject: [PATCH 149/285] hw/loongarch/virt: Enable cpu hotplug feature on virt
+ machine
+
+On virt machine, enable CPU hotplug feature has_hotpluggable_cpus. For
+hot-added CPUs, there is socket-id/core-id/thread-id property set,
+arch_id can be caculated from these properties. So that cpu slot can be
+searched from its arch_id.
+
+Co-developed-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ hw/loongarch/virt.c | 43 +++++++++++++++++++++++++++++++++++++++++--
+ 1 file changed, 41 insertions(+), 2 deletions(-)
+
+diff --git a/hw/loongarch/virt.c b/hw/loongarch/virt.c
+index 1d8a9e908ef9..7458ba774a5a 100644
+--- a/hw/loongarch/virt.c
++++ b/hw/loongarch/virt.c
+@@ -887,10 +887,42 @@ static void virt_cpu_pre_plug(HotplugHandler *hotplug_dev,
+     CPUArchId *cpu_slot;
+     Error *err = NULL;
+     LoongArchCPUTopo topo;
++    int arch_id;
+ 
+     if (lvms->acpi_ged) {
+-        error_setg(&err, "CPU hotplug not supported");
+-        goto out;
++        if ((cpu->thread_id < 0) || (cpu->thread_id >= ms->smp.threads)) {
++            error_setg(&err,
++                       "Invalid thread-id %u specified, must be in range 1:%u",
++                       cpu->thread_id, ms->smp.threads - 1);
++            goto out;
++        }
++
++        if ((cpu->core_id < 0) || (cpu->core_id >= ms->smp.cores)) {
++            error_setg(&err,
++                       "Invalid core-id %u specified, must be in range 1:%u",
++                       cpu->core_id, ms->smp.cores - 1);
++            goto out;
++        }
++
++        if ((cpu->socket_id < 0) || (cpu->socket_id >= ms->smp.sockets)) {
++            error_setg(&err,
++                       "Invalid socket-id %u specified, must be in range 1:%u",
++                       cpu->socket_id, ms->smp.sockets - 1);
++            goto out;
++        }
++
++        topo.socket_id = cpu->socket_id;
++        topo.core_id = cpu->core_id;
++        topo.thread_id = cpu->thread_id;
++        arch_id =  virt_get_arch_id_from_topo(ms, &topo);
++        cpu_slot = virt_find_cpu_slot(ms, arch_id);
++        if (CPU(cpu_slot->cpu)) {
++            error_setg(&err,
++                       "cpu(id%d=%d:%d:%d) with arch-id %" PRIu64 " exists",
++                       cs->cpu_index, cpu->socket_id, cpu->core_id,
++                       cpu->thread_id, cpu_slot->arch_id);
++            goto out;
++        }
+     } else {
+         /* For cold-add cpu, find empty cpu slot */
+         cpu_slot = virt_find_empty_cpu_slot(ms);
+@@ -991,6 +1023,13 @@ static void virt_cpu_plug(HotplugHandler *hotplug_dev,
+             return;
+         }
+     }
++
++    if (lvms->acpi_ged) {
++        hotplug_handler_plug(HOTPLUG_HANDLER(lvms->acpi_ged), dev, &err);
++        if (err) {
++            error_propagate(errp, err);
++        }
++    }
+ }
+ 
+ static bool memhp_type_supported(DeviceState *dev)
+-- 
+2.51.0
+

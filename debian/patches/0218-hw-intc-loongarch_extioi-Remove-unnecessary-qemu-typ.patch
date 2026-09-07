@@ -1,0 +1,35 @@
+From 515f07d07a6572f2d3d202e7e167a24bb77a647a Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Philippe=20Mathieu-Daud=C3=A9?= <philmd@linaro.org>
+Date: Tue, 8 Jul 2025 10:55:20 +0200
+Subject: [PATCH 218/285] hw/intc/loongarch_extioi: Remove unnecessary
+ 'qemu/typedefs.h' include
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+"qemu/typedefs.h" is already included by "qemu/osdep.h".
+
+Signed-off-by: Philippe Mathieu-Daudé <philmd@linaro.org>
+Reviewed-by: Song Gao <gaosong@loongson.cn>
+Message-Id: <20250708085859.7885-2-philmd@linaro.org>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ hw/intc/loongarch_extioi_kvm.c | 1 -
+ 1 file changed, 1 deletion(-)
+
+diff --git a/hw/intc/loongarch_extioi_kvm.c b/hw/intc/loongarch_extioi_kvm.c
+index 72e0870ba408..7a901ef90953 100644
+--- a/hw/intc/loongarch_extioi_kvm.c
++++ b/hw/intc/loongarch_extioi_kvm.c
+@@ -6,7 +6,6 @@
+  */
+ 
+ #include "qemu/osdep.h"
+-#include "qemu/typedefs.h"
+ #include "hw/intc/loongarch_extioi.h"
+ #include "linux/kvm.h"
+ #include "qapi/error.h"
+-- 
+2.51.0
+

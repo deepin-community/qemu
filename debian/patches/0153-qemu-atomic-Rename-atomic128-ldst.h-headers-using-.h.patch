@@ -1,0 +1,96 @@
+From efc38fc9652719fdc698b1ae1ba8a297eb2bf17c Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Philippe=20Mathieu-Daud=C3=A9?= <philmd@linaro.org>
+Date: Thu, 12 Dec 2024 15:10:17 +0100
+Subject: [PATCH 153/285] qemu/atomic: Rename atomic128-ldst.h headers using
+ .h.inc suffix
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Since commit 139c1837db ("meson: rename included C source files
+to .c.inc"), QEMU standard procedure for included C files is to
+use *.c.inc.
+
+Besides, since commit 6a0057aa22 ("docs/devel: make a statement
+about includes") this is documented in the Coding Style:
+
+  If you do use template header files they should be named with
+  the ``.c.inc`` or ``.h.inc`` suffix to make it clear they are
+  being included for expansion.
+
+Therefore rename 'atomic128-ldst.h' as 'atomic128-ldst.h.inc'.
+
+Signed-off-by: Philippe Mathieu-Daudé <philmd@linaro.org>
+Signed-off-by: Richard Henderson <richard.henderson@linaro.org>
+Message-ID: <20241212141018.59428-3-philmd@linaro.org>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ .../aarch64/host/{atomic128-ldst.h => atomic128-ldst.h.inc}     | 0
+ .../generic/host/{atomic128-ldst.h => atomic128-ldst.h.inc}     | 0
+ .../loongarch64/host/{atomic128-ldst.h => atomic128-ldst.h.inc} | 0
+ .../x86_64/host/{atomic128-ldst.h => atomic128-ldst.h.inc}      | 2 +-
+ host/include/x86_64/host/load-extract-al16-al8.h                | 2 +-
+ include/qemu/atomic128.h                                        | 2 +-
+ 6 files changed, 3 insertions(+), 3 deletions(-)
+ rename host/include/aarch64/host/{atomic128-ldst.h => atomic128-ldst.h.inc} (100%)
+ rename host/include/generic/host/{atomic128-ldst.h => atomic128-ldst.h.inc} (100%)
+ rename host/include/loongarch64/host/{atomic128-ldst.h => atomic128-ldst.h.inc} (100%)
+ rename host/include/x86_64/host/{atomic128-ldst.h => atomic128-ldst.h.inc} (96%)
+
+diff --git a/host/include/aarch64/host/atomic128-ldst.h b/host/include/aarch64/host/atomic128-ldst.h.inc
+similarity index 100%
+rename from host/include/aarch64/host/atomic128-ldst.h
+rename to host/include/aarch64/host/atomic128-ldst.h.inc
+diff --git a/host/include/generic/host/atomic128-ldst.h b/host/include/generic/host/atomic128-ldst.h.inc
+similarity index 100%
+rename from host/include/generic/host/atomic128-ldst.h
+rename to host/include/generic/host/atomic128-ldst.h.inc
+diff --git a/host/include/loongarch64/host/atomic128-ldst.h b/host/include/loongarch64/host/atomic128-ldst.h.inc
+similarity index 100%
+rename from host/include/loongarch64/host/atomic128-ldst.h
+rename to host/include/loongarch64/host/atomic128-ldst.h.inc
+diff --git a/host/include/x86_64/host/atomic128-ldst.h b/host/include/x86_64/host/atomic128-ldst.h.inc
+similarity index 96%
+rename from host/include/x86_64/host/atomic128-ldst.h
+rename to host/include/x86_64/host/atomic128-ldst.h.inc
+index 8d6f909d3c9c..4c698e3246f4 100644
+--- a/host/include/x86_64/host/atomic128-ldst.h
++++ b/host/include/x86_64/host/atomic128-ldst.h.inc
+@@ -69,7 +69,7 @@ static inline void atomic16_set(Int128 *ptr, Int128 val)
+ }
+ #else
+ /* Provide QEMU_ERROR stubs. */
+-#include "host/include/generic/host/atomic128-ldst.h"
++#include "host/include/generic/host/atomic128-ldst.h.inc"
+ #endif
+ 
+ #endif /* X86_64_ATOMIC128_LDST_H */
+diff --git a/host/include/x86_64/host/load-extract-al16-al8.h b/host/include/x86_64/host/load-extract-al16-al8.h
+index baa506b7b5b1..b837c3786843 100644
+--- a/host/include/x86_64/host/load-extract-al16-al8.h
++++ b/host/include/x86_64/host/load-extract-al16-al8.h
+@@ -9,7 +9,7 @@
+ #define X86_64_LOAD_EXTRACT_AL16_AL8_H
+ 
+ #ifdef CONFIG_INT128_TYPE
+-#include "host/atomic128-ldst.h"
++#include "host/atomic128-ldst.h.inc"
+ 
+ /**
+  * load_atom_extract_al16_or_al8:
+diff --git a/include/qemu/atomic128.h b/include/qemu/atomic128.h
+index 03c27022f0cf..448fb6447997 100644
+--- a/include/qemu/atomic128.h
++++ b/include/qemu/atomic128.h
+@@ -59,6 +59,6 @@
+  */
+ 
+ #include "host/atomic128-cas.h.inc"
+-#include "host/atomic128-ldst.h"
++#include "host/atomic128-ldst.h.inc"
+ 
+ #endif /* QEMU_ATOMIC128_H */
+-- 
+2.51.0
+

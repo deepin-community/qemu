@@ -1,0 +1,86 @@
+From acb3e2d71518616e255b9a546a6770f5ce4e78b6 Mon Sep 17 00:00:00 2001
+From: Bibo Mao <maobibo@loongson.cn>
+Date: Wed, 22 Jan 2025 15:21:01 +0800
+Subject: [PATCH 118/285] target/loongarch: Add common header file for CSR
+ registers
+
+Common header file csr.h is added here, it can be used by both
+TCG mode and kvm mode.
+
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ target/loongarch/csr.h                        | 25 +++++++++++++++++++
+ .../tcg/insn_trans/trans_privileged.c.inc     | 16 +-----------
+ 2 files changed, 26 insertions(+), 15 deletions(-)
+ create mode 100644 target/loongarch/csr.h
+
+diff --git a/target/loongarch/csr.h b/target/loongarch/csr.h
+new file mode 100644
+index 000000000000..20d4bf5dc785
+--- /dev/null
++++ b/target/loongarch/csr.h
+@@ -0,0 +1,25 @@
++/* SPDX-License-Identifier: GPL-2.0-or-later */
++/*
++ * Copyright (c) 2025 Loongson Technology Corporation Limited
++ */
++
++#ifndef TARGET_LOONGARCH_CSR_H
++#define TARGET_LOONGARCH_CSR_H
++
++#include "cpu-csr.h"
++
++typedef void (*GenCSRFunc)(void);
++enum {
++    CSRFL_READONLY = (1 << 0),
++    CSRFL_EXITTB   = (1 << 1),
++    CSRFL_IO       = (1 << 2),
++};
++
++typedef struct {
++    int offset;
++    int flags;
++    GenCSRFunc readfn;
++    GenCSRFunc writefn;
++} CSRInfo;
++
++#endif /* TARGET_LOONGARCH_CSR_H */
+diff --git a/target/loongarch/tcg/insn_trans/trans_privileged.c.inc b/target/loongarch/tcg/insn_trans/trans_privileged.c.inc
+index 98cd4b48f25c..a86f15e8408f 100644
+--- a/target/loongarch/tcg/insn_trans/trans_privileged.c.inc
++++ b/target/loongarch/tcg/insn_trans/trans_privileged.c.inc
+@@ -5,7 +5,7 @@
+  * LoongArch translation routines for the privileged instructions.
+  */
+ 
+-#include "cpu-csr.h"
++#include "csr.h"
+ 
+ #ifdef CONFIG_USER_ONLY
+ 
+@@ -44,20 +44,6 @@ GEN_FALSE_TRANS(idle)
+ 
+ typedef void (*GenCSRRead)(TCGv dest, TCGv_ptr env);
+ typedef void (*GenCSRWrite)(TCGv dest, TCGv_ptr env, TCGv src);
+-typedef void (*GenCSRFunc)(void);
+-
+-typedef struct {
+-    int offset;
+-    int flags;
+-    GenCSRFunc readfn;
+-    GenCSRFunc writefn;
+-} CSRInfo;
+-
+-enum {
+-    CSRFL_READONLY = (1 << 0),
+-    CSRFL_EXITTB   = (1 << 1),
+-    CSRFL_IO       = (1 << 2),
+-};
+ 
+ #define CSR_OFF_FUNCS(NAME, FL, RD, WR)                    \
+     [LOONGARCH_CSR_##NAME] = {                             \
+-- 
+2.51.0
+

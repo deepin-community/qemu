@@ -1,0 +1,111 @@
+From 77f6b2937aa032441c9e8ada2dd16c6d1db016c0 Mon Sep 17 00:00:00 2001
+From: Bibo Mao <maobibo@loongson.cn>
+Date: Wed, 7 May 2025 10:31:36 +0800
+Subject: [PATCH 178/285] hw/intc/loongarch_pch: Set version information at
+ initial stage
+
+Register PCH_PIC_INT_ID constains version and supported irq number
+information, and it is read only register. The detailed value can
+be set at initial stage, rather than read callback.
+
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+Reviewed-by: Song Gao <gaosong@loongson.cn>
+Message-Id: <20250507023148.1877287-5-maobibo@loongson.cn>
+Signed-off-by: Song Gao <gaosong@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ hw/intc/loongarch_pch_pic.c            |  9 ++-------
+ hw/intc/loongarch_pic_common.c         | 13 +++++++++++++
+ include/hw/intc/loongarch_pic_common.h | 17 +++++++++++++++--
+ 3 files changed, 30 insertions(+), 9 deletions(-)
+
+diff --git a/hw/intc/loongarch_pch_pic.c b/hw/intc/loongarch_pch_pic.c
+index 11a59bf41443..358c9c9c0045 100644
+--- a/hw/intc/loongarch_pch_pic.c
++++ b/hw/intc/loongarch_pch_pic.c
+@@ -89,15 +89,10 @@ static uint64_t loongarch_pch_pic_low_readw(void *opaque, hwaddr addr,
+ 
+     switch (offset) {
+     case PCH_PIC_INT_ID:
+-        val = PCH_PIC_INT_ID_VAL;
++        val = s->id.data & UINT_MAX;
+         break;
+     case PCH_PIC_INT_ID + 4:
+-        /*
+-         * With 7A1000 manual
+-         *   bit  0-15 pch irqchip version
+-         *   bit 16-31 irq number supported with pch irqchip
+-         */
+-        val = deposit32(PCH_PIC_INT_ID_VER, 16, 16, s->irq_num - 1);
++        val = s->id.data >> 32;
+         break;
+     case PCH_PIC_INT_MASK:
+         val = (uint32_t)s->int_mask;
+diff --git a/hw/intc/loongarch_pic_common.c b/hw/intc/loongarch_pic_common.c
+index 6aee1b5bf792..6cd7ed4c356e 100644
+--- a/hw/intc/loongarch_pic_common.c
++++ b/hw/intc/loongarch_pic_common.c
+@@ -49,6 +49,19 @@ static void loongarch_pic_common_reset_hold(Object *obj)
+     LoongArchPICCommonState *s = LOONGARCH_PIC_COMMON(obj);
+     int i;
+ 
++    /*
++     * With Loongson 7A1000 user manual
++     * Chapter 5.2 "Description of Interrupt-related Registers"
++     *
++     * Interrupt controller identification register 1
++     *   Bit 24-31 Interrupt Controller ID
++     * Interrupt controller identification register 2
++     *   Bit  0-7  Interrupt Controller version number
++     *   Bit 16-23 The number of interrupt sources supported
++     */
++    s->id.desc.id = PCH_PIC_INT_ID_VAL;
++    s->id.desc.version = PCH_PIC_INT_ID_VER;
++    s->id.desc.irq_num = s->irq_num - 1;
+     s->int_mask = UINT64_MAX;
+     s->htmsi_en = 0x0;
+     s->intedge  = 0x0;
+diff --git a/include/hw/intc/loongarch_pic_common.h b/include/hw/intc/loongarch_pic_common.h
+index 2b4b483c6395..7a9a2bdd4683 100644
+--- a/include/hw/intc/loongarch_pic_common.h
++++ b/include/hw/intc/loongarch_pic_common.h
+@@ -10,9 +10,9 @@
+ #include "hw/pci-host/ls7a.h"
+ #include "hw/sysbus.h"
+ 
+-#define PCH_PIC_INT_ID_VAL              0x7000000UL
+-#define PCH_PIC_INT_ID_VER              0x1UL
+ #define PCH_PIC_INT_ID                  0x00
++#define  PCH_PIC_INT_ID_VAL             0x7
++#define  PCH_PIC_INT_ID_VER             0x1
+ #define PCH_PIC_INT_MASK                0x20
+ #define PCH_PIC_HTMSI_EN                0x40
+ #define PCH_PIC_INT_EDGE                0x60
+@@ -30,10 +30,23 @@
+ OBJECT_DECLARE_TYPE(LoongArchPICCommonState,
+                     LoongArchPICCommonClass, LOONGARCH_PIC_COMMON)
+ 
++union LoongArchPIC_ID {
++    struct {
++        uint8_t _reserved_0[3];
++        uint8_t id;
++        uint8_t version;
++        uint8_t _reserved_1;
++        uint8_t irq_num;
++        uint8_t _reserved_2;
++    } QEMU_PACKED desc;
++    uint64_t data;
++};
++
+ struct LoongArchPICCommonState {
+     SysBusDevice parent_obj;
+ 
+     qemu_irq parent_irq[64];
++    union LoongArchPIC_ID id; /* 0x00  interrupt ID register */
+     uint64_t int_mask;        /* 0x020 interrupt mask register */
+     uint64_t htmsi_en;        /* 0x040 1=msi */
+     uint64_t intedge;         /* 0x060 edge=1 level=0 */
+-- 
+2.51.0
+

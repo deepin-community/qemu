@@ -1,0 +1,94 @@
+From d0807d76cb202074cfa953693d9b727ed8f96150 Mon Sep 17 00:00:00 2001
+From: Bibo Mao <maobibo@loongson.cn>
+Date: Mon, 24 Mar 2025 11:01:45 +0800
+Subject: [PATCH 162/285] hw/loongarch/virt: Replace destination error with
+ error_abort
+
+In function virt_cpu_plug() and virt_cpu_unplug(), the error is
+impossile. Destination error is not propagated and replaced with
+error_abort. With this, the logic is simple.
+
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+Acked-by: Markus Armbruster <armbru@redhat.com>
+Message-Id: <20250324030145.3037408-3-maobibo@loongson.cn>
+Signed-off-by: Song Gao <gaosong@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ hw/loongarch/virt.c | 39 +++++++--------------------------------
+ 1 file changed, 7 insertions(+), 32 deletions(-)
+
+diff --git a/hw/loongarch/virt.c b/hw/loongarch/virt.c
+index 08e21bf10c6e..80041f5e1d51 100644
+--- a/hw/loongarch/virt.c
++++ b/hw/loongarch/virt.c
+@@ -961,29 +961,15 @@ static void virt_cpu_unplug(HotplugHandler *hotplug_dev,
+                             DeviceState *dev, Error **errp)
+ {
+     CPUArchId *cpu_slot;
+-    Error *err = NULL;
+     LoongArchCPU *cpu = LOONGARCH_CPU(dev);
+     LoongArchVirtMachineState *lvms = LOONGARCH_VIRT_MACHINE(hotplug_dev);
+ 
+     /* Notify ipi and extioi irqchip to remove interrupt routing to CPU */
+-    hotplug_handler_unplug(HOTPLUG_HANDLER(lvms->ipi), dev, &err);
+-    if (err) {
+-        error_propagate(errp, err);
+-        return;
+-    }
+-
+-    hotplug_handler_unplug(HOTPLUG_HANDLER(lvms->extioi), dev, &err);
+-    if (err) {
+-        error_propagate(errp, err);
+-        return;
+-    }
++    hotplug_handler_unplug(HOTPLUG_HANDLER(lvms->ipi), dev, &error_abort);
++    hotplug_handler_unplug(HOTPLUG_HANDLER(lvms->extioi), dev, &error_abort);
+ 
+     /* Notify acpi ged CPU removed */
+-    hotplug_handler_unplug(HOTPLUG_HANDLER(lvms->acpi_ged), dev, &err);
+-    if (err) {
+-        error_propagate(errp, err);
+-        return;
+-    }
++    hotplug_handler_unplug(HOTPLUG_HANDLER(lvms->acpi_ged), dev, &error_abort);
+ 
+     cpu_slot = virt_find_cpu_slot(MACHINE(lvms), cpu->phy_id);
+     cpu_slot->cpu = NULL;
+@@ -995,29 +981,18 @@ static void virt_cpu_plug(HotplugHandler *hotplug_dev,
+     CPUArchId *cpu_slot;
+     LoongArchCPU *cpu = LOONGARCH_CPU(dev);
+     LoongArchVirtMachineState *lvms = LOONGARCH_VIRT_MACHINE(hotplug_dev);
+-    Error *err = NULL;
+ 
+     if (lvms->ipi) {
+-        hotplug_handler_plug(HOTPLUG_HANDLER(lvms->ipi), dev, &err);
+-        if (err) {
+-            error_propagate(errp, err);
+-            return;
+-        }
++        hotplug_handler_plug(HOTPLUG_HANDLER(lvms->ipi), dev, &error_abort);
+     }
+ 
+     if (lvms->extioi) {
+-        hotplug_handler_plug(HOTPLUG_HANDLER(lvms->extioi), dev, &err);
+-        if (err) {
+-            error_propagate(errp, err);
+-            return;
+-        }
++        hotplug_handler_plug(HOTPLUG_HANDLER(lvms->extioi), dev, &error_abort);
+     }
+ 
+     if (lvms->acpi_ged) {
+-        hotplug_handler_plug(HOTPLUG_HANDLER(lvms->acpi_ged), dev, &err);
+-        if (err) {
+-            error_propagate(errp, err);
+-        }
++        hotplug_handler_plug(HOTPLUG_HANDLER(lvms->acpi_ged), dev,
++                             &error_abort);
+     }
+ 
+     cpu_slot = virt_find_cpu_slot(MACHINE(lvms), cpu->phy_id);
+-- 
+2.51.0
+

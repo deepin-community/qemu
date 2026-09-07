@@ -1,0 +1,99 @@
+From e4a531ca131693bfa803864f3672d5ccbc1adbbe Mon Sep 17 00:00:00 2001
+From: Jiaxun Yang <jiaxun.yang@flygoat.com>
+Date: Wed, 8 May 2024 14:06:46 +0100
+Subject: [PATCH 026/285] hw/intc/loongarch_ipi: Remove pointless MAX_CPU check
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Since cpuid will be checked by ipi_getcpu anyway, there is
+no point to enforce MAX_CPU here.
+
+This also saved us from including loongarch board header.
+
+Signed-off-by: Jiaxun Yang <jiaxun.yang@flygoat.com>
+Reviewed-by: Philippe Mathieu-Daudé <philmd@linaro.org>
+Message-ID: <20240508-loongson3-ipi-v1-1-1a7b67704664@flygoat.com>
+Signed-off-by: Philippe Mathieu-Daudé <philmd@linaro.org>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ hw/intc/loongarch_ipi.c | 19 ++-----------------
+ hw/intc/trace-events    |  2 --
+ 2 files changed, 2 insertions(+), 19 deletions(-)
+
+diff --git a/hw/intc/loongarch_ipi.c b/hw/intc/loongarch_ipi.c
+index e228669aa555..afbb97b523f6 100644
+--- a/hw/intc/loongarch_ipi.c
++++ b/hw/intc/loongarch_ipi.c
+@@ -6,6 +6,7 @@
+  */
+ 
+ #include "qemu/osdep.h"
++#include "hw/boards.h"
+ #include "hw/sysbus.h"
+ #include "hw/intc/loongarch_ipi.h"
+ #include "hw/irq.h"
+@@ -13,9 +14,8 @@
+ #include "qapi/error.h"
+ #include "qemu/log.h"
+ #include "exec/address-spaces.h"
+-#include "hw/loongarch/virt.h"
+ #include "migration/vmstate.h"
+-#include "target/loongarch/internals.h"
++#include "target/loongarch/cpu.h"
+ #include "trace.h"
+ 
+ static MemTxResult loongarch_ipi_readl(void *opaque, hwaddr addr,
+@@ -122,11 +122,6 @@ static MemTxResult mail_send(uint64_t val, MemTxAttrs attrs)
+     CPUState *cs;
+ 
+     cpuid = extract32(val, 16, 10);
+-    if (cpuid >= LOONGARCH_MAX_CPUS) {
+-        trace_loongarch_ipi_unsupported_cpuid("IOCSR_MAIL_SEND", cpuid);
+-        return MEMTX_DECODE_ERROR;
+-    }
+-
+     cs = ipi_getcpu(cpuid);
+     if (cs == NULL) {
+         return MEMTX_DECODE_ERROR;
+@@ -146,11 +141,6 @@ static MemTxResult any_send(uint64_t val, MemTxAttrs attrs)
+     CPUState *cs;
+ 
+     cpuid = extract32(val, 16, 10);
+-    if (cpuid >= LOONGARCH_MAX_CPUS) {
+-        trace_loongarch_ipi_unsupported_cpuid("IOCSR_ANY_SEND", cpuid);
+-        return MEMTX_DECODE_ERROR;
+-    }
+-
+     cs = ipi_getcpu(cpuid);
+     if (cs == NULL) {
+         return MEMTX_DECODE_ERROR;
+@@ -201,11 +191,6 @@ static MemTxResult loongarch_ipi_writel(void *opaque, hwaddr addr, uint64_t val,
+         break;
+     case IOCSR_IPI_SEND:
+         cpuid = extract32(val, 16, 10);
+-        if (cpuid >= LOONGARCH_MAX_CPUS) {
+-            trace_loongarch_ipi_unsupported_cpuid("IOCSR_IPI_SEND", cpuid);
+-            return MEMTX_DECODE_ERROR;
+-        }
+-
+         /* IPI status vector */
+         vector = extract8(val, 0, 5);
+         cs = ipi_getcpu(cpuid);
+diff --git a/hw/intc/trace-events b/hw/intc/trace-events
+index 36ff71f94757..b2881a1a3380 100644
+--- a/hw/intc/trace-events
++++ b/hw/intc/trace-events
+@@ -292,8 +292,6 @@ sh_intc_set(int id, int enable) "setting interrupt group %d to %d"
+ # loongarch_ipi.c
+ loongarch_ipi_read(unsigned size, uint64_t addr, uint64_t val) "size: %u addr: 0x%"PRIx64 "val: 0x%"PRIx64
+ loongarch_ipi_write(unsigned size, uint64_t addr, uint64_t val) "size: %u addr: 0x%"PRIx64 "val: 0x%"PRIx64
+-loongarch_ipi_unsupported_cpuid(const char *s, uint32_t cpuid) "%s unsupported cpuid 0x%" PRIx32
+-
+ # loongarch_pch_pic.c
+ loongarch_pch_pic_irq_handler(int irq, int level) "irq %d level %d"
+ loongarch_pch_pic_low_readw(unsigned size, uint64_t addr, uint64_t val) "size: %u addr: 0x%"PRIx64 "val: 0x%" PRIx64
+-- 
+2.51.0
+

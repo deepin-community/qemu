@@ -1,0 +1,71 @@
+From c83493a04445dec22ad1f5bbfe72e1b3827df167 Mon Sep 17 00:00:00 2001
+From: Bibo Mao <maobibo@loongson.cn>
+Date: Tue, 8 Jul 2025 15:22:37 +0800
+Subject: [PATCH 222/285] target/loongarch: Move some function definition to
+ kvm directory
+
+Move function definition specified with kvm to the corresponding
+directory. Also remove header file "cpu.h" including outside of
+macro QEMU_KVM_LOONGARCH_H.
+
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+Reviewed-by: Richard Henderson <richard.henderson@linaro.org>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ hw/loongarch/virt.c                  | 1 +
+ target/loongarch/cpu.h               | 9 ---------
+ target/loongarch/kvm/kvm_loongarch.h | 4 ++--
+ 3 files changed, 3 insertions(+), 11 deletions(-)
+
+diff --git a/hw/loongarch/virt.c b/hw/loongarch/virt.c
+index 82acf1b2869b..3eeb5ab52486 100644
+--- a/hw/loongarch/virt.c
++++ b/hw/loongarch/virt.c
+@@ -44,6 +44,7 @@
+ #include "hw/block/flash.h"
+ #include "hw/virtio/virtio-iommu.h"
+ #include "qemu/error-report.h"
++#include "kvm/kvm_loongarch.h"
+ #include "sysemu/kvm.h"
+ 
+ static void virt_get_veiointc(Object *obj, Visitor *v, const char *name,
+diff --git a/target/loongarch/cpu.h b/target/loongarch/cpu.h
+index c5b5efd9caf4..66d3877a8a62 100644
+--- a/target/loongarch/cpu.h
++++ b/target/loongarch/cpu.h
+@@ -529,13 +529,4 @@ void loongarch_cpu_list(void);
+ 
+ void loongarch_cpu_post_init(Object *obj);
+ 
+-#ifdef CONFIG_KVM
+-void kvm_loongarch_cpu_post_init(LoongArchCPU *cpu);
+-#else
+-static inline void kvm_loongarch_cpu_post_init(LoongArchCPU *cpu)
+-{
+-}
+-#endif
+-void kvm_loongarch_init_irq_routing(void);
+-
+ #endif /* LOONGARCH_CPU_H */
+diff --git a/target/loongarch/kvm/kvm_loongarch.h b/target/loongarch/kvm/kvm_loongarch.h
+index 1051a341ec26..51475675d6f6 100644
+--- a/target/loongarch/kvm/kvm_loongarch.h
++++ b/target/loongarch/kvm/kvm_loongarch.h
+@@ -5,11 +5,11 @@
+  * Copyright (c) 2023 Loongson Technology Corporation Limited
+  */
+ 
+-#include "cpu.h"
+-
+ #ifndef QEMU_KVM_LOONGARCH_H
+ #define QEMU_KVM_LOONGARCH_H
+ 
++void kvm_loongarch_cpu_post_init(LoongArchCPU *cpu);
++void kvm_loongarch_init_irq_routing(void);
+ int  kvm_loongarch_set_interrupt(LoongArchCPU *cpu, int irq, int level);
+ void kvm_arch_reset_vcpu(CPUState *cs);
+ 
+-- 
+2.51.0
+

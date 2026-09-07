@@ -1,0 +1,46 @@
+From 4ffeee343ad95e78bd9d0c75393a8eb294be7be4 Mon Sep 17 00:00:00 2001
+From: Xianglai Li <lixianglai@loongson.cn>
+Date: Fri, 20 Mar 2026 18:00:34 +0800
+Subject: [PATCH 277/285] tests/qtest/bios-tables-test: Update DSDT blobs after
+ loongarch rtc change
+
+We add acpi RTC table for loongarch
+The following are the changes in the DSDT table:
+
++     Device (RTC)
++     {
++         Name (_HID, "LOON0001")  // _HID: Hardware ID
++         Name (_UID, Zero)  // _UID: Unique ID
++         Name (_CRS, ResourceTemplate ()  // _CRS: Current Resource Settings
++         {
++             QWordMemory (ResourceProducer, PosDecode, MinFixed, MaxFixed, NonCacheable, ReadWrite,
++                 0x0000000000000000, // Granularity
++                 0x00000000100D0100, // Range Minimum
++                 0x00000000100D01FF, // Range Maximum
++                 0x0000000000000000, // Translation Offset
++                 0x0000000000000100, // Length
++                 ,, , AddressRangeMemory, TypeStatic)
++         })
++     }
+
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ tests/qtest/bios-tables-test-allowed-diff.h | 4 ----
+ 1 file changed, 4 deletions(-)
+
+diff --git a/tests/qtest/bios-tables-test-allowed-diff.h b/tests/qtest/bios-tables-test-allowed-diff.h
+index eff675baf46c..5fb3598c1199 100644
+--- a/tests/qtest/bios-tables-test-allowed-diff.h
++++ b/tests/qtest/bios-tables-test-allowed-diff.h
+@@ -1,7 +1,3 @@
+ /* List of comma-separated changed AML files to ignore */
+-"tests/data/acpi/loongarch64/virt/DSDT",
+-"tests/data/acpi/loongarch64/virt/DSDT.memhp",
+-"tests/data/acpi/loongarch64/virt/DSDT.numamem",
+-"tests/data/acpi/loongarch64/virt/DSDT.topology",
+ "tests/data/acpi/riscv64/virt/SPCR",
+ "tests/data/acpi/q35/DSDT.cxl",
+-- 
+2.51.0
+

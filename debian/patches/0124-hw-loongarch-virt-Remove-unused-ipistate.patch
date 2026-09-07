@@ -1,0 +1,61 @@
+From 73ca2131ffd4ba469105b619b8a7de06c44cebfe Mon Sep 17 00:00:00 2001
+From: Bibo Mao <maobibo@loongson.cn>
+Date: Wed, 5 Feb 2025 11:36:13 +0800
+Subject: [PATCH 124/285] hw/loongarch/virt: Remove unused ipistate
+
+Field ipistate in LoongArch CPU object is not used any more,
+remove it here.
+
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+Reviewed-by: Bibo Mao <maobibo@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ hw/loongarch/virt.c    | 10 ----------
+ target/loongarch/cpu.h |  2 --
+ 2 files changed, 12 deletions(-)
+
+diff --git a/hw/loongarch/virt.c b/hw/loongarch/virt.c
+index 1f256c25f7a4..1a88d6963227 100644
+--- a/hw/loongarch/virt.c
++++ b/hw/loongarch/virt.c
+@@ -335,8 +335,6 @@ static void virt_irq_init(LoongArchVirtMachineState *lvms)
+     DeviceState *pch_pic, *pch_msi, *cpudev;
+     DeviceState *ipi, *extioi;
+     SysBusDevice *d;
+-    LoongArchCPU *lacpu;
+-    CPULoongArchState *env;
+     CPUState *cpu_state;
+     int cpu, pin, i, start, num;
+ 
+@@ -407,14 +405,6 @@ static void virt_irq_init(LoongArchVirtMachineState *lvms)
+         }
+     }
+ 
+-    for (cpu = 0; cpu < ms->smp.cpus; cpu++) {
+-        cpu_state = qemu_get_cpu(cpu);
+-        cpudev = DEVICE(cpu_state);
+-        lacpu = LOONGARCH_CPU(cpu_state);
+-        env = &(lacpu->env);
+-        env->ipistate = ipi;
+-    }
+-
+     lvms->ipi = ipi;
+ 
+     if (kvm_enabled() && kvm_irqchip_in_kernel()) {
+diff --git a/target/loongarch/cpu.h b/target/loongarch/cpu.h
+index 5e3797264356..8b0e574708c5 100644
+--- a/target/loongarch/cpu.h
++++ b/target/loongarch/cpu.h
+@@ -389,8 +389,6 @@ typedef struct CPUArchState {
+     bool load_elf;
+     uint64_t elf_address;
+     uint32_t mp_state;
+-    /* Store ipistate to access from this struct */
+-    DeviceState *ipistate;
+     struct loongarch_boot_info *boot_info;
+ #endif
+ } CPULoongArchState;
+-- 
+2.51.0
+

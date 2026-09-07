@@ -1,0 +1,105 @@
+From 085e93d6f9985628f3856c4066a2caebcddaef71 Mon Sep 17 00:00:00 2001
+From: Bibo Mao <maobibo@loongson.cn>
+Date: Sat, 6 Sep 2025 15:02:00 +0800
+Subject: [PATCH 226/285] hw/loongarch/virt: Register reset interface with cpu
+ plug callback
+
+With cpu hotplug is implemented on LoongArch virt machine, reset
+interface with hot-added CPU should be registered. Otherwise there
+will be problem if system reboots after cpu is hot-added.
+
+Now register reset interface with CPU plug callback, so that all
+cold/hot added CPUs let their reset interface registered. And remove
+reset interface with CPU unplug callback.
+
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+Reviewed-by: Igor Mammedov <imammedo@redhat.com>
+Tested-by: Song Gao <gaosong@loongson.cn>
+Message-ID: <20250906070200.3749326-4-maobibo@loongson.cn>
+Signed-off-by: Song Gao <gaosong@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ hw/loongarch/boot.c         | 13 -------------
+ hw/loongarch/virt.c         |  7 +++++++
+ include/hw/loongarch/virt.h |  1 -
+ 3 files changed, 7 insertions(+), 14 deletions(-)
+
+diff --git a/hw/loongarch/boot.c b/hw/loongarch/boot.c
+index 2aad454bb28d..51ac311ee10a 100644
+--- a/hw/loongarch/boot.c
++++ b/hw/loongarch/boot.c
+@@ -349,13 +349,6 @@ static int64_t load_kernel_info(struct loongarch_boot_info *info)
+     return kernel_entry;
+ }
+ 
+-void reset_load_elf(void *opaque)
+-{
+-    LoongArchCPU *cpu = opaque;
+-
+-    cpu_reset(CPU(cpu));
+-}
+-
+ static void fw_cfg_add_kernel_info(struct loongarch_boot_info *info,
+                                    FWCfgState *fw_cfg)
+ {
+@@ -438,12 +431,6 @@ static void loongarch_direct_kernel_boot(MachineState *ms,
+ void loongarch_load_kernel(MachineState *ms, struct loongarch_boot_info *info)
+ {
+     LoongArchVirtMachineState *lvms = LOONGARCH_VIRT_MACHINE(ms);
+-    int i;
+-
+-    /* register reset function */
+-    for (i = 0; i < ms->smp.cpus; i++) {
+-        qemu_register_reset(reset_load_elf, LOONGARCH_CPU(qemu_get_cpu(i)));
+-    }
+ 
+     info->kernel_filename = ms->kernel_filename;
+     info->kernel_cmdline = ms->kernel_cmdline;
+diff --git a/hw/loongarch/virt.c b/hw/loongarch/virt.c
+index 3eeb5ab52486..523d9c514738 100644
+--- a/hw/loongarch/virt.c
++++ b/hw/loongarch/virt.c
+@@ -999,6 +999,11 @@ static void virt_cpu_unplug_request(HotplugHandler *hotplug_dev,
+     hotplug_handler_unplug_request(HOTPLUG_HANDLER(lvms->acpi_ged), dev, errp);
+ }
+ 
++static void virt_cpu_reset(void *opaque)
++{
++    cpu_reset(CPU(opaque));
++}
++
+ static void virt_cpu_unplug(HotplugHandler *hotplug_dev,
+                             DeviceState *dev, Error **errp)
+ {
+@@ -1013,6 +1018,7 @@ static void virt_cpu_unplug(HotplugHandler *hotplug_dev,
+     /* Notify acpi ged CPU removed */
+     hotplug_handler_unplug(HOTPLUG_HANDLER(lvms->acpi_ged), dev, &error_abort);
+ 
++    qemu_unregister_reset(virt_cpu_reset, dev);
+     cpu_slot = virt_find_cpu_slot(MACHINE(lvms), cpu->phy_id);
+     cpu_slot->cpu = NULL;
+ }
+@@ -1037,6 +1043,7 @@ static void virt_cpu_plug(HotplugHandler *hotplug_dev,
+                              &error_abort);
+     }
+ 
++    qemu_register_reset(virt_cpu_reset, dev);
+     cpu_slot = virt_find_cpu_slot(MACHINE(lvms), cpu->phy_id);
+     cpu_slot->cpu = OBJECT(dev);
+ }
+diff --git a/include/hw/loongarch/virt.h b/include/hw/loongarch/virt.h
+index 3ba0eac12305..95802b544c5b 100644
+--- a/include/hw/loongarch/virt.h
++++ b/include/hw/loongarch/virt.h
+@@ -78,7 +78,6 @@ struct LoongArchVirtMachineState {
+ OBJECT_DECLARE_SIMPLE_TYPE(LoongArchVirtMachineState, LOONGARCH_VIRT_MACHINE)
+ void virt_acpi_setup(LoongArchVirtMachineState *lvms);
+ void virt_fdt_setup(LoongArchVirtMachineState *lvms);
+-void reset_load_elf(void *opaque);
+ 
+ static inline bool virt_is_veiointc_enabled(LoongArchVirtMachineState *lvms)
+ {
+-- 
+2.51.0
+

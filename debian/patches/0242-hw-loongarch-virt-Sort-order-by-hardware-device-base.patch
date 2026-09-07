@@ -1,0 +1,125 @@
+From 47f5616ce1e741fe0d2148cc437807c62103ffc3 Mon Sep 17 00:00:00 2001
+From: Bibo Mao <maobibo@loongson.cn>
+Date: Mon, 13 Oct 2025 14:35:16 +0800
+Subject: [PATCH 242/285] hw/loongarch/virt: Sort order by hardware device base
+ address
+
+With header file include/hw/loongarch/virt.h, hardware device definition
+order is sorted by its base address. Add remove unused macro
+VIRT_IOAPIC_REG_BASE and VIRT_MISC_REG_BASE.
+
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+Reviewed-by: Song Gao <gaosong@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ hw/loongarch/virt.c         |  2 +-
+ include/hw/loongarch/virt.h | 42 +++++++++++++++++--------------------
+ 2 files changed, 20 insertions(+), 24 deletions(-)
+
+diff --git a/hw/loongarch/virt.c b/hw/loongarch/virt.c
+index fb6cc78712af..3136c0b7442f 100644
+--- a/hw/loongarch/virt.c
++++ b/hw/loongarch/virt.c
+@@ -519,7 +519,7 @@ static void virt_irq_init(LoongArchVirtMachineState *lvms)
+         }
+ 
+         /* PCH_PIC memory region */
+-        memory_region_add_subregion(get_system_memory(), VIRT_IOAPIC_REG_BASE,
++        memory_region_add_subregion(get_system_memory(), VIRT_PCH_REG_BASE,
+                     sysbus_mmio_get_region(SYS_BUS_DEVICE(pch_pic), 0));
+ 
+         /* Connect pch_pic irqs to extioi */
+diff --git a/include/hw/loongarch/virt.h b/include/hw/loongarch/virt.h
+index 22813663fad4..4aff93669b76 100644
+--- a/include/hw/loongarch/virt.h
++++ b/include/hw/loongarch/virt.h
+@@ -13,50 +13,47 @@
+ #include "hw/block/flash.h"
+ #include "hw/loongarch/boot.h"
+ 
+-#define IOCSRF_TEMP             0
+-#define IOCSRF_NODECNT          1
+-#define IOCSRF_MSI              2
+-#define IOCSRF_EXTIOI           3
+-#define IOCSRF_CSRIPI           4
+-#define IOCSRF_FREQCSR          5
+-#define IOCSRF_FREQSCALE        6
+-#define IOCSRF_DVFSV1           7
+-#define IOCSRF_GMOD             9
+-#define IOCSRF_VM               11
+-#define IOCSRF_DMSI             15
+-
+ /* IOCSR region */
+ #define VERSION_REG             0x0
+ #define FEATURE_REG             0x8
++#define  IOCSRF_TEMP             0
++#define  IOCSRF_NODECNT          1
++#define  IOCSRF_MSI              2
++#define  IOCSRF_EXTIOI           3
++#define  IOCSRF_CSRIPI           4
++#define  IOCSRF_FREQCSR          5
++#define  IOCSRF_FREQSCALE        6
++#define  IOCSRF_DVFSV1           7
++#define  IOCSRF_GMOD             9
++#define  IOCSRF_VM               11
++#define  IOCSRF_DMSI             15
+ #define VENDOR_REG              0x10
+ #define CPUNAME_REG             0x20
+ #define MISC_FUNC_REG           0x420
+-#define IOCSRM_EXTIOI_EN        48
+-#define IOCSRM_EXTIOI_INT_ENCODE 49
+-#define IOCSRM_DMSI_EN          51
++#define  IOCSRM_EXTIOI_EN         48
++#define  IOCSRM_EXTIOI_INT_ENCODE 49
++#define  IOCSRM_DMSI_EN           51
+ 
+ #define LOONGARCH_MAX_CPUS      256
+ 
+ /* MMIO memory region */
+ #define VIRT_PCH_REG_BASE       0x10000000UL
+ #define VIRT_PCH_REG_SIZE       0x400
+-#define VIRT_IOAPIC_REG_BASE    (VIRT_PCH_REG_BASE)
+-#define VIRT_MISC_REG_BASE      (VIRT_PCH_REG_BASE + 0x00080000)
+-#define VIRT_RTC_REG_BASE       (VIRT_MISC_REG_BASE + 0x00050100)
++#define VIRT_RTC_REG_BASE       0x100d0100UL
+ #define VIRT_RTC_LEN            0x100
+ #define VIRT_PLATFORM_BUS_BASEADDRESS   0x16000000UL
+ #define VIRT_PLATFORM_BUS_SIZE          0x02000000
+ #define VIRT_PCI_IO_BASE        0x18004000UL
+ #define VIRT_PCI_IO_OFFSET      0x4000
+ #define VIRT_PCI_IO_SIZE        0xC000
+-#define VIRT_FWCFG_BASE         0x1e020000UL
+ #define VIRT_BIOS_BASE          0x1c000000UL
+-#define VIRT_BIOS_SIZE          (16 * MiB)
++#define VIRT_BIOS_SIZE          0x01000000UL
+ #define VIRT_FLASH_SECTOR_SIZE  (256 * KiB)
+ #define VIRT_FLASH0_BASE        VIRT_BIOS_BASE
+ #define VIRT_FLASH0_SIZE        VIRT_BIOS_SIZE
+ #define VIRT_FLASH1_BASE        0x1d000000UL
+-#define VIRT_FLASH1_SIZE        (16 * MiB)
++#define VIRT_FLASH1_SIZE        0x01000000UL
++#define VIRT_FWCFG_BASE         0x1e020000UL
+ #define VIRT_UART_BASE          0x1fe001e0UL
+ #define VIRT_UART_SIZE          0x100
+ #define VIRT_PCI_CFG_BASE       0x20000000UL
+@@ -70,6 +67,7 @@
+ 
+ #define VIRT_LOWMEM_BASE        0
+ #define VIRT_LOWMEM_SIZE        0x10000000
++#define FDT_BASE                0x100000
+ #define VIRT_HIGHMEM_BASE       0x90000000
+ #define VIRT_GED_EVT_ADDR       0x100e0000
+ #define VIRT_GED_MEM_ADDR       QEMU_ALIGN_UP(VIRT_GED_EVT_ADDR + ACPI_GED_EVT_SEL_LEN, 4)
+@@ -94,8 +92,6 @@
+ 
+ #define COMMAND_LINE_SIZE       512
+ 
+-#define FDT_BASE                0x100000
+-
+ struct LoongArchVirtMachineState {
+     /*< private >*/
+     MachineState parent_obj;
+-- 
+2.51.0
+

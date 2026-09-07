@@ -1,0 +1,52 @@
+From e358c744b225bd5654f1d008f74289e44584c317 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Philippe=20Mathieu-Daud=C3=A9?= <philmd@linaro.org>
+Date: Sun, 21 Dec 2025 18:40:20 +0100
+Subject: [PATCH 263/285] configs/targets: Forbid LoongArch to use legacy
+ native endianness APIs
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+All LoongArch-related binaries are buildable without a single
+use of the legacy "native endian" API. Set the transitional
+TARGET_NOT_USING_LEGACY_NATIVE_ENDIAN_API definition to forbid
+further uses of the legacy API.
+
+Preliminary commits allowing this final change:
+
+ . 6b4c30465c0 target/loongarch: Inline translator_ldl()
+ . f9a03787c7f target/loongarch: Use explicit little-endian LD/ST API
+ . 91312a6d046 target/loongarch: Inline cpu_ldl_code() call in cpu_do_interrupt()
+ . 492b2799c64 target/loongarch: Replace MO_TE -> MO_LE
+
+Signed-off-by: Philippe Mathieu-Daudé <philmd@linaro.org>
+Reviewed-by: Bibo Mao <maobibo@loongson.cn>
+Message-Id: <20251224161456.89707-9-philmd@linaro.org>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ configs/targets/loongarch64-linux-user.mak | 1 +
+ configs/targets/loongarch64-softmmu.mak    | 1 +
+ 2 files changed, 2 insertions(+)
+
+diff --git a/configs/targets/loongarch64-linux-user.mak b/configs/targets/loongarch64-linux-user.mak
+index ea9b7e839aa4..56c0d2c57cc2 100644
+--- a/configs/targets/loongarch64-linux-user.mak
++++ b/configs/targets/loongarch64-linux-user.mak
+@@ -2,3 +2,4 @@
+ TARGET_ARCH=loongarch64
+ TARGET_BASE_ARCH=loongarch
+ TARGET_XML_FILES=gdb-xml/loongarch-base64.xml gdb-xml/loongarch-fpu.xml gdb-xml/loongarch-lsx.xml gdb-xml/loongarch-lasx.xml
++TARGET_NOT_USING_LEGACY_NATIVE_ENDIAN_API=y
+diff --git a/configs/targets/loongarch64-softmmu.mak b/configs/targets/loongarch64-softmmu.mak
+index 6ebed469776a..43a490284dba 100644
+--- a/configs/targets/loongarch64-softmmu.mak
++++ b/configs/targets/loongarch64-softmmu.mak
+@@ -4,3 +4,4 @@ TARGET_KVM_HAVE_GUEST_DEBUG=y
+ TARGET_SUPPORTS_MTTCG=y
+ TARGET_XML_FILES= gdb-xml/loongarch-base32.xml gdb-xml/loongarch-base64.xml gdb-xml/loongarch-fpu.xml gdb-xml/loongarch-lsx.xml gdb-xml/loongarch-lasx.xml
+ TARGET_NEED_FDT=y
++TARGET_NOT_USING_LEGACY_NATIVE_ENDIAN_API=y
+-- 
+2.51.0
+

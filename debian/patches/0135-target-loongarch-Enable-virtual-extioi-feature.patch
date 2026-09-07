@@ -1,0 +1,95 @@
+From aba036ab793e4c2284b4ec4e0854d60abba86f2b Mon Sep 17 00:00:00 2001
+From: Bibo Mao <maobibo@loongson.cn>
+Date: Mon, 17 Feb 2025 09:56:13 +0800
+Subject: [PATCH 135/285] target/loongarch: Enable virtual extioi feature
+
+Feature virtual extioi is loongArch virt machine property rather than
+vCPU property in qemu side. However it is vCPU property in KVM kernel
+side, here add loongArch virt machine property checking and enable virt
+extioi feature when vCPU is created.
+
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+Reviewed-by: Bibo Mao <maobibo@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ hw/loongarch/virt.c         |  8 --------
+ include/hw/loongarch/virt.h |  9 +++++++++
+ target/loongarch/kvm/kvm.c  | 10 ++++++++++
+ 3 files changed, 19 insertions(+), 8 deletions(-)
+
+diff --git a/hw/loongarch/virt.c b/hw/loongarch/virt.c
+index 5d13e48d68ca..2c5ab3b2ad8d 100644
+--- a/hw/loongarch/virt.c
++++ b/hw/loongarch/virt.c
+@@ -46,14 +46,6 @@
+ #include "qemu/error-report.h"
+ #include "sysemu/kvm.h"
+ 
+-static bool virt_is_veiointc_enabled(LoongArchVirtMachineState *lvms)
+-{
+-    if (lvms->veiointc == ON_OFF_AUTO_OFF) {
+-        return false;
+-    }
+-    return true;
+-}
+-
+ static void virt_get_veiointc(Object *obj, Visitor *v, const char *name,
+                               void *opaque, Error **errp)
+ {
+diff --git a/include/hw/loongarch/virt.h b/include/hw/loongarch/virt.h
+index 103aac1715b0..3aa86f2ac43a 100644
+--- a/include/hw/loongarch/virt.h
++++ b/include/hw/loongarch/virt.h
+@@ -77,4 +77,13 @@ OBJECT_DECLARE_SIMPLE_TYPE(LoongArchVirtMachineState, LOONGARCH_VIRT_MACHINE)
+ void virt_acpi_setup(LoongArchVirtMachineState *lvms);
+ void virt_fdt_setup(LoongArchVirtMachineState *lvms);
+ void reset_load_elf(void *opaque);
++
++static inline bool virt_is_veiointc_enabled(LoongArchVirtMachineState *lvms)
++{
++    if (lvms->veiointc == ON_OFF_AUTO_OFF) {
++        return false;
++    }
++    return true;
++}
++
+ #endif
+diff --git a/target/loongarch/kvm/kvm.c b/target/loongarch/kvm/kvm.c
+index e6c19d1b78cb..209e4397486c 100644
+--- a/target/loongarch/kvm/kvm.c
++++ b/target/loongarch/kvm/kvm.c
+@@ -21,6 +21,7 @@
+ #include "exec/address-spaces.h"
+ #include "hw/boards.h"
+ #include "hw/irq.h"
++#include "hw/loongarch/virt.h"
+ #include "qemu/log.h"
+ #include "hw/loader.h"
+ #include "migration/migration.h"
+@@ -1047,6 +1048,7 @@ static int kvm_cpu_check_pmu(CPUState *cs, Error **errp)
+ 
+ static int kvm_cpu_check_pv_features(CPUState *cs, Error **errp)
+ {
++    MachineState *ms = MACHINE(qdev_get_machine());
+     LoongArchCPU *cpu = LOONGARCH_CPU(cs);
+     CPULoongArchState *env = cpu_env(cs);
+     bool kvm_supported;
+@@ -1079,6 +1081,14 @@ static int kvm_cpu_check_pv_features(CPUState *cs, Error **errp)
+         env->pv_features |= BIT(KVM_FEATURE_STEAL_TIME);
+     }
+ 
++    if (object_dynamic_cast(OBJECT(ms), TYPE_LOONGARCH_VIRT_MACHINE)) {
++        LoongArchVirtMachineState *lvms = LOONGARCH_VIRT_MACHINE(ms);
++
++        if (virt_is_veiointc_enabled(lvms)) {
++            env->pv_features |= BIT(KVM_FEATURE_VIRT_EXTIOI);
++        }
++    }
++
+     return 0;
+ }
+ 
+-- 
+2.51.0
+

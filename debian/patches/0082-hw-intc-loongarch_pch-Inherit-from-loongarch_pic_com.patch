@@ -1,0 +1,210 @@
+From 4053edae15c098c607b9fc80cb9433e51f23d533 Mon Sep 17 00:00:00 2001
+From: Bibo Mao <maobibo@loongson.cn>
+Date: Wed, 18 Sep 2024 14:45:50 +0800
+Subject: [PATCH 082/285] hw/intc/loongarch_pch: Inherit from
+ loongarch_pic_common
+
+Set TYPE_LOONGARCH_PIC inherit from TYPE_LOONGARCH_PIC_COMMON object,
+it shares vmsate and property of TYPE_LOONGARCH_PIC_COMMON, and has
+its own realize() function.
+
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+Reviewed-by: Song Gao <gaosong@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ hw/intc/loongarch_pch_pic.c            | 38 ++++++++++++--------------
+ hw/intc/loongarch_pic_common.c         | 32 +++++++++++++++++++++-
+ hw/intc/meson.build                    |  2 +-
+ include/hw/intc/loongarch_pch_pic.h    | 21 ++++++++++++--
+ include/hw/intc/loongarch_pic_common.h | 10 +++++++
+ 5 files changed, 78 insertions(+), 25 deletions(-)
+
+diff --git a/hw/intc/loongarch_pch_pic.c b/hw/intc/loongarch_pch_pic.c
+index bbe9ed7a10ed..1caf80c41a38 100644
+--- a/hw/intc/loongarch_pch_pic.c
++++ b/hw/intc/loongarch_pch_pic.c
+@@ -388,14 +388,14 @@ static void loongarch_pch_pic_reset(DeviceState *d)
+     s->int_polarity = 0x0;
+ }
+ 
+-#include "loongarch_pic_common.c"
+-static void loongarch_pch_pic_realize(DeviceState *dev, Error **errp)
++static void loongarch_pic_realize(DeviceState *dev, Error **errp)
+ {
+-    LoongArchPCHPIC *s = LOONGARCH_PCH_PIC(dev);
+-    SysBusDevice *sbd  = SYS_BUS_DEVICE(dev);
++    LoongArchPICCommonState *s = LOONGARCH_PIC_COMMON(dev);
++    LoongarchPICClass *lpc = LOONGARCH_PIC_GET_CLASS(dev);
++    SysBusDevice *sbd = SYS_BUS_DEVICE(dev);
+     Error *local_err = NULL;
+ 
+-    loongarch_pic_common_realize(dev, &local_err);
++    lpc->parent_realize(dev, &local_err);
+     if (local_err) {
+         error_propagate(errp, local_err);
+         return;
+@@ -417,26 +417,24 @@ static void loongarch_pch_pic_realize(DeviceState *dev, Error **errp)
+ 
+ }
+ 
+-static void loongarch_pch_pic_class_init(ObjectClass *klass, void *data)
++static void loongarch_pic_class_init(ObjectClass *klass, void *data)
+ {
+     DeviceClass *dc = DEVICE_CLASS(klass);
++    LoongarchPICClass *lpc = LOONGARCH_PIC_CLASS(klass);
+ 
+-    dc->realize = loongarch_pch_pic_realize;
+     dc->reset = loongarch_pch_pic_reset;
+-    dc->vmsd = &vmstate_loongarch_pic_common;
+-    device_class_set_props(dc, loongarch_pic_common_properties);
++    device_class_set_parent_realize(dc, loongarch_pic_realize,
++                                    &lpc->parent_realize);
+ }
+ 
+-static const TypeInfo loongarch_pch_pic_info = {
+-    .name          = TYPE_LOONGARCH_PCH_PIC,
+-    .parent        = TYPE_SYS_BUS_DEVICE,
+-    .instance_size = sizeof(LoongArchPCHPIC),
+-    .class_init    = loongarch_pch_pic_class_init,
++static const TypeInfo loongarch_pic_types[] = {
++   {
++        .name               = TYPE_LOONGARCH_PIC,
++        .parent             = TYPE_LOONGARCH_PIC_COMMON,
++        .instance_size      = sizeof(LoongarchPICState),
++        .class_size         = sizeof(LoongarchPICClass),
++        .class_init         = loongarch_pic_class_init,
++    }
+ };
+ 
+-static void loongarch_pch_pic_register_types(void)
+-{
+-    type_register_static(&loongarch_pch_pic_info);
+-}
+-
+-type_init(loongarch_pch_pic_register_types)
++DEFINE_TYPES(loongarch_pic_types)
+diff --git a/hw/intc/loongarch_pic_common.c b/hw/intc/loongarch_pic_common.c
+index c8e0490d4046..28e93765574a 100644
+--- a/hw/intc/loongarch_pic_common.c
++++ b/hw/intc/loongarch_pic_common.c
+@@ -4,9 +4,15 @@
+  * Copyright (C) 2024 Loongson Technology Corporation Limited
+  */
+ 
++#include "qemu/osdep.h"
++#include "qapi/error.h"
++#include "hw/intc/loongarch_pic_common.h"
++#include "hw/qdev-properties.h"
++#include "migration/vmstate.h"
++
+ static void loongarch_pic_common_realize(DeviceState *dev, Error **errp)
+ {
+-    LoongArchPICCommonState *s = LOONGARCH_PCH_PIC(dev);
++    LoongArchPICCommonState *s = LOONGARCH_PIC_COMMON(dev);
+ 
+     if (!s->irq_num || s->irq_num  > VIRT_PCH_PIC_IRQ_NUM) {
+         error_setg(errp, "Invalid 'pic_irq_num'");
+@@ -39,3 +45,27 @@ static const VMStateDescription vmstate_loongarch_pic_common = {
+         VMSTATE_END_OF_LIST()
+     }
+ };
++
++static void loongarch_pic_common_class_init(ObjectClass *klass, void *data)
++{
++    DeviceClass *dc = DEVICE_CLASS(klass);
++    LoongArchPICCommonClass *lpcc = LOONGARCH_PIC_COMMON_CLASS(klass);
++
++    device_class_set_parent_realize(dc, loongarch_pic_common_realize,
++                                    &lpcc->parent_realize);
++    device_class_set_props(dc, loongarch_pic_common_properties);
++    dc->vmsd = &vmstate_loongarch_pic_common;
++}
++
++static const TypeInfo loongarch_pic_common_types[] = {
++    {
++        .name               = TYPE_LOONGARCH_PIC_COMMON,
++        .parent             = TYPE_SYS_BUS_DEVICE,
++        .instance_size      = sizeof(LoongArchPICCommonState),
++        .class_size         = sizeof(LoongArchPICCommonClass),
++        .class_init         = loongarch_pic_common_class_init,
++        .abstract           = true,
++    }
++};
++
++DEFINE_TYPES(loongarch_pic_common_types)
+diff --git a/hw/intc/meson.build b/hw/intc/meson.build
+index 3c72ac109962..5814f4d95cb6 100644
+--- a/hw/intc/meson.build
++++ b/hw/intc/meson.build
+@@ -73,7 +73,7 @@ specific_ss.add(when: 'CONFIG_LOONGSON_IPI_COMMON', if_true: files('loongson_ipi
+ specific_ss.add(when: 'CONFIG_LOONGSON_IPI', if_true: files('loongson_ipi.c'))
+ specific_ss.add(when: 'CONFIG_LOONGARCH_IPI', if_true: files('loongarch_ipi.c'))
+ specific_ss.add(when: 'CONFIG_LOONGARCH_IPI_KVM', if_true: files('loongarch_ipi_kvm.c'))
+-specific_ss.add(when: 'CONFIG_LOONGARCH_PCH_PIC', if_true: files('loongarch_pch_pic.c'))
++specific_ss.add(when: 'CONFIG_LOONGARCH_PCH_PIC', if_true: files('loongarch_pch_pic.c', 'loongarch_pic_common.c'))
+ specific_ss.add(when: 'CONFIG_LOONGARCH_PCH_MSI', if_true: files('loongarch_pch_msi.c'))
+ specific_ss.add(when: 'CONFIG_LOONGARCH_EXTIOI', if_true: files('loongarch_extioi.c'))
+ specific_ss.add(when: 'CONFIG_LOONGARCH_EXTIOI_KVM', if_true: files('loongarch_extioi_kvm.c'))
+diff --git a/include/hw/intc/loongarch_pch_pic.h b/include/hw/intc/loongarch_pch_pic.h
+index 3585a86753b1..c08972ea4982 100644
+--- a/include/hw/intc/loongarch_pch_pic.h
++++ b/include/hw/intc/loongarch_pch_pic.h
+@@ -10,10 +10,25 @@
+ 
+ #include "hw/intc/loongarch_pic_common.h"
+ 
+-#define TYPE_LOONGARCH_PCH_PIC          "loongarch_pch_pic"
+ #define TYPE_KVM_LOONGARCH_PCH_PIC      "loongarch_kvm_pch_pic"
+-#define PCH_PIC_NAME(name) TYPE_LOONGARCH_PCH_PIC#name
+-OBJECT_DECLARE_SIMPLE_TYPE(LoongArchPCHPIC, LOONGARCH_PCH_PIC)
++
++#define TYPE_LOONGARCH_PIC  "loongarch_pic"
++#define PCH_PIC_NAME(name)  TYPE_LOONGARCH_PIC#name
++OBJECT_DECLARE_TYPE(LoongarchPICState, LoongarchPICClass, LOONGARCH_PIC)
++
++struct LoongarchPICState {
++    LoongArchPICCommonState parent_obj;
++};
++
++struct LoongarchPICClass {
++    LoongArchPICCommonClass parent_class;
++
++    DeviceRealize parent_realize;
++};
++
++#define TYPE_LOONGARCH_PCH_PIC TYPE_LOONGARCH_PIC
++typedef struct LoongArchPICCommonState LoongArchPCHPIC;
++#define LOONGARCH_PCH_PIC(obj)   ((struct LoongArchPICCommonState *)(obj))
+ 
+ struct KVMLoongArchPCHPIC {
+     SysBusDevice parent_obj;
+diff --git a/include/hw/intc/loongarch_pic_common.h b/include/hw/intc/loongarch_pic_common.h
+index 7359864b613a..326c04025125 100644
+--- a/include/hw/intc/loongarch_pic_common.h
++++ b/include/hw/intc/loongarch_pic_common.h
+@@ -53,6 +53,10 @@
+ #define POL_LO_START                    0x40
+ #define POL_HI_START                    0x44
+ 
++#define TYPE_LOONGARCH_PIC_COMMON "loongarch_pic_common"
++OBJECT_DECLARE_TYPE(LoongArchPICCommonState,
++                    LoongArchPICCommonClass, LOONGARCH_PIC_COMMON)
++
+ struct LoongArchPICCommonState {
+     SysBusDevice parent_obj;
+ 
+@@ -80,4 +84,10 @@ struct LoongArchPICCommonState {
+     MemoryRegion iomem8;
+     unsigned int irq_num;
+ };
++
++struct LoongArchPICCommonClass {
++    SysBusDeviceClass parent_class;
++
++    DeviceRealize parent_realize;
++};
+ #endif  /* HW_LOONGARCH_PIC_COMMON_H */
+-- 
+2.51.0
+

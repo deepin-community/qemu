@@ -1,0 +1,82 @@
+From 7aa5d48839a253ca7178a52724b382d4e4b5ac10 Mon Sep 17 00:00:00 2001
+From: Bibo Mao <maobibo@loongson.cn>
+Date: Mon, 15 Jul 2024 16:23:48 +0200
+Subject: [PATCH 066/285] hw/loongarch/virt: Replace Loongson IPI with
+ LoongArch IPI
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Loongarch IPI inherits from class LoongsonIPICommonClass, and it
+only contains Loongarch 3A5000 virt machine specific interfaces,
+rather than mix different machine implementations together.
+
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+[PMD: Rebased]
+Co-Developed-by: Philippe Mathieu-Daudé <philmd@linaro.org>
+Signed-off-by: Philippe Mathieu-Daudé <philmd@linaro.org>
+Reviewed-by: Bibo Mao <maobibo@loongson.cn>
+Tested-by: Bibo Mao <maobibo@loongson.cn>
+Acked-by: Song Gao <gaosong@loongson.cn>
+Reviewed-by: Richard Henderson <richard.henderson@linaro.org>
+Reviewed-by: Jiaxun Yang <jiaxun.yang@flygoat.com>
+Tested-by: Jiaxun Yang <jiaxun.yang@flygoat.com>
+Message-Id: <20240805180622.21001-14-philmd@linaro.org>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ hw/loongarch/Kconfig        | 2 +-
+ hw/loongarch/virt.c         | 4 ++--
+ include/hw/loongarch/virt.h | 1 -
+ 3 files changed, 3 insertions(+), 4 deletions(-)
+
+diff --git a/hw/loongarch/Kconfig b/hw/loongarch/Kconfig
+index 9877219e1b15..16c854c0d595 100644
+--- a/hw/loongarch/Kconfig
++++ b/hw/loongarch/Kconfig
+@@ -10,7 +10,7 @@ config LOONGARCH_VIRT
+     select SERIAL
+     select VIRTIO_PCI
+     select PLATFORM_BUS
+-    select LOONGSON_IPI
++    select LOONGARCH_IPI
+     select LOONGARCH_PCH_PIC
+     select LOONGARCH_PCH_MSI
+     select LOONGARCH_EXTIOI
+diff --git a/hw/loongarch/virt.c b/hw/loongarch/virt.c
+index 5ad8ce91b5e0..06194cf39c94 100644
+--- a/hw/loongarch/virt.c
++++ b/hw/loongarch/virt.c
+@@ -23,7 +23,7 @@
+ #include "net/net.h"
+ #include "hw/loader.h"
+ #include "elf.h"
+-#include "hw/intc/loongson_ipi.h"
++#include "hw/intc/loongarch_ipi.h"
+ #include "hw/intc/loongarch_extioi.h"
+ #include "hw/intc/loongarch_pch_pic.h"
+ #include "hw/intc/loongarch_pch_msi.h"
+@@ -860,7 +860,7 @@ static void virt_irq_init(LoongArchVirtMachineState *lvms)
+         qdev_prop_set_int32(ipi, "num-cpu", ms->smp.max_cpus);
+         sysbus_realize_and_unref(SYS_BUS_DEVICE(ipi), &error_fatal);
+     } else {
+-        ipi = qdev_new(TYPE_LOONGSON_IPI);
++        ipi = qdev_new(TYPE_LOONGARCH_IPI);
+         qdev_prop_set_uint32(ipi, "num-cpu", ms->smp.max_cpus);
+         sysbus_realize_and_unref(SYS_BUS_DEVICE(ipi), &error_fatal);
+ 
+diff --git a/include/hw/loongarch/virt.h b/include/hw/loongarch/virt.h
+index 5cc06e45fd00..6af3265517fe 100644
+--- a/include/hw/loongarch/virt.h
++++ b/include/hw/loongarch/virt.h
+@@ -11,7 +11,6 @@
+ #include "target/loongarch/cpu.h"
+ #include "hw/boards.h"
+ #include "qemu/queue.h"
+-#include "hw/intc/loongson_ipi.h"
+ #include "hw/block/flash.h"
+ #include "hw/loongarch/boot.h"
+ 
+-- 
+2.51.0
+

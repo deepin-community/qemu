@@ -1,0 +1,124 @@
+From d95388082254c7a9ac03c1fae3432ac8628a4fd7 Mon Sep 17 00:00:00 2001
+From: Bibo Mao <maobibo@loongson.cn>
+Date: Mon, 13 Jan 2025 11:28:18 +0800
+Subject: [PATCH 116/285] target/loongarch: Add dynamic function access with
+ CSR register
+
+With CSR register, dynamic function access is used for CSR register
+access in TCG mode, so that csr info can be used by other modules.
+
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ .../tcg/insn_trans/trans_privileged.c.inc     | 37 +++++++++++++++++--
+ target/loongarch/tcg/tcg_loongarch.h          | 12 ++++++
+ target/loongarch/tcg/translate.c              |  5 +++
+ 3 files changed, 51 insertions(+), 3 deletions(-)
+ create mode 100644 target/loongarch/tcg/tcg_loongarch.h
+
+diff --git a/target/loongarch/tcg/insn_trans/trans_privileged.c.inc b/target/loongarch/tcg/insn_trans/trans_privileged.c.inc
+index 01d457212b3b..b7a6e3b2aebc 100644
+--- a/target/loongarch/tcg/insn_trans/trans_privileged.c.inc
++++ b/target/loongarch/tcg/insn_trans/trans_privileged.c.inc
+@@ -76,7 +76,7 @@ enum {
+ #define CSR_OFF(NAME) \
+     CSR_OFF_FLAGS(NAME, 0)
+ 
+-static const CSRInfo csr_info[] = {
++static CSRInfo csr_info[] = {
+     CSR_OFF_FLAGS(CRMD, CSRFL_EXITTB),
+     CSR_OFF(PRMD),
+     CSR_OFF_FLAGS(EUEN, CSRFL_EXITTB),
+@@ -160,9 +160,9 @@ static bool check_plv(DisasContext *ctx)
+     return false;
+ }
+ 
+-static const CSRInfo *get_csr(unsigned csr_num)
++static CSRInfo *get_csr(unsigned csr_num)
+ {
+-    const CSRInfo *csr;
++    CSRInfo *csr;
+ 
+     if (csr_num >= ARRAY_SIZE(csr_info)) {
+         return NULL;
+@@ -174,6 +174,37 @@ static const CSRInfo *get_csr(unsigned csr_num)
+     return csr;
+ }
+ 
++static bool set_csr_trans_func(unsigned int csr_num, GenCSRRead readfn,
++                               GenCSRWrite writefn)
++{
++    CSRInfo *csr;
++
++    csr = get_csr(csr_num);
++    if (!csr) {
++        return false;
++    }
++
++    csr->readfn = readfn;
++    csr->writefn = writefn;
++    return true;
++}
++
++#define SET_CSR_FUNC(NAME, read, write)                 \
++        set_csr_trans_func(LOONGARCH_CSR_##NAME, read, write)
++
++void loongarch_csr_translate_init(void)
++{
++    SET_CSR_FUNC(ESTAT, NULL, gen_helper_csrwr_estat);
++    SET_CSR_FUNC(ASID,  NULL, gen_helper_csrwr_asid);
++    SET_CSR_FUNC(PGD,   gen_helper_csrrd_pgd, NULL);
++    SET_CSR_FUNC(PWCL,  NULL, gen_helper_csrwr_pwcl);
++    SET_CSR_FUNC(CPUID, gen_helper_csrrd_cpuid, NULL);
++    SET_CSR_FUNC(TCFG,  NULL, gen_helper_csrwr_tcfg);
++    SET_CSR_FUNC(TVAL,  gen_helper_csrrd_tval, NULL);
++    SET_CSR_FUNC(TICLR, NULL, gen_helper_csrwr_ticlr);
++}
++#undef SET_CSR_FUNC
++
+ static bool check_csr_flags(DisasContext *ctx, const CSRInfo *csr, bool write)
+ {
+     if ((csr->flags & CSRFL_READONLY) && write) {
+diff --git a/target/loongarch/tcg/tcg_loongarch.h b/target/loongarch/tcg/tcg_loongarch.h
+new file mode 100644
+index 000000000000..da2539e99508
+--- /dev/null
++++ b/target/loongarch/tcg/tcg_loongarch.h
+@@ -0,0 +1,12 @@
++/* SPDX-License-Identifier: GPL-2.0-or-later */
++/*
++ * QEMU LoongArch TCG interface
++ *
++ * Copyright (c) 2025 Loongson Technology Corporation Limited
++ */
++#ifndef TARGET_LOONGARCH_TCG_LOONGARCH_H
++#define TARGET_LOONGARCH_TCG_LOONGARCH_H
++
++void loongarch_csr_translate_init(void);
++
++#endif  /* TARGET_LOONGARCH_TCG_LOONGARCH_H */
+diff --git a/target/loongarch/tcg/translate.c b/target/loongarch/tcg/translate.c
+index 21f4db6fbd2e..3d99adb76d91 100644
+--- a/target/loongarch/tcg/translate.c
++++ b/target/loongarch/tcg/translate.c
+@@ -16,6 +16,7 @@
+ #include "exec/log.h"
+ #include "qemu/qemu-print.h"
+ #include "fpu/softfloat.h"
++#include "tcg_loongarch.h"
+ #include "translate.h"
+ #include "internals.h"
+ #include "vec.h"
+@@ -367,4 +368,8 @@ void loongarch_translate_init(void)
+                     offsetof(CPULoongArchState, lladdr), "lladdr");
+     cpu_llval = tcg_global_mem_new(tcg_env,
+                     offsetof(CPULoongArchState, llval), "llval");
++
++#ifndef CONFIG_USER_ONLY
++    loongarch_csr_translate_init();
++#endif
+ }
+-- 
+2.51.0
+

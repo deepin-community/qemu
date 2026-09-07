@@ -1,0 +1,276 @@
+From f2a982f2761f88cc933914fe2201519281536b27 Mon Sep 17 00:00:00 2001
+From: Song Gao <gaosong@loongson.cn>
+Date: Thu, 11 Jul 2024 10:44:54 +0800
+Subject: [PATCH 048/285] target/loongarch/gdbstub: Add vector registers
+ support
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+GDB already support LoongArch vector extension[1], QEMU gdb adds
+LoongArch vector registers support, so that users can use 'info all-registers'
+to get all vector registers values.
+
+[1]: https://sourceware.org/git/?p=binutils-gdb.git;a=commitdiff;h=1e9569f383a3d5a88ee07d0c2401bd95613c222e
+
+Signed-off-by: Song Gao <gaosong@loongson.cn>
+Reviewed-by: Philippe Mathieu-Daudé <philmd@linaro.org>
+Reviewd-by: Bibo Mao <maobibo@loongson.cn>
+Message-Id: <20240711024454.3075183-1-gaosong@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ configs/targets/loongarch64-linux-user.mak |  2 +-
+ configs/targets/loongarch64-softmmu.mak    |  2 +-
+ gdb-xml/loongarch-lasx.xml                 | 60 ++++++++++++++++++
+ gdb-xml/loongarch-lsx.xml                  | 59 ++++++++++++++++++
+ target/loongarch/gdbstub.c                 | 72 ++++++++++++++++++++--
+ 5 files changed, 189 insertions(+), 6 deletions(-)
+ create mode 100644 gdb-xml/loongarch-lasx.xml
+ create mode 100644 gdb-xml/loongarch-lsx.xml
+
+diff --git a/configs/targets/loongarch64-linux-user.mak b/configs/targets/loongarch64-linux-user.mak
+index d878e5a113c6..ea9b7e839aa4 100644
+--- a/configs/targets/loongarch64-linux-user.mak
++++ b/configs/targets/loongarch64-linux-user.mak
+@@ -1,4 +1,4 @@
+ # Default configuration for loongarch64-linux-user
+ TARGET_ARCH=loongarch64
+ TARGET_BASE_ARCH=loongarch
+-TARGET_XML_FILES=gdb-xml/loongarch-base64.xml gdb-xml/loongarch-fpu.xml
++TARGET_XML_FILES=gdb-xml/loongarch-base64.xml gdb-xml/loongarch-fpu.xml gdb-xml/loongarch-lsx.xml gdb-xml/loongarch-lasx.xml
+diff --git a/configs/targets/loongarch64-softmmu.mak b/configs/targets/loongarch64-softmmu.mak
+index 0034c336200f..6ebed469776a 100644
+--- a/configs/targets/loongarch64-softmmu.mak
++++ b/configs/targets/loongarch64-softmmu.mak
+@@ -2,5 +2,5 @@ TARGET_ARCH=loongarch64
+ TARGET_BASE_ARCH=loongarch
+ TARGET_KVM_HAVE_GUEST_DEBUG=y
+ TARGET_SUPPORTS_MTTCG=y
+-TARGET_XML_FILES= gdb-xml/loongarch-base32.xml gdb-xml/loongarch-base64.xml gdb-xml/loongarch-fpu.xml
++TARGET_XML_FILES= gdb-xml/loongarch-base32.xml gdb-xml/loongarch-base64.xml gdb-xml/loongarch-fpu.xml gdb-xml/loongarch-lsx.xml gdb-xml/loongarch-lasx.xml
+ TARGET_NEED_FDT=y
+diff --git a/gdb-xml/loongarch-lasx.xml b/gdb-xml/loongarch-lasx.xml
+new file mode 100644
+index 000000000000..753b982c651b
+--- /dev/null
++++ b/gdb-xml/loongarch-lasx.xml
+@@ -0,0 +1,60 @@
++<?xml version="1.0"?>
++<!-- Copyright (C) 2022-2024 Free Software Foundation, Inc.
++
++     Copying and distribution of this file, with or without modification,
++     are permitted in any medium without royalty provided the copyright
++     notice and this notice are preserved.  -->
++
++<!DOCTYPE feature SYSTEM "gdb-target.dtd">
++<feature name="org.gnu.gdb.loongarch.lasx">
++  <vector id="v8f32" type="ieee_single" count="8"/>
++  <vector id="v4f64" type="ieee_double" count="4"/>
++  <vector id="v32i8" type="int8" count="32"/>
++  <vector id="v16i16" type="int16" count="16"/>
++  <vector id="v8i32" type="int32" count="8"/>
++  <vector id="v4i64" type="int64" count="4"/>
++  <vector id="v2ui128" type="uint128" count="2"/>
++
++  <union id="lasxv">
++    <field name="v8_float" type="v8f32"/>
++    <field name="v4_double" type="v4f64"/>
++    <field name="v32_int8" type="v32i8"/>
++    <field name="v16_int16" type="v16i16"/>
++    <field name="v8_int32" type="v8i32"/>
++    <field name="v4_int64" type="v4i64"/>
++    <field name="v2_uint128" type="v2ui128"/>
++  </union>
++
++  <reg name="xr0" bitsize="256" type="lasxv" group="lasx"/>
++  <reg name="xr1" bitsize="256" type="lasxv" group="lasx"/>
++  <reg name="xr2" bitsize="256" type="lasxv" group="lasx"/>
++  <reg name="xr3" bitsize="256" type="lasxv" group="lasx"/>
++  <reg name="xr4" bitsize="256" type="lasxv" group="lasx"/>
++  <reg name="xr5" bitsize="256" type="lasxv" group="lasx"/>
++  <reg name="xr6" bitsize="256" type="lasxv" group="lasx"/>
++  <reg name="xr7" bitsize="256" type="lasxv" group="lasx"/>
++  <reg name="xr8" bitsize="256" type="lasxv" group="lasx"/>
++  <reg name="xr9" bitsize="256" type="lasxv" group="lasx"/>
++  <reg name="xr10" bitsize="256" type="lasxv" group="lasx"/>
++  <reg name="xr11" bitsize="256" type="lasxv" group="lasx"/>
++  <reg name="xr12" bitsize="256" type="lasxv" group="lasx"/>
++  <reg name="xr13" bitsize="256" type="lasxv" group="lasx"/>
++  <reg name="xr14" bitsize="256" type="lasxv" group="lasx"/>
++  <reg name="xr15" bitsize="256" type="lasxv" group="lasx"/>
++  <reg name="xr16" bitsize="256" type="lasxv" group="lasx"/>
++  <reg name="xr17" bitsize="256" type="lasxv" group="lasx"/>
++  <reg name="xr18" bitsize="256" type="lasxv" group="lasx"/>
++  <reg name="xr19" bitsize="256" type="lasxv" group="lasx"/>
++  <reg name="xr20" bitsize="256" type="lasxv" group="lasx"/>
++  <reg name="xr21" bitsize="256" type="lasxv" group="lasx"/>
++  <reg name="xr22" bitsize="256" type="lasxv" group="lasx"/>
++  <reg name="xr23" bitsize="256" type="lasxv" group="lasx"/>
++  <reg name="xr24" bitsize="256" type="lasxv" group="lasx"/>
++  <reg name="xr25" bitsize="256" type="lasxv" group="lasx"/>
++  <reg name="xr26" bitsize="256" type="lasxv" group="lasx"/>
++  <reg name="xr27" bitsize="256" type="lasxv" group="lasx"/>
++  <reg name="xr28" bitsize="256" type="lasxv" group="lasx"/>
++  <reg name="xr29" bitsize="256" type="lasxv" group="lasx"/>
++  <reg name="xr30" bitsize="256" type="lasxv" group="lasx"/>
++  <reg name="xr31" bitsize="256" type="lasxv" group="lasx"/>
++</feature>
+diff --git a/gdb-xml/loongarch-lsx.xml b/gdb-xml/loongarch-lsx.xml
+new file mode 100644
+index 000000000000..51af1c6fd550
+--- /dev/null
++++ b/gdb-xml/loongarch-lsx.xml
+@@ -0,0 +1,59 @@
++<?xml version="1.0"?>
++<!-- Copyright (C) 2022-2024 Free Software Foundation, Inc.
++
++     Copying and distribution of this file, with or without modification,
++     are permitted in any medium without royalty provided the copyright
++     notice and this notice are preserved.  -->
++
++<!DOCTYPE feature SYSTEM "gdb-target.dtd">
++<feature name="org.gnu.gdb.loongarch.lsx">
++  <vector id="v4f32" type="ieee_single" count="4"/>
++  <vector id="v2f64" type="ieee_double" count="2"/>
++  <vector id="v16i8" type="int8" count="16"/>
++  <vector id="v8i16" type="int16" count="8"/>
++  <vector id="v4i32" type="int32" count="4"/>
++  <vector id="v2i64" type="int64" count="2"/>
++
++  <union id="lsxv">
++    <field name="v4_float" type="v4f32"/>
++    <field name="v2_double" type="v2f64"/>
++    <field name="v16_int8" type="v16i8"/>
++    <field name="v8_int16" type="v8i16"/>
++    <field name="v4_int32" type="v4i32"/>
++    <field name="v2_int64" type="v2i64"/>
++    <field name="uint128" type="uint128"/>
++  </union>
++
++  <reg name="vr0" bitsize="128" type="lsxv" group="lsx"/>
++  <reg name="vr1" bitsize="128" type="lsxv" group="lsx"/>
++  <reg name="vr2" bitsize="128" type="lsxv" group="lsx"/>
++  <reg name="vr3" bitsize="128" type="lsxv" group="lsx"/>
++  <reg name="vr4" bitsize="128" type="lsxv" group="lsx"/>
++  <reg name="vr5" bitsize="128" type="lsxv" group="lsx"/>
++  <reg name="vr6" bitsize="128" type="lsxv" group="lsx"/>
++  <reg name="vr7" bitsize="128" type="lsxv" group="lsx"/>
++  <reg name="vr8" bitsize="128" type="lsxv" group="lsx"/>
++  <reg name="vr9" bitsize="128" type="lsxv" group="lsx"/>
++  <reg name="vr10" bitsize="128" type="lsxv" group="lsx"/>
++  <reg name="vr11" bitsize="128" type="lsxv" group="lsx"/>
++  <reg name="vr12" bitsize="128" type="lsxv" group="lsx"/>
++  <reg name="vr13" bitsize="128" type="lsxv" group="lsx"/>
++  <reg name="vr14" bitsize="128" type="lsxv" group="lsx"/>
++  <reg name="vr15" bitsize="128" type="lsxv" group="lsx"/>
++  <reg name="vr16" bitsize="128" type="lsxv" group="lsx"/>
++  <reg name="vr17" bitsize="128" type="lsxv" group="lsx"/>
++  <reg name="vr18" bitsize="128" type="lsxv" group="lsx"/>
++  <reg name="vr19" bitsize="128" type="lsxv" group="lsx"/>
++  <reg name="vr20" bitsize="128" type="lsxv" group="lsx"/>
++  <reg name="vr21" bitsize="128" type="lsxv" group="lsx"/>
++  <reg name="vr22" bitsize="128" type="lsxv" group="lsx"/>
++  <reg name="vr23" bitsize="128" type="lsxv" group="lsx"/>
++  <reg name="vr26" bitsize="128" type="lsxv" group="lsx"/>
++  <reg name="vr25" bitsize="128" type="lsxv" group="lsx"/>
++  <reg name="vr26" bitsize="128" type="lsxv" group="lsx"/>
++  <reg name="vr27" bitsize="128" type="lsxv" group="lsx"/>
++  <reg name="vr28" bitsize="128" type="lsxv" group="lsx"/>
++  <reg name="vr29" bitsize="128" type="lsxv" group="lsx"/>
++  <reg name="vr30" bitsize="128" type="lsxv" group="lsx"/>
++  <reg name="vr31" bitsize="128" type="lsxv" group="lsx"/>
++</feature>
+diff --git a/target/loongarch/gdbstub.c b/target/loongarch/gdbstub.c
+index cc72680c38b2..c41ca00ebcf8 100644
+--- a/target/loongarch/gdbstub.c
++++ b/target/loongarch/gdbstub.c
+@@ -61,8 +61,7 @@ int loongarch_cpu_gdb_read_register(CPUState *cs, GByteArray *mem_buf, int n)
+ 
+ int loongarch_cpu_gdb_write_register(CPUState *cs, uint8_t *mem_buf, int n)
+ {
+-    LoongArchCPU *cpu = LOONGARCH_CPU(cs);
+-    CPULoongArchState *env = &cpu->env;
++    CPULoongArchState *env = cpu_env(cs);
+     target_ulong tmp;
+     int read_length;
+     int length = 0;
+@@ -116,8 +115,73 @@ static int loongarch_gdb_set_fpu(CPULoongArchState *env,
+     return length;
+ }
+ 
++#define VREG_NUM       32
++#define REG64_LEN      64
++
++static int loongarch_gdb_get_vec(CPULoongArchState *env, GByteArray *mem_buf, int n, int vl)
++{
++    int i, length = 0;
++
++    if (0 <= n && n < VREG_NUM) {
++        for (i = 0; i < vl / REG64_LEN; i++) {
++            length += gdb_get_reg64(mem_buf, env->fpr[n].vreg.D(i));
++        }
++    }
++
++    return length;
++}
++
++static int loongarch_gdb_set_vec(CPULoongArchState *env, uint8_t *mem_buf, int n, int vl)
++{
++    int i, length = 0;
++
++    if (0 <= n && n < VREG_NUM) {
++        for (i = 0; i < vl / REG64_LEN; i++) {
++            env->fpr[n].vreg.D(i) = ldq_le_p(mem_buf + 8 * i);
++            length += 8;
++        }
++    }
++
++    return length;
++}
++
++static int loongarch_gdb_get_lsx(CPULoongArchState *env, GByteArray *mem_buf, int n)
++{
++    return loongarch_gdb_get_vec(env, mem_buf, n, LSX_LEN);
++}
++
++static int loongarch_gdb_set_lsx(CPULoongArchState *env, uint8_t *mem_buf, int n)
++{
++    return loongarch_gdb_set_vec(env, mem_buf, n, LSX_LEN);
++}
++
++static int loongarch_gdb_get_lasx(CPULoongArchState *env, GByteArray *mem_buf, int n)
++{
++    return loongarch_gdb_get_vec(env, mem_buf, n, LASX_LEN);
++}
++
++static int loongarch_gdb_set_lasx(CPULoongArchState *env, uint8_t *mem_buf, int n)
++{
++    return loongarch_gdb_set_vec(env, mem_buf, n, LASX_LEN);
++}
++
+ void loongarch_cpu_register_gdb_regs_for_features(CPUState *cs)
+ {
+-    gdb_register_coprocessor(cs, loongarch_gdb_get_fpu, loongarch_gdb_set_fpu,
+-                             41, "loongarch-fpu.xml", 0);
++    LoongArchCPU *cpu = LOONGARCH_CPU(cs);
++    CPULoongArchState *env = &cpu->env;
++
++    if (FIELD_EX32(env->cpucfg[2], CPUCFG2, FP)) {
++        gdb_register_coprocessor(cs, loongarch_gdb_get_fpu, loongarch_gdb_set_fpu,
++                                 41, "loongarch-fpu.xml", 0);
++    }
++
++    if (FIELD_EX32(env->cpucfg[2], CPUCFG2, LSX)) {
++        gdb_register_coprocessor(cs, loongarch_gdb_get_lsx, loongarch_gdb_set_lsx,
++                                 VREG_NUM, "loongarch-lsx.xml", 0);
++    }
++
++    if (FIELD_EX32(env->cpucfg[2], CPUCFG2, LASX)) {
++        gdb_register_coprocessor(cs, loongarch_gdb_get_lasx, loongarch_gdb_set_lasx,
++                                 VREG_NUM, "loongarch-lasx.xml", 0);
++    }
+ }
+-- 
+2.51.0
+

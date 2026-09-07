@@ -1,0 +1,39 @@
+From 1ba3f7577a196b77223751bf9d6a2c8141497b5d Mon Sep 17 00:00:00 2001
+From: Bibo Mao <maobibo@loongson.cn>
+Date: Wed, 7 May 2025 10:31:38 +0800
+Subject: [PATCH 180/285] hw/intc/loongarch_pch: Discard write operation with
+ ISR register
+
+With the latest 7A1000 user manual, interrupt status register ISR is
+read only. Here discard write operation with ISR register.
+
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+Reviewed-by: Song Gao <gaosong@loongson.cn>
+Message-Id: <20250507023148.1877287-7-maobibo@loongson.cn>
+Signed-off-by: Song Gao <gaosong@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ hw/intc/loongarch_pch_pic.c | 6 ------
+ 1 file changed, 6 deletions(-)
+
+diff --git a/hw/intc/loongarch_pch_pic.c b/hw/intc/loongarch_pch_pic.c
+index 06daa1c25fe6..c4cd98665f76 100644
+--- a/hw/intc/loongarch_pch_pic.c
++++ b/hw/intc/loongarch_pch_pic.c
+@@ -243,12 +243,6 @@ static void loongarch_pch_pic_high_writew(void *opaque, hwaddr addr,
+     trace_loongarch_pch_pic_high_writew(size, addr, data);
+ 
+     switch (addr) {
+-    case PCH_PIC_INT_STATUS:
+-        s->intisr = get_writew_val(s->intisr, data, 0);
+-        break;
+-    case PCH_PIC_INT_STATUS + 4:
+-        s->intisr = get_writew_val(s->intisr, data, 1);
+-        break;
+     case PCH_PIC_INT_POL:
+         s->int_polarity = get_writew_val(s->int_polarity, data, 0);
+         break;
+-- 
+2.51.0
+

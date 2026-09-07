@@ -1,0 +1,95 @@
+From fd2e7e23dd6d7b7ebfa88e891f7aec2df56858a4 Mon Sep 17 00:00:00 2001
+From: Bibo Mao <maobibo@loongson.cn>
+Date: Mon, 19 Jan 2026 18:07:02 +0800
+Subject: [PATCH 268/285] target/loongarch: Add property set with
+ query-cpu-model-expansion
+
+On LoongArch with QMP command query-cpu-model-expansion, property
+setting is not supported witch command such as:
+  query-cpu-model-expansion type=static model={"name":"max","props":{"lasx":false}}
+
+Here add property setting support with QMP command.
+
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+Reviewed-by: Song Gao <gaosong@loongson.cn>
+Signed-off-by: Song Gao <gaosong@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ target/loongarch/loongarch-qmp-cmds.c | 40 +++++++++++++++++++--------
+ 1 file changed, 28 insertions(+), 12 deletions(-)
+
+diff --git a/target/loongarch/loongarch-qmp-cmds.c b/target/loongarch/loongarch-qmp-cmds.c
+index 613a499482a2..22648f11d099 100644
+--- a/target/loongarch/loongarch-qmp-cmds.c
++++ b/target/loongarch/loongarch-qmp-cmds.c
+@@ -50,7 +50,6 @@ CpuModelExpansionInfo *qmp_query_cpu_model_expansion(CpuModelExpansionType type,
+                                                      Error **errp)
+ {
+     Visitor *visitor;
+-    bool ok;
+     CpuModelExpansionInfo *expansion_info;
+     QDict *qdict_out;
+     ObjectClass *oc;
+@@ -64,30 +63,47 @@ CpuModelExpansionInfo *qmp_query_cpu_model_expansion(CpuModelExpansionType type,
+         return NULL;
+     }
+ 
++    oc = cpu_class_by_name(TYPE_LOONGARCH_CPU, model->name);
++    if (!oc) {
++        error_setg(errp, "The CPU type '%s' is not a recognized LoongArch "
++                         "CPU type", model->name);
++        return NULL;
++    }
++
++    obj = object_new(object_class_get_name(oc));
+     if (model->props) {
++        Error *err = NULL;
++        const QDict *qdict_in;
++
+         visitor = qobject_input_visitor_new(model->props);
+         if (!visit_start_struct(visitor, "model.props", NULL, 0, errp)) {
+             visit_free(visitor);
++            object_unref(obj);
+             return NULL;
+         }
+ 
+-        ok = visit_check_struct(visitor, errp);
++        qdict_in = qobject_to(QDict, model->props);
++        i = 0;
++        while ((name = cpu_model_advertised_features[i++]) != NULL) {
++            if (qdict_get(qdict_in, name)) {
++                if (!object_property_set(obj, name, visitor, &err)) {
++                    break;
++                }
++            }
++        }
++
++        if (!err) {
++            visit_check_struct(visitor, &err);
++        }
+         visit_end_struct(visitor, NULL);
+         visit_free(visitor);
+-        if (!ok) {
++        if (err) {
++            error_propagate(errp, err);
++            object_unref(obj);
+             return NULL;
+         }
+     }
+ 
+-    oc = cpu_class_by_name(TYPE_LOONGARCH_CPU, model->name);
+-    if (!oc) {
+-        error_setg(errp, "The CPU type '%s' is not a recognized LoongArch CPU type",
+-                   model->name);
+-        return NULL;
+-    }
+-
+-    obj = object_new(object_class_get_name(oc));
+-
+     expansion_info = g_new0(CpuModelExpansionInfo, 1);
+     expansion_info->model = g_malloc0(sizeof(*expansion_info->model));
+     expansion_info->model->name = g_strdup(model->name);
+-- 
+2.51.0
+

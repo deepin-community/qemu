@@ -1,0 +1,44 @@
+From 3b08932500ce45f70b237c7e4c4a90b5d08d2a47 Mon Sep 17 00:00:00 2001
+From: Bibo Mao <maobibo@loongson.cn>
+Date: Wed, 4 Jun 2025 14:55:01 +0800
+Subject: [PATCH 192/285] hw/loongarch/virt: Fix big endian support with MCFG
+ table
+
+With API build_mcfg(), it is not necessary with parameter structure
+AcpiMcfgInfo to convert to little endian since it is directly used
+with host native endian.
+
+Here remove endian conversion before calling function build_mcfg().
+With this patch, bios-tables-test passes to run on big endian host
+machine S390.
+
+Fixes: 735143f10d3e ("hw/loongarch: Add acpi ged support")
+Cc: qemu-stable@nongnu.org
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+Reviewed-by: Song Gao <gaosong@loongson.cn>
+Message-Id: <20250604065502.1114098-2-maobibo@loongson.cn>
+Signed-off-by: Song Gao <gaosong@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ hw/loongarch/virt-acpi-build.c | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/hw/loongarch/virt-acpi-build.c b/hw/loongarch/virt-acpi-build.c
+index ccdbcc94bb3b..755fba109a97 100644
+--- a/hw/loongarch/virt-acpi-build.c
++++ b/hw/loongarch/virt-acpi-build.c
+@@ -576,8 +576,8 @@ static void acpi_build(AcpiBuildTables *tables, MachineState *machine)
+     acpi_add_table(table_offsets, tables_blob);
+     {
+         AcpiMcfgInfo mcfg = {
+-           .base = cpu_to_le64(VIRT_PCI_CFG_BASE),
+-           .size = cpu_to_le64(VIRT_PCI_CFG_SIZE),
++           .base = VIRT_PCI_CFG_BASE,
++           .size = VIRT_PCI_CFG_SIZE,
+         };
+         build_mcfg(tables_blob, tables->linker, &mcfg, lvms->oem_id,
+                    lvms->oem_table_id);
+-- 
+2.51.0
+

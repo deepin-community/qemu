@@ -1,0 +1,126 @@
+From 1d688aab2127ad273bc31f5b734ff6a73ce59649 Mon Sep 17 00:00:00 2001
+From: Bibo Mao <maobibo@loongson.cn>
+Date: Wed, 12 Mar 2025 14:26:20 +0800
+Subject: [PATCH 156/285] docs/system: Add entry for LoongArch system
+
+Add index entry for LoongArch system and do some small modification
+with  LoongArch document with rst syntax.
+
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+Reviewed-by: Song Gao <gaosong@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ docs/system/loongarch/virt.rst   | 31 ++++++++++---------------------
+ docs/system/target-loongarch.rst | 19 +++++++++++++++++++
+ docs/system/targets.rst          |  1 +
+ 3 files changed, 30 insertions(+), 21 deletions(-)
+ create mode 100644 docs/system/target-loongarch.rst
+
+diff --git a/docs/system/loongarch/virt.rst b/docs/system/loongarch/virt.rst
+index a15b04904bd5..64fa5f8eddc8 100644
+--- a/docs/system/loongarch/virt.rst
++++ b/docs/system/loongarch/virt.rst
+@@ -12,14 +12,15 @@ Supported devices
+ -----------------
+ 
+ The ``virt`` machine supports:
+-- Gpex host bridge
+-- Ls7a RTC device
+-- Ls7a IOAPIC device
+-- ACPI GED device
+-- Fw_cfg device
+-- PCI/PCIe devices
+-- Memory device
+-- CPU device. Type: la464.
++
++* Gpex host bridge
++* Ls7a RTC device
++* Ls7a IOAPIC device
++* ACPI GED device
++* Fw_cfg device
++* PCI/PCIe devices
++* Memory device
++* CPU device. Type: la464.
+ 
+ CPU and machine Type
+ --------------------
+@@ -70,13 +71,7 @@ can be accessed by following steps.
+ 
+ .. code-block:: bash
+ 
+-  ./configure --disable-rdma --disable-pvrdma --prefix=/usr \
+-              --target-list="loongarch64-softmmu" \
+-              --disable-libiscsi --disable-libnfs --disable-libpmem \
+-              --disable-glusterfs --enable-libusb --enable-usb-redir \
+-              --disable-opengl --disable-xen --enable-spice \
+-              --enable-debug --disable-capstone --disable-kvm \
+-              --enable-profiler
++  ./configure --target-list="loongarch64-softmmu"
+   make -j8
+ 
+ (2) Set cross tools:
+@@ -84,9 +79,7 @@ can be accessed by following steps.
+ .. code-block:: bash
+ 
+   wget https://github.com/loongson/build-tools/releases/download/2022.09.06/loongarch64-clfs-6.3-cross-tools-gcc-glibc.tar.xz
+-
+   tar -vxf loongarch64-clfs-6.3-cross-tools-gcc-glibc.tar.xz  -C /opt
+-
+   export PATH=/opt/cross-tools/bin:$PATH
+   export LD_LIBRARY_PATH=/opt/cross-tools/lib:$LD_LIBRARY_PATH
+   export LD_LIBRARY_PATH=/opt/cross-tools/loongarch64-unknown-linux-gnu/lib/:$LD_LIBRARY_PATH
+@@ -105,13 +98,9 @@ Note: To build the release version of the bios,  set --buildtarget=RELEASE,
+ .. code-block:: bash
+ 
+   git clone https://github.com/loongson/linux.git
+-
+   cd linux
+-
+   git checkout loongarch-next
+-
+   make ARCH=loongarch CROSS_COMPILE=loongarch64-unknown-linux-gnu- loongson3_defconfig
+-
+   make ARCH=loongarch CROSS_COMPILE=loongarch64-unknown-linux-gnu- -j32
+ 
+ Note: The branch of linux source code is loongarch-next.
+diff --git a/docs/system/target-loongarch.rst b/docs/system/target-loongarch.rst
+new file mode 100644
+index 000000000000..316c604b9199
+--- /dev/null
++++ b/docs/system/target-loongarch.rst
+@@ -0,0 +1,19 @@
++.. _LoongArch-System-emulator:
++
++LoongArch System emulator
++-------------------------
++
++QEMU can emulate loongArch 64 bit systems via the
++``qemu-system-loongarch64`` binary. Only one machine type ``virt`` is
++supported.
++
++When using KVM as accelerator, QEMU can emulate la464 cpu model. And when
++using the default cpu model with TCG as accelerator, QEMU will emulate a
++subset of la464 cpu features that should be enough to run distributions
++built for the la464.
++
++Board-specific documentation
++============================
++
++.. toctree::
++   loongarch/virt
+diff --git a/docs/system/targets.rst b/docs/system/targets.rst
+index 224fadae71c4..38e24188018c 100644
+--- a/docs/system/targets.rst
++++ b/docs/system/targets.rst
+@@ -18,6 +18,7 @@ Contents:
+ 
+    target-arm
+    target-avr
++   target-loongarch
+    target-m68k
+    target-mips
+    target-ppc
+-- 
+2.51.0
+

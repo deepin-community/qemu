@@ -1,0 +1,182 @@
+From d4c1e910ed6aab9e26560beba96925cf089e18c1 Mon Sep 17 00:00:00 2001
+From: Sia Jee Heng <jeeheng.sia@starfivetech.com>
+Date: Sun, 27 Oct 2024 18:57:43 -0700
+Subject: [PATCH 099/285] hw/acpi: Upgrade ACPI SPCR table to support SPCR
+ table revision 4 format
+
+Update the SPCR table to accommodate the SPCR Table revision 4 [1].
+The SPCR table has been modified to adhere to the revision 4 format [2].
+
+[1]: https://learn.microsoft.com/en-us/windows-hardware/drivers/serports/serial-port-console-redirection-table
+[2]: https://github.com/acpica/acpica/pull/931
+
+Signed-off-by: Sia Jee Heng <jeeheng.sia@starfivetech.com>
+Reviewed-by: Sunil V L <sunilvl@ventanamicro.com>
+Reviewed-by: Michael S. Tsirkin <mst@redhat.com>
+Acked-by: Alistair Francis <alistair.francis@wdc.com>
+Reviewed-by: Bibo Mao <maobibo@loongson.cn>
+Message-ID: <20241028015744.624943-3-jeeheng.sia@starfivetech.com>
+Signed-off-by: Alistair Francis <alistair.francis@wdc.com>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ hw/acpi/aml-build.c         | 20 ++++++++++++++++----
+ hw/arm/virt-acpi-build.c    |  8 ++++++--
+ hw/loongarch/acpi-build.c   |  6 +++++-
+ hw/riscv/virt-acpi-build.c  | 12 +++++++++---
+ include/hw/acpi/acpi-defs.h |  7 +++++--
+ include/hw/acpi/aml-build.h |  2 +-
+ 6 files changed, 42 insertions(+), 13 deletions(-)
+
+diff --git a/hw/acpi/aml-build.c b/hw/acpi/aml-build.c
+index 6d4517cfbe3d..99a1b403e28d 100644
+--- a/hw/acpi/aml-build.c
++++ b/hw/acpi/aml-build.c
+@@ -1996,7 +1996,7 @@ static void build_processor_hierarchy_node(GArray *tbl, uint32_t flags,
+ 
+ void build_spcr(GArray *table_data, BIOSLinker *linker,
+                 const AcpiSpcrData *f, const uint8_t rev,
+-                const char *oem_id, const char *oem_table_id)
++                const char *oem_id, const char *oem_table_id, const char *name)
+ {
+     AcpiTable table = { .sig = "SPCR", .rev = rev, .oem_id = oem_id,
+                         .oem_table_id = oem_table_id };
+@@ -2042,9 +2042,21 @@ void build_spcr(GArray *table_data, BIOSLinker *linker,
+     build_append_int_noprefix(table_data, f->pci_flags, 4);
+     /* PCI Segment */
+     build_append_int_noprefix(table_data, f->pci_segment, 1);
+-    /* Reserved */
+-    build_append_int_noprefix(table_data, 0, 4);
+-
++    if (rev < 4) {
++        /* Reserved */
++        build_append_int_noprefix(table_data, 0, 4);
++    } else {
++        /* UartClkFreq */
++        build_append_int_noprefix(table_data, f->uart_clk_freq, 4);
++        /* PreciseBaudrate */
++        build_append_int_noprefix(table_data, f->precise_baudrate, 4);
++        /* NameSpaceStringLength */
++        build_append_int_noprefix(table_data, f->namespace_string_length, 2);
++        /* NameSpaceStringOffset */
++        build_append_int_noprefix(table_data, f->namespace_string_offset, 2);
++        /* NamespaceString[] */
++        g_array_append_vals(table_data, name, f->namespace_string_length);
++    }
+     acpi_table_end(linker, &table);
+ }
+ /*
+diff --git a/hw/arm/virt-acpi-build.c b/hw/arm/virt-acpi-build.c
+index 78d0bfbfedfc..e66a4c9560cf 100644
+--- a/hw/arm/virt-acpi-build.c
++++ b/hw/arm/virt-acpi-build.c
+@@ -497,8 +497,12 @@ spcr_setup(GArray *table_data, BIOSLinker *linker, VirtMachineState *vms)
+         .pci_flags = 0,
+         .pci_segment = 0,
+     };
+-
+-    build_spcr(table_data, linker, &serial, 2, vms->oem_id, vms->oem_table_id);
++    /*
++     * Passing NULL as the SPCR Table for Revision 2 doesn't support
++     * NameSpaceString.
++     */
++    build_spcr(table_data, linker, &serial, 2, vms->oem_id, vms->oem_table_id,
++               NULL);
+ }
+ 
+ /*
+diff --git a/hw/loongarch/acpi-build.c b/hw/loongarch/acpi-build.c
+index c220edec68b2..0b46e31a6adc 100644
+--- a/hw/loongarch/acpi-build.c
++++ b/hw/loongarch/acpi-build.c
+@@ -294,8 +294,12 @@ spcr_setup(GArray *table_data, BIOSLinker *linker, MachineState *machine)
+     };
+ 
+     lvms = LOONGARCH_VIRT_MACHINE(machine);
++    /*
++     * Passing NULL as the SPCR Table for Revision 2 doesn't support
++     * NameSpaceString.
++     */
+     build_spcr(table_data, linker, &serial, 2, lvms->oem_id,
+-               lvms->oem_table_id);
++               lvms->oem_table_id, NULL);
+ }
+ 
+ typedef
+diff --git a/hw/riscv/virt-acpi-build.c b/hw/riscv/virt-acpi-build.c
+index da3a7e25282f..8553e9571066 100644
+--- a/hw/riscv/virt-acpi-build.c
++++ b/hw/riscv/virt-acpi-build.c
+@@ -115,14 +115,15 @@ static void acpi_dsdt_add_fw_cfg(Aml *scope, const MemMapEntry *fw_cfg_memmap)
+ 
+ /*
+  * Serial Port Console Redirection Table (SPCR)
+- * Rev: 1.07
++ * Rev: 1.10
+  */
+ 
+ static void
+ spcr_setup(GArray *table_data, BIOSLinker *linker, RISCVVirtState *s)
+ {
++    const char name[] = ".";
+     AcpiSpcrData serial = {
+-        .interface_type = 0,       /* 16550 compatible */
++        .interface_type = 0x12,       /* 16550 compatible */
+         .base_addr.id = AML_AS_SYSTEM_MEMORY,
+         .base_addr.width = 32,
+         .base_addr.offset = 0,
+@@ -144,9 +145,14 @@ spcr_setup(GArray *table_data, BIOSLinker *linker, RISCVVirtState *s)
+         .pci_function = 0,
+         .pci_flags = 0,
+         .pci_segment = 0,
++        .uart_clk_freq = 0,
++        .precise_baudrate = 0,
++        .namespace_string_length = sizeof(name),
++        .namespace_string_offset = 88,
+     };
+ 
+-    build_spcr(table_data, linker, &serial, 2, s->oem_id, s->oem_table_id);
++    build_spcr(table_data, linker, &serial, 4, s->oem_id, s->oem_table_id,
++               name);
+ }
+ 
+ /* RHCT Node[N] starts at offset 56 */
+diff --git a/include/hw/acpi/acpi-defs.h b/include/hw/acpi/acpi-defs.h
+index 0e6e82b339f3..2e6e34199878 100644
+--- a/include/hw/acpi/acpi-defs.h
++++ b/include/hw/acpi/acpi-defs.h
+@@ -112,7 +112,6 @@ typedef struct AcpiSpcrData {
+     uint8_t flow_control;
+     uint8_t terminal_type;
+     uint8_t language;
+-    uint8_t reserved1;
+     uint16_t pci_device_id;    /* Must be 0xffff if not PCI device */
+     uint16_t pci_vendor_id;    /* Must be 0xffff if not PCI device */
+     uint8_t pci_bus;
+@@ -120,7 +119,11 @@ typedef struct AcpiSpcrData {
+     uint8_t pci_function;
+     uint32_t pci_flags;
+     uint8_t pci_segment;
+-    uint32_t reserved2;
++    uint32_t uart_clk_freq;
++    uint32_t precise_baudrate;
++    uint32_t namespace_string_length;
++    uint32_t namespace_string_offset;
++    char namespace_string[];
+ } AcpiSpcrData;
+ 
+ #define ACPI_FADT_ARM_PSCI_COMPLIANT  (1 << 0)
+diff --git a/include/hw/acpi/aml-build.h b/include/hw/acpi/aml-build.h
+index a3784155cb33..68c0f2dbeeec 100644
+--- a/include/hw/acpi/aml-build.h
++++ b/include/hw/acpi/aml-build.h
+@@ -500,5 +500,5 @@ void build_tpm2(GArray *table_data, BIOSLinker *linker, GArray *tcpalog,
+ 
+ void build_spcr(GArray *table_data, BIOSLinker *linker,
+                 const AcpiSpcrData *f, const uint8_t rev,
+-                const char *oem_id, const char *oem_table_id);
++                const char *oem_id, const char *oem_table_id, const char *name);
+ #endif
+-- 
+2.51.0
+

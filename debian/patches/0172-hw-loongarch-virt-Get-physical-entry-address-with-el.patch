@@ -1,0 +1,50 @@
+From 7fe5fd5b9e7b7205900c3f6e824df61f91d164b3 Mon Sep 17 00:00:00 2001
+From: Bibo Mao <maobibo@loongson.cn>
+Date: Fri, 25 Apr 2025 10:05:04 +0800
+Subject: [PATCH 172/285] hw/loongarch/virt: Get physical entry address with
+ elf file
+
+With load_elf() api, image load low address and high address is converted
+to physical address if parameter translate_fn is provided. However
+executing entry address is still virtual address. Here convert entry
+address into physical address, since MMU is disabled when system power on,
+the first PC instruction should be physical address.
+
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+Reviewed-by: Richard Henderson <richard.henderson@linaro.org>
+Tested-by: Song Gao <gaosong@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ hw/loongarch/boot.c                    | 1 +
+ tests/tcg/loongarch64/system/kernel.ld | 2 +-
+ 2 files changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/hw/loongarch/boot.c b/hw/loongarch/boot.c
+index d2b26b7d35a0..f05dbeb29bbb 100644
+--- a/hw/loongarch/boot.c
++++ b/hw/loongarch/boot.c
+@@ -287,6 +287,7 @@ static int64_t load_kernel_info(struct loongarch_boot_info *info)
+                            &kernel_entry, &kernel_low,
+                            &kernel_high, NULL, 0,
+                            EM_LOONGARCH, 1, 0);
++    kernel_entry = cpu_loongarch_virt_to_phys(NULL, kernel_entry);
+     if (kernel_size < 0) {
+         kernel_size = load_loongarch_linux_image(info->kernel_filename,
+                                                  &kernel_entry, &kernel_low,
+diff --git a/tests/tcg/loongarch64/system/kernel.ld b/tests/tcg/loongarch64/system/kernel.ld
+index f1a7c0168c5e..56d8588f1a32 100644
+--- a/tests/tcg/loongarch64/system/kernel.ld
++++ b/tests/tcg/loongarch64/system/kernel.ld
+@@ -3,7 +3,7 @@ ENTRY(_start)
+ SECTIONS
+ {
+     /* Linux kernel legacy start address.  */
+-    . = 0x9000000000200000;
++    . = 0x200000;
+     _text = .;
+     .text : {
+         *(.text)
+-- 
+2.51.0
+

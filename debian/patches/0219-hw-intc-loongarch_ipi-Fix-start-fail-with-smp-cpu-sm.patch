@@ -1,0 +1,84 @@
+From 964cb30fb437d52e919d419fa503775862ef0783 Mon Sep 17 00:00:00 2001
+From: Song Gao <gaosong@loongson.cn>
+Date: Fri, 25 Jul 2025 16:12:13 +0800
+Subject: [PATCH 219/285] hw/intc/loongarch_ipi: Fix start fail with smp cpu <
+ smp maxcpus on KVM
+
+QEMU start failed when smp cpu < smp maxcpus , because qemu send a NULL
+cpu to KVM, this patch adds a check for kvm_ipi_access_regs() to fix it.
+
+run with '-smp 1,maxcpus=4,sockets=4,cores=1,threads=1'
+
+we got:
+Unexpected error in kvm_device_access() at ../accel/kvm/kvm-all.c:3477:
+qemu-system-loongarch64: KVM_SET_DEVICE_ATTR failed: Group 1073741825 attr 0x0000000000010000: Invalid argument
+
+Signed-off-by: Song Gao <gaosong@loongson.cn>
+Reviewed-by: Bibo Mao <maobibo@loongson.cn>
+Message-ID: <20250725081213.3867592-1-gaosong@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ hw/intc/loongarch_ipi_kvm.c | 27 ++++++++++++++++-----------
+ 1 file changed, 16 insertions(+), 11 deletions(-)
+
+diff --git a/hw/intc/loongarch_ipi_kvm.c b/hw/intc/loongarch_ipi_kvm.c
+index 684041812fa8..c29f6277e080 100644
+--- a/hw/intc/loongarch_ipi_kvm.c
++++ b/hw/intc/loongarch_ipi_kvm.c
+@@ -23,36 +23,41 @@ static void kvm_ipi_access_regs(void *opaque, bool write)
+     LoongarchIPIState *lis = LOONGARCH_IPI(opaque);
+     IPICore *core;
+     uint64_t attr;
+-    int cpu, fd = lis->dev_fd;
++    int i, cpu_index, fd = lis->dev_fd;
+ 
+     if (fd == 0) {
+         return;
+     }
+ 
+-    for (cpu = 0; cpu < ipi->num_cpu; cpu++) {
+-        core = &ipi->cpu[cpu];
+-        attr = (cpu << 16) | CORE_STATUS_OFF;
++    for (i = 0; i < ipi->num_cpu; i++) {
++        core = &ipi->cpu[i];
++        if (core->cpu == NULL) {
++            continue;
++        }
++        cpu_index = i;
++
++        attr = (cpu_index << 16) | CORE_STATUS_OFF;
+         kvm_ipi_access_reg(fd, attr, &core->status, write);
+ 
+-        attr = (cpu << 16) | CORE_EN_OFF;
++        attr = (cpu_index << 16) | CORE_EN_OFF;
+         kvm_ipi_access_reg(fd, attr, &core->en, write);
+ 
+-        attr = (cpu << 16) | CORE_SET_OFF;
++        attr = (cpu_index << 16) | CORE_SET_OFF;
+         kvm_ipi_access_reg(fd, attr, &core->set, write);
+ 
+-        attr = (cpu << 16) | CORE_CLEAR_OFF;
++        attr = (cpu_index << 16) | CORE_CLEAR_OFF;
+         kvm_ipi_access_reg(fd, attr, &core->clear, write);
+ 
+-        attr = (cpu << 16) | CORE_BUF_20;
++        attr = (cpu_index << 16) | CORE_BUF_20;
+         kvm_ipi_access_reg(fd, attr, &core->buf[0], write);
+ 
+-        attr = (cpu << 16) | CORE_BUF_28;
++        attr = (cpu_index << 16) | CORE_BUF_28;
+         kvm_ipi_access_reg(fd, attr, &core->buf[2], write);
+ 
+-        attr = (cpu << 16) | CORE_BUF_30;
++        attr = (cpu_index << 16) | CORE_BUF_30;
+         kvm_ipi_access_reg(fd, attr, &core->buf[4], write);
+ 
+-        attr = (cpu << 16) | CORE_BUF_38;
++        attr = (cpu_index << 16) | CORE_BUF_38;
+         kvm_ipi_access_reg(fd, attr, &core->buf[6], write);
+     }
+ }
+-- 
+2.51.0
+

@@ -1,0 +1,57 @@
+From ea60a93480487655d57d0616858245c4282cb582 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Philippe=20Mathieu-Daud=C3=A9?= <philmd@linaro.org>
+Date: Mon, 10 Jul 2023 20:24:51 +0200
+Subject: [PATCH 051/285] hw/intc/loongson_ipi: Declare QOM types using
+ DEFINE_TYPES() macro
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+When multiple QOM types are registered in the same file,
+it is simpler to use the the DEFINE_TYPES() macro. Replace
+the type_init() / type_register_static() combination.
+
+Signed-off-by: Philippe Mathieu-Daudé <philmd@linaro.org>
+Acked-by: Song Gao <gaosong@loongson.cn>
+Reviewed-by: Richard Henderson <richard.henderson@linaro.org>
+Reviewed-by: Jiaxun Yang <jiaxun.yang@flygoat.com>
+Tested-by: Jiaxun Yang <jiaxun.yang@flygoat.com>
+Message-Id: <20240718133312.10324-2-philmd@linaro.org>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ hw/intc/loongson_ipi.c | 19 ++++++++-----------
+ 1 file changed, 8 insertions(+), 11 deletions(-)
+
+diff --git a/hw/intc/loongson_ipi.c b/hw/intc/loongson_ipi.c
+index 4013f81745eb..682cec96f3fe 100644
+--- a/hw/intc/loongson_ipi.c
++++ b/hw/intc/loongson_ipi.c
+@@ -365,16 +365,13 @@ static void loongson_ipi_class_init(ObjectClass *klass, void *data)
+     dc->vmsd = &vmstate_loongson_ipi;
+ }
+ 
+-static const TypeInfo loongson_ipi_info = {
+-    .name          = TYPE_LOONGSON_IPI,
+-    .parent        = TYPE_SYS_BUS_DEVICE,
+-    .instance_size = sizeof(LoongsonIPI),
+-    .class_init    = loongson_ipi_class_init,
++static const TypeInfo loongson_ipi_types[] = {
++    {
++        .name               = TYPE_LOONGSON_IPI,
++        .parent             = TYPE_SYS_BUS_DEVICE,
++        .instance_size      = sizeof(LoongsonIPI),
++        .class_init         = loongson_ipi_class_init,
++    }
+ };
+ 
+-static void loongson_ipi_register_types(void)
+-{
+-    type_register_static(&loongson_ipi_info);
+-}
+-
+-type_init(loongson_ipi_register_types)
++DEFINE_TYPES(loongson_ipi_types)
+-- 
+2.51.0
+

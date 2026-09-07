@@ -1,0 +1,46 @@
+From 205c1fc1297a87b010fb94b200f0d32455648275 Mon Sep 17 00:00:00 2001
+From: Bibo Mao <maobibo@loongson.cn>
+Date: Fri, 20 Sep 2024 10:17:06 +0800
+Subject: [PATCH 087/285] include: Rename LoongArchExtIOI with
+ LoongArchExtIOICommonState
+
+Rename structure LoongArchExtIOI with LoongArchExtIOICommonState,
+since it is defined in file loongarch_extioi_common.h
+
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+Reviewed-by: Song Gao <gaosong@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ include/hw/intc/loongarch_extioi.h        | 1 +
+ include/hw/intc/loongarch_extioi_common.h | 2 +-
+ 2 files changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/include/hw/intc/loongarch_extioi.h b/include/hw/intc/loongarch_extioi.h
+index 816e2f3974b4..0be75520f021 100644
+--- a/include/hw/intc/loongarch_extioi.h
++++ b/include/hw/intc/loongarch_extioi.h
+@@ -10,6 +10,7 @@
+ 
+ #include "hw/intc/loongarch_extioi_common.h"
+ 
++#define LoongArchExtIOI LoongArchExtIOICommonState
+ #define TYPE_LOONGARCH_EXTIOI        "loongarch-extioi"
+ #define TYPE_KVM_LOONGARCH_EXTIOI    "loongarch-kvm-extioi"
+ OBJECT_DECLARE_SIMPLE_TYPE(LoongArchExtIOI, LOONGARCH_EXTIOI)
+diff --git a/include/hw/intc/loongarch_extioi_common.h b/include/hw/intc/loongarch_extioi_common.h
+index 5ac91f9509b4..8cdd8eeac200 100644
+--- a/include/hw/intc/loongarch_extioi_common.h
++++ b/include/hw/intc/loongarch_extioi_common.h
+@@ -63,7 +63,7 @@ typedef struct ExtIOICore {
+     qemu_irq parent_irq[LS3A_INTC_IP];
+ } ExtIOICore;
+ 
+-struct LoongArchExtIOI {
++struct LoongArchExtIOICommonState {
+     SysBusDevice parent_obj;
+     uint32_t num_cpu;
+     uint32_t features;
+-- 
+2.51.0
+

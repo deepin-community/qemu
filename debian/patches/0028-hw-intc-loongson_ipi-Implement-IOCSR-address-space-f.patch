@@ -1,0 +1,116 @@
+From bc4622d9eebce5d212ca3bfa378da0b958b3a379 Mon Sep 17 00:00:00 2001
+From: Jiaxun Yang <jiaxun.yang@flygoat.com>
+Date: Wed, 8 May 2024 14:06:48 +0100
+Subject: [PATCH 028/285] hw/intc/loongson_ipi: Implement IOCSR address space
+ for MIPS
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Implement IOCSR address space get functions for MIPS/Loongson CPUs.
+
+For MIPS/Loongson without IOCSR (i.e. Loongson-3A1000), get_cpu_iocsr_as
+will return as null, and send_ipi_data will fail with MEMTX_DECODE_ERROR,
+which matches expected behavior on hardware.
+
+Signed-off-by: Jiaxun Yang <jiaxun.yang@flygoat.com>
+Reviewed-by: Philippe Mathieu-Daudé <philmd@linaro.org>
+Message-ID: <20240508-loongson3-ipi-v1-3-1a7b67704664@flygoat.com>
+Signed-off-by: Philippe Mathieu-Daudé <philmd@linaro.org>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ hw/intc/loongson_ipi.c | 39 ++++++++++++++++++++++++++++++---------
+ 1 file changed, 30 insertions(+), 9 deletions(-)
+
+diff --git a/hw/intc/loongson_ipi.c b/hw/intc/loongson_ipi.c
+index 8c888da3b27c..93cc50a37a11 100644
+--- a/hw/intc/loongson_ipi.c
++++ b/hw/intc/loongson_ipi.c
+@@ -15,7 +15,12 @@
+ #include "qemu/log.h"
+ #include "exec/address-spaces.h"
+ #include "migration/vmstate.h"
++#ifdef TARGET_LOONGARCH64
+ #include "target/loongarch/cpu.h"
++#endif
++#ifdef TARGET_MIPS
++#include "target/mips/cpu.h"
++#endif
+ #include "trace.h"
+ 
+ static MemTxResult loongson_ipi_readl(void *opaque, hwaddr addr,
+@@ -56,18 +61,35 @@ static MemTxResult loongson_ipi_readl(void *opaque, hwaddr addr,
+     return MEMTX_OK;
+ }
+ 
+-static void send_ipi_data(CPULoongArchState *env, uint64_t val, hwaddr addr,
++static AddressSpace *get_cpu_iocsr_as(CPUState *cpu)
++{
++#ifdef TARGET_LOONGARCH64
++    return LOONGARCH_CPU(cpu)->env.address_space_iocsr;
++#endif
++#ifdef TARGET_MIPS
++    if (ase_lcsr_available(&MIPS_CPU(cpu)->env)) {
++        return &MIPS_CPU(cpu)->env.iocsr.as;
++    }
++#endif
++    return NULL;
++}
++
++static MemTxResult send_ipi_data(CPUState *cpu, uint64_t val, hwaddr addr,
+                           MemTxAttrs attrs)
+ {
+     int i, mask = 0, data = 0;
++    AddressSpace *iocsr_as = get_cpu_iocsr_as(cpu);
++
++    if (!iocsr_as) {
++        return MEMTX_DECODE_ERROR;
++    }
+ 
+     /*
+      * bit 27-30 is mask for byte writing,
+      * if the mask is 0, we need not to do anything.
+      */
+     if ((val >> 27) & 0xf) {
+-        data = address_space_ldl(env->address_space_iocsr, addr,
+-                                 attrs, NULL);
++        data = address_space_ldl(iocsr_as, addr, attrs, NULL);
+         for (i = 0; i < 4; i++) {
+             /* get mask for byte writing */
+             if (val & (0x1 << (27 + i))) {
+@@ -78,8 +100,9 @@ static void send_ipi_data(CPULoongArchState *env, uint64_t val, hwaddr addr,
+ 
+     data &= mask;
+     data |= (val >> 32) & ~mask;
+-    address_space_stl(env->address_space_iocsr, addr,
+-                      data, attrs, NULL);
++    address_space_stl(iocsr_as, addr, data, attrs, NULL);
++
++    return MEMTX_OK;
+ }
+ 
+ static int archid_cmp(const void *a, const void *b)
+@@ -130,8 +153,7 @@ static MemTxResult mail_send(uint64_t val, MemTxAttrs attrs)
+     /* override requester_id */
+     addr = SMP_IPI_MAILBOX + CORE_BUF_20 + (val & 0x1c);
+     attrs.requester_id = cs->cpu_index;
+-    send_ipi_data(&LOONGARCH_CPU(cs)->env, val, addr, attrs);
+-    return MEMTX_OK;
++    return send_ipi_data(cs, val, addr, attrs);
+ }
+ 
+ static MemTxResult any_send(uint64_t val, MemTxAttrs attrs)
+@@ -149,8 +171,7 @@ static MemTxResult any_send(uint64_t val, MemTxAttrs attrs)
+     /* override requester_id */
+     addr = val & 0xffff;
+     attrs.requester_id = cs->cpu_index;
+-    send_ipi_data(&LOONGARCH_CPU(cs)->env, val, addr, attrs);
+-    return MEMTX_OK;
++    return send_ipi_data(cs, val, addr, attrs);
+ }
+ 
+ static MemTxResult loongson_ipi_writel(void *opaque, hwaddr addr, uint64_t val,
+-- 
+2.51.0
+

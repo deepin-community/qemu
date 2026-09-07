@@ -1,0 +1,60 @@
+From 8479d3953d36e5d169899093d698c9fb54c9c561 Mon Sep 17 00:00:00 2001
+From: Bibo Mao <maobibo@loongson.cn>
+Date: Thu, 10 Apr 2025 16:50:04 +0800
+Subject: [PATCH 163/285] hw/intc/loongarch_pch_msi: Remove gpio input handler
+
+MSI interrupt is triggered by writing message on specified memory address.
+In generic it is used by PCI devices, and no device is connected pch MSI
+irqchip with GPIO pin line method, here remove gpio input setting for MSI
+controller.
+
+Signed-off-by: Bibo Mao <maobibo@loongson.cn>
+Reviewed-by: Song Gao <gaosong@loongson.cn>
+Tested-by: Song Gao <gaosong@loongson.cn>
+Message-Id: <20250410085004.3577627-1-maobibo@loongson.cn>
+Signed-off-by: Song Gao <gaosong@loongson.cn>
+Signed-off-by: Xianglai Li <lixianglai@loongson.cn>
+Signed-off-by: Binbin Zhou <zhoubinbin@loongson.cn>
+---
+ hw/intc/loongarch_pch_msi.c | 17 -----------------
+ 1 file changed, 17 deletions(-)
+
+diff --git a/hw/intc/loongarch_pch_msi.c b/hw/intc/loongarch_pch_msi.c
+index bab6f852f89c..81593333ce85 100644
+--- a/hw/intc/loongarch_pch_msi.c
++++ b/hw/intc/loongarch_pch_msi.c
+@@ -54,21 +54,6 @@ static const MemoryRegionOps loongarch_pch_msi_ops = {
+     .endianness = DEVICE_LITTLE_ENDIAN,
+ };
+ 
+-static void pch_msi_irq_handler(void *opaque, int irq, int level)
+-{
+-    LoongArchPCHMSI *s = LOONGARCH_PCH_MSI(opaque);
+-    MSIMessage msg = {
+-        .address = 0,
+-        .data = irq,
+-    };
+-
+-    if (kvm_enabled() && kvm_irqchip_in_kernel()) {
+-        kvm_irqchip_send_msi(kvm_state, msg);
+-    } else {
+-        qemu_set_irq(s->pch_msi_irq[irq], level);
+-    }
+-}
+-
+ static void loongarch_pch_msi_realize(DeviceState *dev, Error **errp)
+ {
+     LoongArchPCHMSI *s = LOONGARCH_PCH_MSI(dev);
+@@ -79,9 +64,7 @@ static void loongarch_pch_msi_realize(DeviceState *dev, Error **errp)
+     }
+ 
+     s->pch_msi_irq = g_new(qemu_irq, s->irq_num);
+-
+     qdev_init_gpio_out(dev, s->pch_msi_irq, s->irq_num);
+-    qdev_init_gpio_in(dev, pch_msi_irq_handler, s->irq_num);
+ }
+ 
+ static void loongarch_pch_msi_unrealize(DeviceState *dev)
+-- 
+2.51.0
+
