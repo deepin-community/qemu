@@ -136,10 +136,16 @@ Build-Depends-Indep:
 # gcc-alpha-linux-gnu,
 # ppc/sparc64/s390x/hppa cross compilers are not supported in the deepin
 # build environment, so their firmware is not built
+# x86 option ROMs (pc-bios/optionrom) and qboot.  qemu-system-data is an
+# arch:all package whose contents must not depend on the architecture the
+# build happens to run on, so these blobs are built on every architecture
+# and a cross compiler is used when the build host is not x86.
+ gcc-i686-linux-gnu [!amd64 !i386],
+ binutils-i686-linux-gnu [!amd64 !i386],
 # opensbi
- gcc-riscv64-linux-gnu [amd64],
+ gcc-riscv64-linux-gnu [!riscv64],
 # vbootrom/npcm7xx_bootrom
- gcc-arm-none-eabi [amd64],
+ gcc-arm-none-eabi,
 Build-Conflicts: oss4-dev
 Standards-Version: 4.6.1
 Homepage: http://www.qemu.org/

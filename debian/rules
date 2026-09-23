@@ -81,6 +81,22 @@ PPC64_CROSSPFX = powerpc64-linux-gnu-
 RISCV64_CROSSPFX = riscv64-linux-gnu-
 ARM_CROSSPFX = arm-none-eabi-
 
+# qemu-system-data is an arch:all package, so its contents must not depend on
+# the architecture the build happens to run on.  The x86 option ROMs and the
+# qboot microvm firmware are needed by the x86 system emulators on every
+# architecture, hence they are built with a cross compiler off x86.
+ifeq ($(filter ${DEB_HOST_ARCH},amd64 i386),)
+X86_CC = i686-linux-gnu-gcc
+X86_LD = i686-linux-gnu-ld
+X86_OBJCOPY = i686-linux-gnu-objcopy
+QBOOT_CROSS_FILE = --cross-file=${CURDIR}/debian/qboot-cross.ini
+else
+X86_CC = cc
+X86_LD = ld
+X86_OBJCOPY = objcopy
+QBOOT_CROSS_FILE =
+endif
+
 extra-cflags = ${CFLAGS} ${CPPFLAGS}
 extra-ldflags = ${LDFLAGS} -Wl,--as-needed
 # we add another set of configure options from debian/control
@@ -584,25 +600,22 @@ install-u-boot-sam460: b/u-boot-sam460ex/u-boot.bin | ${sysdataidir}
 build-x86-optionrom: b/optionrom/built
 b/optionrom/built:
 	mkdir -p b/optionrom
-	${MAKE} -f ${CURDIR}/debian/optionrom.mak -C b/optionrom SRC_PATH="${CURDIR}" all
+	${MAKE} -f ${CURDIR}/debian/optionrom.mak -C b/optionrom SRC_PATH="${CURDIR}" \
+		CC="${X86_CC}" LD="${X86_LD}" OBJCOPY="${X86_OBJCOPY}" all
 	touch $@
 install-x86-optionrom: build-x86-optionrom | ${sysdataidir}
 	${MAKE} -f ${CURDIR}/debian/optionrom.mak -C b/optionrom SRC_PATH="${CURDIR}" install DESTDIR="${CURDIR}/${sysdataidir}"
-ifeq ($(DEB_HOST_ARCH),amd64)
 sysdata-components += x86-optionrom
-endif
 
 ### qboot, aka bios-microvm
 build-qboot: b/qboot/bios.bin
 b/qboot/bios.bin: | b
 	rm -rf b/qboot
-	meson setup roms/qboot b/qboot
+	meson setup ${QBOOT_CROSS_FILE} roms/qboot b/qboot
 	ninja -C b/qboot $(if $V,-v)
 install-qboot: b/qboot/bios.bin
 	install -m 0644 $< ${sysdataidir}/qboot.rom
-ifeq ($(DEB_HOST_ARCH),amd64)
 sysdata-components += qboot
-endif
 
 ### alpha firmware in roms/palcode-clipper
 build-palcode-clipper: b/qemu-palcode/palcode-clipper
@@ -653,9 +666,7 @@ b/opensbi/.built:
 install-opensbi: build-opensbi
 	install -m 0644 b/opensbi/platform/generic/firmware/fw_dynamic.bin ${sysdataidir}/opensbi-riscv64-generic-fw_dynamic.bin
 	install -m 0644 b/opensbi/platform/generic/firmware/fw_dynamic.elf ${sysdataidir}/opensbi-riscv64-generic-fw_dynamic.elf
-ifeq ($(DEB_HOST_ARCH),amd64)
 sysdata-components += opensbi
-endif
 
 ### vbootrom (npcm7xx)
 build-vbootrom: b/vbootrom/.built
@@ -665,9 +676,7 @@ b/vbootrom/.built: | b
 	touch $@
 install-vbootrom: build-vbootrom
 	install -m 0644 b/vbootrom/npcm7xx_bootrom.bin ${sysdataidir}/
-ifeq ($(DEB_HOST_ARCH),amd64)
 sysdata-components += vbootrom
-endif
 
 ### misc firmware
 build-misc: b/misc/.built
