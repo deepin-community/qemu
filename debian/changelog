@@ -1,3 +1,20 @@
+qemu (1:8.2.0+ds-1deepin25) unstable; urgency=medium
+
+  * Build the arch:all firmware blobs on every architecture
+    - qemu-system-data is an Architecture: all package, so its contents
+      must not depend on the architecture the build happens to run on
+    - Restricting the x86 option ROMs, qboot, opensbi and vbootrom to amd64
+      builds silently dropped kvmvapic.bin, linuxboot.bin, linuxboot_dma.bin,
+      multiboot*.bin, pvh.bin, qboot.rom, the opensbi firmware and
+      npcm7xx_bootrom.bin from the published qemu-system-data, which made
+      qemu-system-x86_64 fail with "Could not open option rom
+      'kvmvapic.bin': No such file or directory"
+    - Build pc-bios/optionrom and qboot with the i686-linux-gnu- cross
+      compiler on non-x86 build hosts, and require the opensbi/vbootrom
+      cross compilers on every architecture
+
+ -- lichenggang <lichenggang@uniontech.com>  Wed, 23 Sep 2026 15:58:20 +0800
+
 qemu (1:8.2.0+ds-1deepin24) unstable; urgency=medium
 
   * Update LoongArch-related patches from upstream.
