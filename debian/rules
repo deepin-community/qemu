@@ -84,11 +84,14 @@ ARM_CROSSPFX = arm-none-eabi-
 # qemu-system-data is an arch:all package, so its contents must not depend on
 # the architecture the build happens to run on.  The x86 option ROMs and the
 # qboot microvm firmware are needed by the x86 system emulators on every
-# architecture, hence they are built with a cross compiler off x86.
+# architecture, hence they are built with a cross compiler off x86.  The
+# x86-64 cross toolchain is used because it is the only x86 cross toolchain
+# that is complete on every architecture we build for; its compiler and
+# assembler also emit the 16-bit and 32-bit code the ROMs need.
 ifeq ($(filter ${DEB_HOST_ARCH},amd64 i386),)
-X86_CC = i686-linux-gnu-gcc
-X86_LD = i686-linux-gnu-ld
-X86_OBJCOPY = i686-linux-gnu-objcopy
+X86_CC = x86_64-linux-gnu-gcc
+X86_LD = x86_64-linux-gnu-ld
+X86_OBJCOPY = x86_64-linux-gnu-objcopy
 QBOOT_CROSS_FILE = --cross-file=${CURDIR}/debian/qboot-cross.ini
 else
 X86_CC = cc

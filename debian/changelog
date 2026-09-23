@@ -1,3 +1,19 @@
+qemu (1:8.2.0+ds-1deepin26) unstable; urgency=medium
+
+  * Use the x86-64 cross toolchain to build the x86 firmware blobs
+    - gcc-i686-linux-gnu is not installable on arm64/loong64/riscv64: the
+      metapackage is published for those architectures but its payload
+      gcc-12-i686-linux-gnu is only built for amd64, so the OBS build
+      aborted with "nothing provides gcc-12-i686-linux-gnu >= 12.3.0-1~
+      needed by gcc-i686-linux-gnu"
+    - Build pc-bios/optionrom and qboot with x86_64-linux-gnu-gcc/ld/objcopy
+      instead, which are complete on every architecture we build for
+    - The x86-64 cross toolchain emits the 16-bit and 32-bit code these
+      blobs need, and the resulting option ROMs and qboot.rom are
+      byte-identical to the ones built with the native amd64 toolchain
+
+ -- lichenggang <lichenggang@uniontech.com>  Wed, 23 Sep 2026 19:55:43 +0800
+
 qemu (1:8.2.0+ds-1deepin25) unstable; urgency=medium
 
   * Build the arch:all firmware blobs on every architecture
