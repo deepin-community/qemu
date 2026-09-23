@@ -140,9 +140,12 @@ Build-Depends-Indep:
 # x86 option ROMs (pc-bios/optionrom) and qboot.  qemu-system-data is an
 # arch:all package whose contents must not depend on the architecture the
 # build happens to run on, so these blobs are built on every architecture
-# and a cross compiler is used when the build host is not x86.
- gcc-i686-linux-gnu [!amd64 !i386],
- binutils-i686-linux-gnu [!amd64 !i386],
+# and a cross compiler is used when the build host is not x86.  The x86-64
+# cross toolchain is used because gcc-i686-linux-gnu is not installable off
+# x86 (its payload gcc-12-i686-linux-gnu is only built for amd64), while the
+# x86-64 one is complete on arm64/loong64/riscv64 as well.
+ gcc-x86-64-linux-gnu [!amd64 !i386],
+ binutils-x86-64-linux-gnu [!amd64 !i386],
 # opensbi
  gcc-riscv64-linux-gnu [!riscv64],
 # vbootrom/npcm7xx_bootrom
